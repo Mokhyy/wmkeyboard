@@ -39,6 +39,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.verticalScroll
@@ -112,7 +113,11 @@ import com.wasimaster.wmkeyboard.core.settings.HapticStyle
 import com.wasimaster.wmkeyboard.core.settings.KeyboardMode
 import com.wasimaster.wmkeyboard.core.settings.IconSettings
 import com.wasimaster.wmkeyboard.core.settings.KeySoundStyle
+import com.wasimaster.wmkeyboard.core.settings.ThemeSelectionTarget
 import com.wasimaster.wmkeyboard.core.settings.ToolbarTool
+import com.wasimaster.wmkeyboard.core.settings.modeThemeOwner
+import com.wasimaster.wmkeyboard.core.settings.slotThemeId
+import com.wasimaster.wmkeyboard.core.settings.themeSelectionTarget
 import com.wasimaster.wmkeyboard.app.ThemePreview
 import com.wasimaster.wmkeyboard.core.theme.BuiltInThemes
 import com.wasimaster.wmkeyboard.core.theme.flattenedThemes
@@ -136,7 +141,7 @@ import com.wasimaster.wmkeyboard.ime.SoundHapticAction
 import com.wasimaster.wmkeyboard.ime.WeatherUi
 import com.wasimaster.wmkeyboard.core.layout.Key
 import com.wasimaster.wmkeyboard.core.layout.KeyAction
-import com.wasimaster.wmkeyboard.core.layout.fallbackLabel
+import com.wasimaster.wmkeyboard.core.layout.secondaryLayouts
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -595,6 +600,47 @@ internal fun LevelPanel(state: KeyboardUiState) {
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(top = 4.dp),
             )
+        }
+    }
+}
+
+// ---- custom layouts ----
+
+/**
+ * The Custom layout tool's picker (issue #62): one button per secondary
+ * layout, by name. A tap goes through the ordinary key dispatch as an "open a
+ * layout" key — the service opens the grid and closes this panel — so the
+ * panel needs no callback of its own.
+ */
+@Composable
+internal fun CustomLayoutPanel(
+    state: KeyboardUiState,
+    onKey: (Key) -> Unit,
+) {
+    val height = keyRowsHeight(state)
+    val feedback = LocalKeyPressFeedback.current
+    val layouts = remember(state.settings.customLayouts, state.layouts) {
+        secondaryLayouts(state.settings.customLayouts).filter { it.id in state.layouts.secondaries }
+    }
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 120.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(height)
+            .padding(horizontal = 4.dp, vertical = 4.dp),
+    ) {
+        items(layouts.size, key = { layouts[it].id }) { index ->
+            val layout = layouts[index]
+            ToolPanelKey(
+                description = layout.name,
+                label = layout.name,
+                modifier = Modifier
+                    .height(48.dp)
+                    .padding(2.dp),
+            ) {
+                feedback()
+                onKey(Key(layout.name, action = KeyAction.Layout(layout.id)))
+            }
         }
     }
 }
@@ -1482,6 +1528,13 @@ internal fun hasCalendarPermission(context: Context): Boolean =
  * A second chip switches the panel to the installed icon packs — the same
  * tap-to-apply grid, drawing each pack's own glyphs. Icon packs have no
  * auto-theme or mode override, so that half is never read-only.
+ *
+ * A press means "the keyboard looks like this now", and under the auto pair
+ * that is the pair's live half rather than the manual selection — writing the
+ * manual one there is a press with no effect at all, because the resolver
+ * ignores it while auto-theme is on. The two states that genuinely have no one
+ * theme to set stay read-only: a mode carries its own theme for its own
+ * lifetime, and a random half is decided by its set at the next shuffle.
  */
 @Composable
 internal fun ThemesPanel(
@@ -1493,27 +1546,32 @@ internal fun ThemesPanel(
 ) {
     val kb = LocalKbTheme.current
     var iconsTab by remember { mutableStateOf(false) }
-    // With auto-theme on, its trigger owns the active theme; with a mode that
-    // carries a theme active, the mode does. Either way the panel shows which
-    // one is live but taps do nothing (it's read-only).
+    // A mode that carries a theme owns it for as long as the mode is active, so
+    // the panel shows which one is live and presses do nothing (it's read-only).
     //
     // `state.settings` is already the mode's view of the settings, so a mode
     // theme arrives here as an ordinary keyboardThemeId with auto-theme forced
     // off — only the *explanation* has to look the mode up.
-    val modeTheme = state.settings.keyboardModes
-        .firstOrNull { it.id == state.activeModeId }
-        ?.takeIf { it.themeId != null }
-    val autoOn = state.settings.autoTheme.enabled
-    val locked = autoOn || modeTheme != null
+    val modeTheme = state.settings.modeThemeOwner(state.activeModeId)
+    val autoPair = state.settings.autoTheme
+    val autoOn = autoPair.enabled
     val systemDark = isSystemInDarkTheme()
     // The same resolver the board itself draws with, so the card marked live
     // here is always the one on screen — including on a clock or sun schedule.
     val darkSlot = rememberAutoThemeDarkSlot(state.settings, systemDark)
-    val selectedId = if (autoOn) {
-        if (darkSlot) state.settings.autoTheme.darkThemeId else state.settings.autoTheme.lightThemeId
-    } else {
-        state.settings.keyboardThemeId
-    }
+    // Where a press would be stored, from the definition the service stores it
+    // by: a grid that offers a press the service has nowhere to put is the bug
+    // this whole panel had.
+    val target = state.settings.themeSelectionTarget(darkSlot, modeTheme != null)
+    val locked = target == ThemeSelectionTarget.NONE
+    // A random half is the read-only state that is not a mode, and it needs a
+    // sentence of its own: the set, not the pair, is what has to change.
+    val randomSlot = locked && modeTheme == null
+    // Resolved through the pair rather than read off the fixed id, so a random
+    // half rings the theme it selected instead of the one it would show if the
+    // set were empty.
+    val selectedId =
+        if (autoOn) autoPair.slotThemeId(darkSlot) else state.settings.keyboardThemeId
     val auto = autoKbTheme(state.settings)
     // The panel is a shortlist, not the gallery: every custom and downloaded
     // theme, plus the built-ins the user picked for it in Settings (a default
@@ -1557,7 +1615,7 @@ internal fun ThemesPanel(
     ) {
         ThemesPanelBody(
             state, kb, iconsTab, locked, selectedId, auto, themes,
-            packs, packStore, packRevision, modeTheme, autoOn,
+            packs, packStore, packRevision, modeTheme, autoOn, darkSlot, randomSlot,
             onThemeSelect, onIconPackSelect, onOpenRoute,
         )
     }
@@ -1578,6 +1636,8 @@ private fun ThemesPanelBody(
     packRevision: Int,
     modeTheme: KeyboardMode?,
     autoOn: Boolean,
+    darkSlot: Boolean,
+    randomSlot: Boolean,
     onThemeSelect: (String) -> Unit,
     onIconPackSelect: (String) -> Unit,
     onOpenRoute: (String) -> Unit,
@@ -1597,7 +1657,11 @@ private fun ThemesPanelBody(
                     modeTheme != null -> stringResource(
                         R.string.ime_themes_mode_locked_info, modeTheme.name,
                     )
-                    autoOn -> stringResource(R.string.ime_themes_auto_on_info)
+                    randomSlot -> stringResource(R.string.ime_themes_auto_random_info)
+                    // Names the half a press writes to, so "use this theme"
+                    // and "and it is your dark one" are the same sentence.
+                    autoOn && darkSlot -> stringResource(R.string.ime_themes_auto_dark_info)
+                    autoOn -> stringResource(R.string.ime_themes_auto_light_info)
                     else -> stringResource(R.string.ime_themes_pick_info)
                 },
                 color = kb.toolbarIcon,
@@ -1621,7 +1685,8 @@ private fun ThemesPanelBody(
             return@Column
         }
         // Index 0 is the leading "Auto" card, so a theme sits one past its own
-        // position. Read-only while auto-theme owns the choice, exactly as taps are.
+        // position. Read-only in exactly the states a press is, so the keyboard
+        // and the hardware keyboard cannot disagree about what a card does.
         PanelFocusTarget(
             panel = PanelMode.THEMES,
             count = themes.size + 1,
@@ -2239,142 +2304,3 @@ internal fun SoundHapticsPanel(
     }
 }
 
-// ---- numpad ----
-
-/**
- * Dedicated number pad: phone-style digit grid with the common numeric
- * punctuation, backspace (repeating) and enter.
- */
-@Composable
-internal fun NumpadPanel(
-    state: KeyboardUiState,
-    onText: (String) -> Unit,
-    onKey: (Key) -> Unit,
-) {
-    val height = keyRowsHeight(state)
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(height)
-            .padding(horizontal = 4.dp, vertical = 4.dp),
-    ) {
-        // A layout that authored its own Number layer gets it drawn here too
-        // (issue #55): the layer was only ever reaching numeric fields, and
-        // this panel — the tool, and the ?123 long press — kept showing the
-        // shipped pad however the user had arranged theirs. The calculator
-        // order is left to the layout in that case: the rows are the author's.
-        val authored = state.layouts.number
-        if (authored != null) {
-            for (row in authored.rows) {
-                Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                    NumpadLayoutRow(row, onText, onKey)
-                }
-            }
-            return@Column
-        }
-        // Phone-style puts 123 on top (like a dialer); the calculator-style
-        // setting flips the digit rows to a desktop keypad's 789-on-top.
-        val digits = if (state.settings.numpadCalculatorLayout) {
-            listOf("7", "8", "9", "4", "5", "6", "1", "2", "3")
-        } else {
-            listOf("1", "2", "3", "4", "5", "6", "7", "8", "9")
-        }
-        val rows = listOf(
-            listOf(digits[0], digits[1], digits[2], "⌫"),
-            listOf(digits[3], digits[4], digits[5], "+"),
-            listOf(digits[6], digits[7], digits[8], "-"),
-            listOf(".", "0", ",", "⏎"),
-        )
-        for (row in rows) {
-            Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                NumpadRow(row, onText, onKey)
-            }
-        }
-    }
-}
-
-/**
- * One row of an authored Number layer on the numpad panel. Delete and enter
- * take the panel's own faces; a text key types its output; anything else the
- * author put there — a space, a symbols key, a tool — goes through the same
- * key dispatch a press on the grid would.
- */
-@Composable
-private fun androidx.compose.foundation.layout.RowScope.NumpadLayoutRow(
-    keys: List<Key>,
-    onText: (String) -> Unit,
-    onKey: (Key) -> Unit,
-) {
-    val feedback = LocalKeyPressFeedback.current
-    for (key in keys) {
-        val cell = Modifier.weight(key.width.coerceAtLeast(0.1f)).fillMaxHeight().padding(2.dp)
-        when (key.action) {
-            KeyAction.Delete -> ToolPanelKey(
-                description = stringResource(CommonR.string.common_delete),
-                icon = Icons.AutoMirrored.Outlined.Backspace,
-                repeatable = true,
-                modifier = cell,
-            ) {
-                feedback()
-                onKey(key)
-            }
-            KeyAction.Enter -> ToolPanelKey(
-                description = stringResource(R.string.ime_numpad_enter_desc),
-                icon = Icons.AutoMirrored.Outlined.KeyboardReturn,
-                modifier = cell,
-            ) {
-                feedback()
-                onKey(key)
-            }
-            KeyAction.Text -> {
-                val typed = key.output ?: key.label
-                ToolPanelKey(description = key.label, label = key.label, modifier = cell) {
-                    onText(typed)
-                }
-            }
-            else -> ToolPanelKey(
-                description = key.label.ifBlank { key.action.fallbackLabel() },
-                label = key.label.ifBlank { key.action.fallbackLabel() },
-                modifier = cell,
-            ) {
-                feedback()
-                onKey(key)
-            }
-        }
-    }
-}
-
-@Composable
-private fun androidx.compose.foundation.layout.RowScope.NumpadRow(
-    keys: List<String>,
-    onText: (String) -> Unit,
-    onKey: (Key) -> Unit,
-) {
-    val feedback = LocalKeyPressFeedback.current
-    for (label in keys) {
-        when (label) {
-            "⌫" -> ToolPanelKey(
-                description = stringResource(CommonR.string.common_delete),
-                icon = Icons.AutoMirrored.Outlined.Backspace,
-                repeatable = true,
-                modifier = Modifier.weight(1f).fillMaxHeight().padding(2.dp),
-            ) {
-                feedback()
-                onKey(Key("⌫", action = KeyAction.Delete))
-            }
-            "⏎" -> ToolPanelKey(
-                description = stringResource(R.string.ime_numpad_enter_desc),
-                icon = Icons.AutoMirrored.Outlined.KeyboardReturn,
-                modifier = Modifier.weight(1f).fillMaxHeight().padding(2.dp),
-            ) {
-                feedback()
-                onKey(Key("⏎", action = KeyAction.Enter))
-            }
-            else -> ToolPanelKey(
-                description = label,
-                label = label,
-                modifier = Modifier.weight(1f).fillMaxHeight().padding(2.dp),
-            ) { onText(label) }
-        }
-    }
-}

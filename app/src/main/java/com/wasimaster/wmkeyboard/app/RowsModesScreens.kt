@@ -44,6 +44,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +62,9 @@ import androidx.compose.ui.zIndex
 import com.wasimaster.wmkeyboard.core.settings.EmojiBarMode
 import com.wasimaster.wmkeyboard.ime.ui.ModeIcons
 import com.wasimaster.wmkeyboard.core.settings.BarRow
+import com.wasimaster.wmkeyboard.core.settings.SelectionMacroPlacement
+import com.wasimaster.wmkeyboard.core.layout.AssetLayouts
+import com.wasimaster.wmkeyboard.core.layout.layoutAfterFancy
 import com.wasimaster.wmkeyboard.core.layout.resolveLayout
 import com.wasimaster.wmkeyboard.core.settings.KeyboardMode
 import com.wasimaster.wmkeyboard.core.settings.DefaultKeyboardModes
@@ -74,9 +78,16 @@ import com.wasimaster.wmkeyboard.core.tools.BuiltInSymbolSets
 import com.wasimaster.wmkeyboard.core.tools.resolveSymbolSets
 import com.wasimaster.wmkeyboard.core.tools.SymbolSet
 import com.wasimaster.wmkeyboard.core.settings.SettingsRepository
+import com.wasimaster.wmkeyboard.core.settings.ToolbarPlacement
 import com.wasimaster.wmkeyboard.core.settings.ToolbarTool
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+import androidx.compose.material.icons.automirrored.outlined.PlaylistAdd
+import androidx.compose.material.icons.outlined.AltRoute
+import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.FindReplace
+import androidx.compose.material.icons.outlined.Keyboard
 
 // ---- rows & bars ----
 
@@ -85,6 +96,10 @@ private fun barRowTitle(row: BarRow): Int = when (row) {
     BarRow.TOPBAR -> R.string.rows_bar_topbar_title
     BarRow.EMOJI -> R.string.rows_bar_emoji_title
     BarRow.SYMBOL -> R.string.rows_symbol_row_title
+    BarRow.FANCY -> R.string.rows_bar_fancy_title
+    BarRow.TOOLS -> R.string.rows_bar_tools_title
+    BarRow.DICTIONARY -> R.string.rows_dictionary_bar_title
+    BarRow.MACROS -> R.string.rows_bar_macros_title
 }
 @StringRes
 private fun barRowSubtitle(row: BarRow, settings: KeyboardSettings): Int = when (row) {
@@ -98,6 +113,64 @@ private fun barRowSubtitle(row: BarRow, settings: KeyboardSettings): Int = when 
         CommonR.string.common_on
     } else {
         CommonR.string.common_off
+    }
+    BarRow.FANCY -> if (fancyTextOn(settings)) {
+        CommonR.string.common_on
+    } else {
+        R.string.rows_bar_fancy_off_subtitle
+    }
+    BarRow.TOOLS -> when (settings.toolbarBehavior.placement) {
+        ToolbarPlacement.STRIP -> R.string.rows_bar_tools_strip_subtitle
+        ToolbarPlacement.ON_DEMAND_ROW -> R.string.rows_bar_tools_button_subtitle
+        ToolbarPlacement.ALWAYS_ROW -> R.string.rows_bar_tools_always_subtitle
+    }
+    BarRow.DICTIONARY -> if (settings.rows.dictionaryBarEnabled) {
+        CommonR.string.common_on
+    } else {
+        CommonR.string.common_off
+    }
+    // The row that arrives with a selection. Its "off" reads two ways: the
+    // feature switched off, and the feature on but drawing over the strip
+    // instead, where this row has nothing to place.
+    BarRow.MACROS -> when {
+        !settings.selectionMacros.enabled -> CommonR.string.common_off
+        settings.selectionMacros.placement == SelectionMacroPlacement.STRIP ->
+            R.string.rows_bar_macros_strip_subtitle
+        else -> CommonR.string.common_on
+    }
+}
+
+/**
+ * Whether the keyboard is typing in Fancy Text right now — what the toggle
+ * on the Rows screen reads, and the condition under which the style strip
+ * takes its row. The stored active layout is the whole truth from here: the
+ * service's per-app memory can put another layout on screen, but that is
+ * the app's choice, not the user's setting.
+ */
+private fun fancyTextOn(settings: KeyboardSettings): Boolean =
+    settings.activeLayoutId == AssetLayouts.FANCY_ID
+
+/**
+ * The Rows-screen twin of the toolbar's Fancy tool. On: the fancy layout
+ * joins the enabled cycle (if it wasn't there) and becomes the active one.
+ * Off: the keyboard returns to the first other enabled layout, and the fancy
+ * layout leaves the cycle unless the tool's "keep it" option says otherwise
+ * — the same two rules the tool follows, so the two switches never disagree
+ * about what "off" leaves behind.
+ */
+private suspend fun setFancyTextOn(repository: SettingsRepository, settings: KeyboardSettings, on: Boolean) {
+    val enabled = settings.enabledLayoutIds
+    if (on) {
+        if (AssetLayouts.FANCY_ID !in enabled) {
+            repository.setEnabledLayoutIds(enabled + AssetLayouts.FANCY_ID)
+        }
+        repository.setActiveLayoutId(AssetLayouts.FANCY_ID)
+    } else {
+        val remaining = enabled.filter { it != AssetLayouts.FANCY_ID }
+        if (!settings.layoutBehavior.fancyToolKeepsLanguage && remaining.isNotEmpty()) {
+            repository.setEnabledLayoutIds(remaining)
+        }
+        repository.setActiveLayoutId(layoutAfterFancy(null, remaining))
     }
 }
 /** Row layout above the keys: symbol row, row order and symbol sets. */
@@ -137,6 +210,27 @@ internal fun RowsSettings(
                 },
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
+        }
+    }
+    SettingsGroup(stringResource(R.string.rows_fancy_title)) {
+        item {
+            ToggleSetting(
+                R.string.rows_fancy_title,
+                stringResource(R.string.rows_fancy_subtitle),
+                fancyTextOn(settings),
+                info = stringResource(R.string.rows_fancy_info),
+            ) { on -> scope.launch { setFancyTextOn(repository, settings, on) } }
+        }
+    }
+    SettingsGroup(stringResource(R.string.rows_dictionary_bar_title)) {
+        item {
+            ToggleSetting(
+                R.string.rows_dictionary_bar_title,
+                stringResource(R.string.rows_dictionary_bar_subtitle),
+                settings.rows.dictionaryBarEnabled,
+                info = stringResource(R.string.rows_dictionary_bar_info),
+                default = SettingsDefaults.rows.dictionaryBarEnabled,
+            ) { scope.launch { repository.setDictionaryBarEnabled(it) } }
         }
     }
     SettingsGroup(stringResource(R.string.rows_symbol_row_title)) {
@@ -410,6 +504,11 @@ private val ReorderRowHeight = 52.dp
  * Deliberately not a LazyColumn: every row has to stay composed for a drag
  * to swap past it, and these lists are short enough that laying them all out
  * is free.
+ *
+ * [onDelete] adds a bin to each row's left, for the lists where the same
+ * pencil that opens the reorder is also the way out of the list — removing a
+ * language, say. Null (every other caller) draws no bin, and the last item is
+ * never removable: a list this edits in place has to keep one.
  */
 @Composable
 internal fun <T> ReorderableColumn(
@@ -417,11 +516,22 @@ internal fun <T> ReorderableColumn(
     label: (T) -> String,
     onReorder: (List<T>) -> Unit,
     modifier: Modifier = Modifier,
+    onDelete: ((T) -> Unit)? = null,
 ) {
     // -1 = nothing being dragged.
     var dragIndex by remember { mutableIntStateOf(-1) }
     var dragOffset by remember { mutableFloatStateOf(0f) }
     val rowPx = with(LocalDensity.current) { ReorderRowHeight.toPx() }
+    // The drag gesture below is keyed on Unit, so its lambda is captured once
+    // and outlives every recomposition. That means it must not close over
+    // `items` or `onReorder` directly: it would go on reordering the list as
+    // it stood when the handle was first composed. The first swap of a drag
+    // looked right because the snapshot was still current; the second moved
+    // whichever item had since taken the dragged one's old slot, which is why
+    // reordering only ever worked a pair at a time. Read both through the
+    // latest snapshot instead.
+    val currentItems by rememberUpdatedState(items)
+    val currentOnReorder by rememberUpdatedState(onReorder)
     Column(modifier = modifier) {
         items.forEachIndexed { index, item ->
             val dragging = index == dragIndex
@@ -446,6 +556,20 @@ internal fun <T> ReorderableColumn(
                     maxLines = 1,
                     modifier = Modifier.weight(1f),
                 )
+                if (onDelete != null) {
+                    IconButton(
+                        onClick = { onDelete(item) },
+                        enabled = items.size > 1,
+                    ) {
+                        Icon(
+                            Icons.Outlined.Delete,
+                            contentDescription = stringResource(
+                                R.string.rows_reorder_remove_desc, label(item),
+                            ),
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
                 Icon(
                     Icons.Outlined.DragHandle,
                     contentDescription = stringResource(
@@ -475,10 +599,13 @@ internal fun <T> ReorderableColumn(
                             ) { change, drag ->
                                 change.consume()
                                 dragOffset += drag.y
+                                val live = currentItems
                                 val from = dragIndex
                                 val to = from + (dragOffset / rowPx).roundToInt()
-                                if (from >= 0 && to != from && to in items.indices) {
-                                    onReorder(items.toMutableList().apply { add(to, removeAt(from)) })
+                                if (from >= 0 && from in live.indices && to != from && to in live.indices) {
+                                    currentOnReorder(
+                                        live.toMutableList().apply { add(to, removeAt(from)) },
+                                    )
                                     dragIndex = to
                                     // Keep the offset relative to the row's new
                                     // home, or the item would jump a full row.
@@ -633,6 +760,17 @@ internal fun ModesSettings(
                 selected = settings.rows.manualModeDuration,
                 info = stringResource(R.string.modes_manual_duration_info),
                 default = SettingsDefaults.rows.manualModeDuration,
+                detail = { duration ->
+                    ChoiceDetail(
+                        stringResource(
+                            if (duration == ManualModeDuration.UNTIL_CHANGED) {
+                                R.string.modes_manual_duration_changed_desc
+                            } else {
+                                R.string.modes_manual_duration_app_desc
+                            },
+                        ),
+                    )
+                },
             ) { scope.launch { repository.setManualModeDuration(it) } }
         }
     }
@@ -770,6 +908,7 @@ internal fun ModeEditor(
                     EmojiBarMode.ALWAYS to stringResource(R.string.modes_emoji_row_row_label),
                 ),
                 selected = mode.emojiBarMode,
+                detail = { barMode -> ChoiceDetail(stringResource(modeEmojiRowDescRes(barMode))) },
             ) { save(mode.copy(emojiBarMode = it)) }
         }
         item {
@@ -781,6 +920,7 @@ internal fun ModeEditor(
                     false to stringResource(CommonR.string.common_off),
                 ),
                 selected = mode.symbolRowEnabled,
+                detail = inheritDetail(),
             ) { save(mode.copy(symbolRowEnabled = it)) }
         }
         // Typing behaviour. A mode dressed the keyboard but never changed what
@@ -795,6 +935,7 @@ internal fun ModeEditor(
                 subtitle = stringResource(R.string.modes_active_subtitle),
                 options = listOf(null to inherit, true to on, false to off),
                 selected = mode.autocorrect,
+                detail = inheritDetail(),
             ) { save(mode.copy(autocorrect = it)) }
         }
         item {
@@ -805,6 +946,7 @@ internal fun ModeEditor(
                 title = R.string.modes_autocapitalize_title,
                 options = listOf(null to inherit, true to on, false to off),
                 selected = mode.autoCapitalize,
+                detail = inheritDetail(),
             ) { save(mode.copy(autoCapitalize = it)) }
         }
         item {
@@ -815,6 +957,7 @@ internal fun ModeEditor(
                 title = R.string.modes_suggestions_title,
                 options = listOf(null to inherit, true to on, false to off),
                 selected = mode.suggestions,
+                detail = inheritDetail(),
             ) { save(mode.copy(suggestions = it)) }
         }
         // Only the layouts the user actually has switched on: a mode naming one
@@ -832,6 +975,7 @@ internal fun ModeEditor(
                 options = layoutOptions,
                 selected = mode.layoutId?.takeIf { it in settings.enabledLayoutIds },
                 info = stringResource(R.string.modes_layout_info),
+                detail = inheritDetail(),
             ) { save(mode.copy(layoutId = it)) }
         }
         item {
@@ -896,6 +1040,19 @@ internal fun ModeEditor(
                         false to stringResource(R.string.modes_pinned_behaviour_replace_label),
                     ),
                     selected = mode.toolbarToolsAppend,
+                    detail = { append ->
+                        ChoiceDetail(
+                            stringResource(
+                                if (append) {
+                                    R.string.modes_pinned_behaviour_append_desc
+                                } else {
+                                    R.string.modes_pinned_behaviour_replace_desc
+                                },
+                            ),
+                            if (append) Icons.AutoMirrored.Outlined.PlaylistAdd
+                            else Icons.Outlined.FindReplace,
+                        )
+                    },
                 ) { append ->
                     // Switching to append: the copied-in global pins would
                     // duplicate what is already on the toolbar, so drop them.
@@ -1269,4 +1426,34 @@ private fun AppPickerDialog(
             TextButton(onClick = onDismiss) { Text(stringResource(CommonR.string.common_cancel)) }
         },
     )
+}
+
+/**
+ * What a mode does to the emoji row, one line, for the picker sheet. Null is
+ * the "inherit" option: the mode says nothing and the Emoji screen decides.
+ */
+private fun modeEmojiRowDescRes(mode: EmojiBarMode?): Int = when (mode) {
+    null -> R.string.modes_emoji_row_inherit_desc
+    EmojiBarMode.OFF -> R.string.modes_emoji_row_off_desc
+    EmojiBarMode.BUTTON -> R.string.modes_emoji_row_button_desc
+    EmojiBarMode.ALWAYS -> R.string.modes_emoji_row_row_desc
+}
+
+/**
+ * The description for the null option every per-mode setting starts with.
+ * "Inherit" is a word about the settings tree rather than about the keyboard,
+ * so it is the one option of the three whose name says nothing. On/Off need
+ * no line, and returning null for them leaves those rows as they were.
+ *
+ * Generic because the option type differs per row: `Boolean?` for the
+ * switches, `String?` for the layout picker.
+ */
+private fun <T> inheritDetail(): @Composable (T) -> ChoiceDetail? = { value ->
+    when (value) {
+        null -> ChoiceDetail(stringResource(R.string.modes_inherit_desc), Icons.Outlined.AltRoute)
+        true -> ChoiceDetail(icon = Icons.Outlined.CheckCircle)
+        false -> ChoiceDetail(icon = Icons.Outlined.Block)
+        // A layout id, on the one row of the five whose options are names.
+        else -> ChoiceDetail(icon = Icons.Outlined.Keyboard)
+    }
 }

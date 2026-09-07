@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
     <!-- Tools screen: the list of every keyboard tool, with the on/off switch for each one. -->
+
+    <!-- Field at the top of the Tools screen. It searches the names and the descriptions of the tools. -->
+    <string name="tools_search_hint">Search tools</string>
+    <!-- Heading over the tools that match what is typed in the search field. -->
+    <string name="tools_search_results_title">Results</string>
+    <!-- %1$s is the words the user typed in the search field. -->
+    <string name="tools_search_empty">No tool matches \"<xliff:g id="query" example="emoji">%1$s</xliff:g>\".</string>
+
     <string name="tools_colored_icons_title">Colorful tool icons</string>
     <string name="tools_colored_icons_subtitle">Each tool gets its own accent color here and in the toolbox. Open a tool to change the color of that one icon.</string>
     <string name="tools_gradient_icons_title">Gradient tool colors</string>
@@ -27,4 +35,5 @@
 
     <!-- Shown in place of the description when a tool cannot run until an API key is given. The switch is off and cannot be pressed. -->
     <string name="tools_needs_key_subtitle">Needs an API key. Press this row to add one.</string>
+    <string name="tools_needs_layout_subtitle">Needs a secondary layout. Press this row, then Key layouts, to make one.</string>
 </resources>

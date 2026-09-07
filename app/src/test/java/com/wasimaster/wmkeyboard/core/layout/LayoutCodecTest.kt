@@ -41,6 +41,34 @@ class LayoutCodecTest {
         assertTrue(decoded.layer(LayoutLayer.LETTERS)!!.persistent)
     }
 
+    /** Issue #64: a key's own alternates column count rides the file, and 0 stays 0. */
+    @Test
+    fun `round trips a key's alternates column count`() {
+        val original = spec(
+            listOf(
+                Key("1", longPress = listOf("½", "⅓", "¼"), alternateColumns = 5),
+                Key("e", longPress = listOf("é", "è")),
+            ),
+        )
+        val decoded = LayoutCodec.decode(LayoutCodec.encode(original))
+        assertEquals(original, decoded)
+        val row = decoded!!.layer(LayoutLayer.LETTERS)!!.rows.first()
+        assertEquals(5, row[0].alternateColumns)
+        assertEquals(0, row[1].alternateColumns)
+    }
+
+    /** A file from before the field existed leaves every key on the global setting. */
+    @Test
+    fun `a layout written before alternate columns existed follows the setting`() {
+        val old = """
+            {"id":"custom_pre64","name":"Pre","langId":"en","version":2,
+             "layers":{"letters":{"rows":[[{"label":"a","longPress":["@"]}]]}}}
+        """.trimIndent()
+        val decoded = LayoutCodec.decode(old)
+        assertNotNull(decoded)
+        assertEquals(0, decoded!!.layer(LayoutLayer.LETTERS)!!.rows.first().first().alternateColumns)
+    }
+
     /** Issue #61: a layout's and a layer's theme ride the file, and resolve layer-first on the grid. */
     @Test
     fun `round trips a layout theme and a layer theme`() {
@@ -452,6 +480,44 @@ class LayoutCodecTest {
         // The editor asks the other question: not "has any" but "may have".
         assertTrue(Key("⏎", action = KeyAction.Enter).canHoldAlternates())
         assertTrue(Key(" ", action = KeyAction.Space).canHoldAlternates())
+    }
+
+    /**
+     * The keys that change the view and leave the text alone. The `?123` key is
+     * the load-bearing one: a colon and a slash live on the symbols page, and
+     * the keyboard has to still know the space behind the caret was its own
+     * once the user has pressed their way there (issue #34).
+     */
+    @Test
+    fun `a page or layer switch commits no text`() {
+        for (action in listOf(
+            KeyAction.Symbols,
+            KeyAction.Letters,
+            KeyAction.Numpad,
+            KeyAction.Fn,
+            KeyAction.Shift,
+            KeyAction.CapsLock,
+            KeyAction.LanguageSwitch,
+            KeyAction.None,
+            KeyAction.Layout("custom_1"),
+        )) {
+            assertTrue(action.toString(), action.commitsNoText())
+        }
+
+        // Everything that can put text in the field, and the panels that lead
+        // somewhere which can.
+        for (action in listOf(
+            KeyAction.Text,
+            KeyAction.Space,
+            KeyAction.Enter,
+            KeyAction.Newline,
+            KeyAction.Delete,
+            KeyAction.Emoji,
+            KeyAction.InputMethodPicker,
+            KeyAction.KanaVariant,
+        )) {
+            assertFalse(action.toString(), action.commitsNoText())
+        }
     }
 
     @Test

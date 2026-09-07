@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Bolt
@@ -212,6 +213,7 @@ private val AddonType.icon
         AddonType.Sound -> Icons.Outlined.GraphicEq
         AddonType.SoundPack -> Icons.Outlined.LibraryMusic
         AddonType.Plugin -> Icons.Outlined.Code
+        AddonType.Vocabulary -> Icons.Outlined.AutoStories
         AddonType.Unknown -> Icons.Outlined.Extension
     }
 
@@ -239,6 +241,7 @@ private val AddonType.seed: Color
         // as siblings.
         AddonType.SoundPack -> Color(0xFFF97316)
         AddonType.Plugin -> Color(0xFF06B6D4)
+        AddonType.Vocabulary -> Color(0xFF8E24AA)
         AddonType.Unknown -> Color(0xFF6B7280)
     }
 
@@ -451,8 +454,8 @@ internal fun AddonsScreen(
     }
 
     // One fetch per visit, so a repository that published something new shows
-    // it without the user having to know to pull to refresh. Both gates are the
-    // user's; the Refresh button ignores them, because pressing it is the ask.
+    // it without anyone having to pull the list down. Both gates are the
+    // user's; a pull ignores them, because making the gesture is the ask.
     LaunchedEffect(Unit) {
         if (!store.autoRefresh()) return@LaunchedEffect
         if (store.refreshUnmeteredOnly() && isMeteredNow(context)) return@LaunchedEffect
@@ -530,18 +533,9 @@ internal fun AddonsScreen(
     }
 
     RegisterAddFab(stringResource(R.string.addon_repo_add_action)) { showAdd = true }
-    Row(
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        OutlinedButton(onClick = ::refreshAll, enabled = !refreshing && repos.isNotEmpty()) {
-            Text(
-                if (refreshing) stringResource(R.string.addon_repo_refreshing_progress)
-                else stringResource(R.string.addon_repo_refresh_action),
-            )
-        }
-    }
+    // Pull the list down to fetch every repository again. `refreshAll` is a
+    // no-op while one is running, so a second pull cannot start a second fetch.
+    RegisterPullRefresh(refreshing, ::refreshAll)
 
     if (repos.isEmpty()) {
         CaptionText(stringResource(R.string.addon_repos_empty))
@@ -1057,6 +1051,21 @@ internal fun AddonRepoScreen(
         AddonDownloadManager.refresh(store, manifest.repo.id, manifest)
     }
 
+    // The page draws from the cached manifest, so a pull is how someone asks
+    // this repository what it has published since.
+    val repoScope = rememberCoroutineScope()
+    var repoRefreshing by remember(manifestUrl) { mutableStateOf(false) }
+    RegisterPullRefresh(repoRefreshing) {
+        if (repoRefreshing) return@RegisterPullRefresh
+        repoRefreshing = true
+        repoScope.launch {
+            withContext(Dispatchers.IO) {
+                AddonDownloadManager.fetchManifest(store, ref, context.cacheDir)
+            }
+            repoRefreshing = false
+        }
+    }
+
     if (manifest.repo.description.isNotBlank()) CaptionText(manifest.repo.description)
 
 
@@ -1362,11 +1371,11 @@ private fun StatusBadge(
 private val AddonType.settingsRoute: String
     get() = when (this) {
         AddonType.Theme -> "themes"
-        // Languages, not Key layouts. An installed layout arrives switched off,
-        // and the switch that turns it on lives under Languages → Your layouts;
-        // Key layouts lists only layouts that are already on, so sending
-        // someone there to enable one would show them an empty section.
-        AddonType.Layout -> "languages"
+        // Layout & size, not Key layouts. An installed layout arrives switched
+        // off, and the switch that turns it on lives under Layout & size →
+        // Your layouts; Key layouts lists only layouts that are already on, so
+        // sending someone there to enable one would show them an empty section.
+        AddonType.Layout -> "layout"
         AddonType.Dictionary -> "customdictionaries"
         AddonType.EmojiKeywords -> "emojikeywords"
         AddonType.Snippets, AddonType.Espanso -> "expander"
@@ -1377,6 +1386,7 @@ private val AddonType.settingsRoute: String
         AddonType.Sound -> "keypress"
         AddonType.SoundPack -> "keypress"
         AddonType.Plugin -> "plugins"
+        AddonType.Vocabulary -> "vocab/packs"
         AddonType.Unknown -> "home"
     }
 
@@ -1395,8 +1405,8 @@ private val AddonType.settingsRoute: String
 private val AddonType.settingsAnchor: Int
     get() = when (this) {
         AddonType.Theme -> 0
-        // Languages is a long screen and the layout switches are two thirds of
-        // the way down it, under the languages themselves.
+        // "Your layouts" is the first group on Layout & size, but naming it
+        // still flashes the row the install is waiting on.
         AddonType.Layout -> R.string.langemoji_lang_your_layouts_title
         AddonType.Dictionary -> 0
         AddonType.EmojiKeywords -> 0
@@ -1410,6 +1420,7 @@ private val AddonType.settingsAnchor: Int
         // The master switch, not the installed list: someone sent here has
         // almost always come from "plugins are off".
         AddonType.Plugin -> R.string.plugins_allow_title
+        AddonType.Vocabulary -> R.string.vocab_packs_installed_title
         AddonType.Unknown -> 0
     }
 
@@ -1464,6 +1475,7 @@ private val AddonType.useLabelRes: Int
         AddonType.Sound -> R.string.addon_use_target_sound_label
         AddonType.SoundPack -> R.string.addon_use_target_sound_pack_label
         AddonType.Plugin -> ImeR.string.ime_tool_plugins
+        AddonType.Vocabulary -> ImeR.string.ime_tool_vocabulary
         AddonType.Unknown -> CommonR.string.common_settings
     }
 
@@ -2256,6 +2268,26 @@ private fun AddonPreviewSection(manifestUrl: String, entry: AddonEntry) {
             }
         }
 
+        is AddonPreviewContent.Vocabulary -> SettingsGroup(previewTitle) {
+            item {
+                CaptionText(pluralStringResource(R.plurals.addon_preview_vocab_count, shown.total, shown.total))
+            }
+            for (sample in shown.samples) {
+                item {
+                    ListItem(
+                        headlineContent = { Text(sample.word, style = MaterialTheme.typography.titleSmall) },
+                        supportingContent = {
+                            Text(
+                                listOf(sample.pos, sample.definition).filter { it.isNotBlank() }.joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 2,
+                            )
+                        },
+                        colors = transparentListColors(),
+                    )
+                }
+            }
+        }
         is AddonPreviewContent.Sound -> SettingsGroup(previewTitle) {
             item {
                 WmRow(

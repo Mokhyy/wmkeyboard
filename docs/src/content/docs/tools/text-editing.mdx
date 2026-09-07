@@ -25,6 +25,8 @@ Tap <KeyCap>Select</KeyCap> to turn selection mode on. The key lights up while i
 
 <KeyCap>Select</KeyCap> answers the same three gestures the tool does. One tap toggles, **two quick taps** select the word at the cursor, **three** select the line, and a **press and hold** turns selection mode on only for as long as your finger stays down. Both extra gestures read the same two switches under <SettingsPath path="Tools / Selection mode / Options" /> the tool does, so turning either off turns it off on both surfaces. The one thing that overrides the hold is a long press you assigned yourself: give a Select key alternates in the [layout editor](/languages/custom-layouts/) and the hold opens those instead, which the editor warns you about as you bind them. Tapping is never affected.
 
+Once something is selected, the keyboard can offer what to do with it: [Selection actions](/smart/selection-actions/) puts Call, Open, QR and the case options above the keys, depending on what you selected. That bar is off by default and lives under Advanced.
+
 Holding <KeyCap>◀</KeyCap>, <KeyCap>▶</KeyCap>, <KeyCap>▲</KeyCap>, <KeyCap>▼</KeyCap>, or <KeyCap>Backspace</KeyCap> auto-repeats after a fixed 400 ms delay, then keeps repeating at an interval you can tune (see [Options](#options) below).
 
 ## Copying, pasting, and cutting
@@ -149,7 +151,7 @@ The panel's grid is a [panel layout](/languages/custom-layouts/#panel-layouts): 
 
 Every key on the panel is a key whose action is a **text editing action**, one of twenty: the four arrows, word left and right, page up and down, start and end of the line, start and end of the text, Select, Select all, Select word, Select line, Cut, Copy, Paste and Delete. Pick a key in the preview and the sheet lets you change its action, its width in grid units, how many rows it covers, and its alternates for press and hold. You can also put ordinary keys on the pad: Enter, a tool key, or anything else the Action picker offers.
 
-**Press and hold only works on keys that don't repeat.** The four arrows, word left and right, page up and down and Delete all repeat while you hold them, at the repeat interval above, and that's the point of holding them, so the sheet doesn't offer alternates on those. Everything else (Home, End, start and end of the text, Select, the selects, Cut, Copy, Paste) has a hold going spare, and that's where an alternate goes. Holding such a key opens the alternates popup, the way it does on any key of the keyboard, and a tap on the entry runs it.
+**Press and hold only works on keys that don't repeat.** The four arrows, word left and right, page up and down and Delete all repeat while you hold them, at the repeat interval above, and that's the point of holding them, so the sheet doesn't offer alternates on those. Everything else (Home, End, start and end of the text, Select, the selects, Cut, Copy, Paste) has a hold going spare, and that's where an alternate goes. Holding such a key opens the alternates popup, the way it does on any key of the keyboard, and sliding onto the entry and letting go runs it.
 
 Two of those pairings ship: **Home** and **End** hold to the start and end of the *text* rather than the line. Widths and spans mean exactly what they mean in a key layout, and the panel places them with the same geometry the keyboard draws its keys with, so the tall left and right arrows in the standard arrangement are simply a key three rows deep. The pad has no component cell, so its rows share the height of the key area by their row heights. **Use the standard layout** at the bottom of the editor puts the shipped layout back.
 
@@ -183,9 +185,9 @@ Dragging the tool to move it works with either switch on: once your finger trave
 
 <SettingsPath path="Tools / Numpad / Options" />
 
-**Calculator-style layout**: off by default. It puts 7 8 9 on the top row like a desk keypad instead of 1 2 3 like a dialer.
+**Calculator-style layout**: off by default. It puts 7 8 9 on the top row like a desk keypad instead of 1 2 3 like a dialer. It only reaches the shipped pad: a pad you laid out yourself is drawn as you laid it out.
 
-A layout that authors its own **Number** layer in the [layout editor](/languages/custom-layouts/#rows-and-layers) is drawn here instead, key for key and in the order it drew them, so this switch has nothing to flip on it. The pad follows whichever layout you're typing with.
+**Panel layout**: the pad is a [panel layout](/languages/custom-layouts/#panel-layouts) like the text editing pad, so it has a shared grid under Key layouts → Panel layouts, a tab in every key layout's editor for a grid of that layout's own, and with them a theme, a "keep this layer open" switch, press-and-hold alternates on its keys, and any key the Action picker offers. What the keyboard draws, in order: the typing layout's own Numpad tab, the shared Numpad layout if you changed it, the layout's own **Number** layer if it authored one (key for key, in the order it drew them), and last the shipped pad in the digit order the switch above asks for.
 
 ### Undo/redo shortcut
 
@@ -197,7 +199,7 @@ A layout that authors its own **Number** layer in the [layout editor](/languages
 
 <SettingsPath path="Key press / Press and hold shortcuts" />
 
-One **Hold shortcuts** row with six chips, each off by default, each replacing that letter key's accent popup while it's on:
+One **Hold shortcuts** row with six chips, all on by default. Each one puts its command at the end of that letter key's press-and-hold popup, after the accents:
 
 - **Select all**
 - **Copy**: copies the current selection. If nothing is selected, it selects everything first.
@@ -206,7 +208,7 @@ One **Hold shortcuts** row with six chips, each off by default, each replacing t
 - **Undo**: the same shortcut as the toolbar's Undo tool.
 - **Redo**: the same shortcut as the toolbar's Redo tool.
 
-Turn any of the six on and a **Shortcut keys** row appears under it. A, C, V, X, Z and Y are the QWERTY answer, so on a layout with no Latin letters that row is where you move the six onto keys you actually have.
+A **Shortcut keys** row sits under them. A, C, V, X, Z and Y are the QWERTY answer, so on a layout with no Latin letters that row is where you move the six onto keys you actually have.
 
 This is the only place cut lives: there's no Cut button in the text-editing panel itself, and no Cut toolbar tool.
 

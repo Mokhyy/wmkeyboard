@@ -128,9 +128,9 @@ import com.wasimaster.wmkeyboard.core.settings.usesRandomSlot
 import com.wasimaster.wmkeyboard.core.settings.SidePadScaleRange
 import com.wasimaster.wmkeyboard.core.settings.ThemeGalleryStyle
 import com.wasimaster.wmkeyboard.core.settings.ThemeMode
-import com.wasimaster.wmkeyboard.core.settings.themeGalleryGrouped
 import com.wasimaster.wmkeyboard.core.settings.PoolEntry
 import com.wasimaster.wmkeyboard.core.settings.softenedForPhoto
+import com.wasimaster.wmkeyboard.core.settings.themeGalleryGrouped
 import com.wasimaster.wmkeyboard.core.tools.PhotoBackgroundManager
 import com.wasimaster.wmkeyboard.core.theme.BuiltInThemes
 import com.wasimaster.wmkeyboard.core.theme.DEFAULT_THEME_ID
@@ -188,6 +188,14 @@ import kotlin.math.roundToInt
 import androidx.compose.material.icons.outlined.SwapHoriz
 import com.wasimaster.wmkeyboard.core.theme.FlexResult
 import com.wasimaster.wmkeyboard.core.theme.FlexTheme
+import androidx.compose.material.icons.outlined.Crop169
+import androidx.compose.material.icons.outlined.CropFree
+import androidx.compose.material.icons.outlined.CropSquare
+import androidx.compose.material.icons.outlined.Layers
+import androidx.compose.material.icons.outlined.Shuffle
+import androidx.compose.material.icons.outlined.Keyboard
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Tune
 
 // ---- shared helpers ----
 
@@ -216,6 +224,51 @@ private fun themeModeLabelRes(mode: ThemeMode): Int = when (mode) {
     ThemeMode.LIGHT -> R.string.theme_mode_light_label
     ThemeMode.DARK -> R.string.theme_mode_dark_label
     ThemeMode.AMOLED -> R.string.theme_mode_amoled_label
+}
+
+/**
+ * What each mode does, one line, for the picker sheet. AMOLED needs it most:
+ * it names a screen technology rather than a shade, so the name alone does
+ * not say that it is dark, nor why anyone would want it.
+ */
+@StringRes
+private fun themeModeDescRes(mode: ThemeMode): Int = when (mode) {
+    ThemeMode.SYSTEM -> R.string.theme_mode_system_desc
+    ThemeMode.LIGHT -> R.string.theme_mode_light_desc
+    ThemeMode.DARK -> R.string.theme_mode_dark_desc
+    ThemeMode.AMOLED -> R.string.theme_mode_amoled_desc
+}
+
+/** What makes the auto pair change over, one line, for the picker sheet. */
+@StringRes
+private fun autoTriggerDescRes(trigger: AutoThemeTrigger): Int = when (trigger) {
+    AutoThemeTrigger.SYSTEM -> R.string.theme_auto_trigger_system_desc
+    AutoThemeTrigger.SCHEDULE -> R.string.theme_auto_trigger_schedule_desc
+    AutoThemeTrigger.SUN -> R.string.theme_auto_trigger_sun_desc
+}
+
+/** How a key wears its texture, one line, for the picker sheet. */
+@StringRes
+private fun textureScaleDescRes(scale: KeyTextureScale): Int = when (scale) {
+    KeyTextureScale.CROP -> R.string.theme_texture_scale_crop_desc
+    KeyTextureScale.STRETCH -> R.string.theme_texture_scale_stretch_desc
+    KeyTextureScale.TILE -> R.string.theme_texture_scale_tile_desc
+}
+
+/** What each animation moves, one line, for the picker sheet. */
+@StringRes
+private fun themeAnimationDescRes(anim: ThemeAnimation): Int = when (anim) {
+    ThemeAnimation.NONE -> R.string.theme_animation_none_desc
+    ThemeAnimation.FLOW -> R.string.theme_animation_flow_desc
+    ThemeAnimation.HUE_CYCLE -> R.string.theme_animation_hue_cycle_desc
+}
+
+/** How a gradient runs its colors, one line, for the picker sheet. */
+@StringRes
+private fun gradientTypeDescRes(type: GradientType): Int = when (type) {
+    GradientType.LINEAR -> R.string.theme_gradient_linear_desc
+    GradientType.RADIAL -> R.string.theme_gradient_radial_desc
+    GradientType.SWEEP -> R.string.theme_gradient_sweep_desc
 }
 
 /**
@@ -424,6 +477,12 @@ private fun ThemePickerDialog(
                     ),
                     selected = randomOn,
                     modifier = Modifier.padding(bottom = 4.dp),
+                    label = stringResource(R.string.theme_auto_slot_mode_label),
+                    detail = { random ->
+                        ChoiceDetail(
+                            icon = if (random) Icons.Outlined.Shuffle else Icons.Outlined.Palette,
+                        )
+                    },
                     onChange = onModeChange,
                 )
                 if (randomOn) {
@@ -929,15 +988,14 @@ fun ThemesScreen(
         }
     }
 
-    SettingsGroup(
-        stringResource(R.string.theme_mode_section_title),
-        info = stringResource(R.string.theme_mode_section_body),
-    ) {
+    SettingsGroup(stringResource(R.string.theme_mode_section_title)) {
         item {
             ChoiceControl(
                 options = ThemeMode.entries.map { it to stringResource(themeModeLabelRes(it)) },
                 selected = settings.themeMode,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                label = stringResource(R.string.theme_mode_choice_label),
+                detail = { mode -> ChoiceDetail(stringResource(themeModeDescRes(mode))) },
             ) { mode -> scope.launch { repository.setThemeMode(mode) } }
         }
         item {
@@ -1031,6 +1089,10 @@ fun ThemesScreen(
                     options = AutoThemeTrigger.entries.map { it to stringResource(it.labelRes) },
                     selected = auto.trigger,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    label = stringResource(R.string.theme_auto_trigger_label),
+                    detail = { trigger ->
+                        ChoiceDetail(stringResource(autoTriggerDescRes(trigger)))
+                    },
                 ) { trigger -> scope.launch { repository.setAutoThemeTrigger(trigger) } }
             }
             when (auto.trigger) {
@@ -1112,13 +1174,9 @@ fun ThemesScreen(
     // The gallery is a grid of theme cards, which are their own surfaces, so
     // it keeps a plain header rather than being wrapped in a settings card.
     val grouped = settings.themeGalleryGrouped()
-    SectionHeaderPublic(
-        stringResource(R.string.theme_gallery_section_title),
-        info = stringResource(
-            if (grouped) R.string.theme_gallery_style_grouped_body
-            else R.string.theme_gallery_style_flat_body,
-        ),
-    )
+    // The "?" used to describe whichever style was live, which said nothing
+    // about the other two; each style now describes itself in the picker.
+    SectionHeaderPublic(stringResource(R.string.theme_gallery_section_title))
     if (auto.enabled) {
         // Not a sentence telling the user where to go: the card carries the
         // switch that makes the gallery live again.
@@ -1131,6 +1189,8 @@ fun ThemesScreen(
         options = ThemeGalleryStyle.entries.map { it to stringResource(themeGalleryStyleLabelRes(it)) },
         selected = settings.appUi.themeGalleryStyle,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        label = stringResource(R.string.theme_gallery_style_label),
+        detail = { style -> ChoiceDetail(stringResource(themeGalleryStyleDescRes(style))) },
     ) { style -> scope.launch { repository.setThemeGalleryStyle(style) } }
     val newThemeName = stringResource(R.string.theme_new_default_name)
     val newThemeDark = isSystemInDarkTheme()
@@ -1356,6 +1416,14 @@ private fun themeGalleryStyleLabelRes(style: ThemeGalleryStyle): Int = when (sty
     ThemeGalleryStyle.AUTO -> R.string.theme_gallery_style_auto_label
     ThemeGalleryStyle.GROUPED -> R.string.theme_gallery_style_grouped_label
     ThemeGalleryStyle.FLAT -> R.string.theme_gallery_style_flat_label
+}
+
+/** What each gallery style shows, one line, for the picker sheet. */
+@StringRes
+private fun themeGalleryStyleDescRes(style: ThemeGalleryStyle): Int = when (style) {
+    ThemeGalleryStyle.AUTO -> R.string.theme_gallery_style_auto_desc
+    ThemeGalleryStyle.GROUPED -> R.string.theme_gallery_style_grouped_desc
+    ThemeGalleryStyle.FLAT -> R.string.theme_gallery_style_flat_desc
 }
 
 /**
@@ -2482,6 +2550,10 @@ fun ThemeEditorScreen(
                     },
                     selected = keyTextureScaleOrDefault(theme.keyTextureScale),
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    label = stringResource(R.string.theme_texture_scale_label),
+                    detail = { mode ->
+                        ChoiceDetail(stringResource(textureScaleDescRes(mode)))
+                    },
                 ) { mode -> update { t -> t.copy(keyTextureScale = mode.name) } }
             }
             item {
@@ -2710,6 +2782,22 @@ fun ThemeEditorScreen(
                     ?.lowercase()
                     ?.takeIf { it == "key" || it == "float" },
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                detail = { value ->
+                    ChoiceDetail(
+                        stringResource(
+                            when (value) {
+                                "key" -> R.string.theme_popup_placement_key_desc
+                                "float" -> R.string.theme_popup_placement_float_desc
+                                else -> R.string.theme_popup_placement_default_desc
+                            },
+                        ),
+                        when (value) {
+                            "key" -> Icons.Outlined.Keyboard
+                            "float" -> Icons.Outlined.Layers
+                            else -> Icons.Outlined.Tune
+                        },
+                    )
+                },
             ) { value -> update { t -> t.copy(popupPlacement = value) } }
         }
         item {
@@ -3202,6 +3290,7 @@ fun ThemeEditorScreen(
                 },
                 selected = theme.animation,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                detail = { anim -> ChoiceDetail(stringResource(themeAnimationDescRes(anim))) },
             ) { anim -> update { t -> t.copy(animation = anim) } }
         }
         if (theme.animation != ThemeAnimation.NONE) {
@@ -3353,9 +3442,35 @@ fun ThemeEditorScreen(
             }
             item {
                 val mode = keyEffectColorMode(theme.keyEffectColor)
+                // A swatch per option, since every one of these is a colour and
+                // the words for them ("Trail", "Accent") name where the colour
+                // comes from rather than what it looks like on this theme.
+                val colourDetail = mapOf(
+                    KeyEffectColorMode.NATURAL to
+                        ChoiceDetail(stringResource(R.string.theme_effect_color_natural_desc)),
+                    KeyEffectColorMode.KEY_TEXT to
+                        ChoiceDetail(stringResource(R.string.theme_effect_color_key_text_desc)) {
+                            Swatch(theme.keyText)
+                        },
+                    KeyEffectColorMode.ACCENT to
+                        ChoiceDetail(stringResource(R.string.theme_effect_color_accent_desc)) {
+                            Swatch(theme.accent)
+                        },
+                    KeyEffectColorMode.GESTURE_TRAIL to
+                        ChoiceDetail(stringResource(R.string.theme_effect_color_trail_desc)) {
+                            Swatch(theme.gestureTrailColor ?: theme.accent)
+                        },
+                    KeyEffectColorMode.CUSTOM to
+                        ChoiceDetail(stringResource(R.string.theme_effect_color_custom_desc)) {
+                            Swatch(theme.keyEffectCustomColor ?: theme.accent)
+                        },
+                    KeyEffectColorMode.RANDOM to
+                        ChoiceDetail(stringResource(R.string.theme_effect_color_random_desc)),
+                )
                 ChoiceSetting(
                     title = stringResource(R.string.theme_effect_color_title),
                     info = stringResource(R.string.theme_effect_color_body),
+                    detail = { colourDetail[it] },
                     options = KeyEffectColorMode.entries.map { option ->
                         option to when (option) {
                             KeyEffectColorMode.NATURAL ->
@@ -4151,6 +4266,8 @@ private fun GradientEditor(
         },
         selected = gradient.type,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        label = stringResource(R.string.theme_gradient_type_label),
+        detail = { type -> ChoiceDetail(stringResource(gradientTypeDescRes(type))) },
     ) { type -> onChange(gradient.copy(type = type)) }
     if (gradient.type != GradientType.RADIAL) {
         SliderRow(
@@ -4297,6 +4414,17 @@ private fun CropImageDialog(
                             FREE_CROP_ASPECT to stringResource(R.string.theme_crop_ratio_free_label),
                         ),
                         selected = aspect,
+                        label = stringResource(R.string.theme_crop_ratio_label),
+                        detail = { ratio ->
+                            ChoiceDetail(
+                                icon = when (ratio) {
+                                    FREE_CROP_ASPECT -> Icons.Outlined.CropFree
+                                    1f -> Icons.Outlined.CropSquare
+                                    2.4f -> Icons.Outlined.Keyboard
+                                    else -> Icons.Outlined.Crop169
+                                },
+                            )
+                        },
                     ) { value ->
                         aspect = value
                         zoom = 1f

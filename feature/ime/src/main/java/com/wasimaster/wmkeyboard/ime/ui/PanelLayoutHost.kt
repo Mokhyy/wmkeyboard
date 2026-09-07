@@ -1,9 +1,11 @@
 package com.wasimaster.wmkeyboard.ime.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Modifier
@@ -12,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import com.wasimaster.wmkeyboard.core.layout.BuiltInPanelLayouts
 import com.wasimaster.wmkeyboard.core.layout.Key
 import com.wasimaster.wmkeyboard.core.layout.KeyAction
+import com.wasimaster.wmkeyboard.core.layout.LayerSpec
 import com.wasimaster.wmkeyboard.core.layout.PanelFieldKind
 import com.wasimaster.wmkeyboard.core.layout.PanelKind
 import com.wasimaster.wmkeyboard.core.layout.PanelLayoutSpec
@@ -19,6 +22,7 @@ import com.wasimaster.wmkeyboard.core.settings.EmojiBarMode
 import com.wasimaster.wmkeyboard.core.settings.TextEditAction
 import com.wasimaster.wmkeyboard.ime.KeyboardUiState
 import com.wasimaster.wmkeyboard.ime.PanelMode
+import com.wasimaster.wmkeyboard.ime.layoutKind
 import com.wasimaster.wmkeyboard.ime.R
 
 /**
@@ -59,9 +63,58 @@ internal class TrackpadFieldCallbacks(
     fun onSpace() = onKey(Key(" ", action = KeyAction.Space))
 }
 
-/** The layout the keyboard draws for [kind], from the state or the shipped set. */
-internal fun KeyboardUiState.panelLayout(kind: PanelKind): PanelLayoutSpec =
-    panelLayouts[kind] ?: BuiltInPanelLayouts.default(kind)
+/**
+ * The layout the keyboard draws for [kind]: the typing layout's own grid when
+ * it carries one (issue #63, per layout), else the user's shared panel layout,
+ * else the shipped set. The one place this is decided; the service's
+ * persistence check reads it too.
+ */
+internal fun KeyboardUiState.panelLayout(kind: PanelKind): PanelLayoutSpec {
+    layouts.panels[kind]?.let { return it }
+    val shared = panelLayouts[kind]
+    // The shared map carries the shipped grid for a panel the user never
+    // edited; only a grid of the user's own outranks what follows.
+    if (shared != null && shared != BuiltInPanelLayouts.default(kind)) return shared
+    if (kind == PanelKind.NUMPAD) {
+        // Issue #55 kept: a layout that authored its own Number layer is drawn
+        // on the pad. Below that, the shipped pad in the digit order the
+        // Numpad tool's setting asks for.
+        layouts.number?.let { number ->
+            return PanelLayoutSpec(
+                PanelKind.NUMPAD,
+                LayerSpec(rows = number.rows, rowHeights = number.rowHeights),
+                appearance = number.appearance,
+            )
+        }
+        return BuiltInPanelLayouts.numpad(calculator = settings.numpadCalculatorLayout)
+    }
+    return shared ?: BuiltInPanelLayouts.default(kind)
+}
+
+/**
+ * The theme the grid on screen asks for (issue #61, and #63's panels): an
+ * open panel layout's own theme first, then the typing grid's — a layer's,
+ * else its layout's — else null for whatever the settings say. A panel with
+ * no theme of its own draws in its layout's, so a themed layout's panels
+ * match it unless told otherwise.
+ */
+internal fun screenThemeId(state: KeyboardUiState): String? =
+    state.panel.layoutKind?.let { state.panelLayout(it).grid.themeId }
+        ?: currentLayout(state).themeId
+
+/**
+ * The first row of an emoji layout when it is nothing but the tab strip and
+ * the search pill — the row full-bleed lifts into its header — or null.
+ */
+internal fun PanelLayoutSpec.leadingStrip(): List<Key>? {
+    val row = grid.rows.firstOrNull() ?: return null
+    if (grid.rows.size < 2 || row.isEmpty()) return null
+    val strip = row.all { key ->
+        val kind = (key.action as? KeyAction.Field)?.kind
+        kind == PanelFieldKind.EMOJI_TABS || kind == PanelFieldKind.EMOJI_SEARCH
+    }
+    return if (strip) row else null
+}
 
 /**
  * The emoji panel. Search mode keeps its compact form — the key rows return
@@ -81,10 +134,38 @@ internal fun EmojiPanelHost(state: KeyboardUiState, callbacks: PanelLayoutCallba
             EmojiField(kind, state, session, callbacks.emoji)
         }
         if (state.settings.emojiFullBleed) {
-            // The tabs are a cell of the layout now, so the header is back and
-            // the panel's name and nothing else.
-            FullBleedTool(state, stringResource(R.string.ime_tool_emoji), onClose = onClose) {
-                PanelLayoutGrid(state, spec, callbacks, onClose, fields, Modifier.fillMaxSize())
+            // Full-bleed spends the reclaimed toolbar row on the panel's own
+            // strip, as it always has: a first row made only of the tabs and the
+            // search pill moves up into the header beside the back button, and
+            // the grid starts right under it. A layout that puts something else
+            // in its first row keeps the plain header with the panel's name.
+            val strip = spec.leadingStrip()
+            if (strip != null) {
+                val rest = spec.copy(
+                    grid = spec.grid.copy(
+                        rows = spec.grid.rows.drop(1),
+                        rowHeights = spec.grid.rowHeights?.drop(1),
+                    ),
+                )
+                FullBleedTool(
+                    state, title = "", onClose = onClose,
+                    headerActions = {
+                        for (key in strip) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(key.width)
+                                    .fillMaxHeight()
+                                    .padding(horizontal = 2.dp),
+                            ) { fields((key.action as KeyAction.Field).kind) }
+                        }
+                    },
+                ) {
+                    PanelLayoutGrid(state, rest, callbacks, onClose, fields, Modifier.fillMaxSize())
+                }
+            } else {
+                FullBleedTool(state, stringResource(R.string.ime_tool_emoji), onClose = onClose) {
+                    PanelLayoutGrid(state, spec, callbacks, onClose, fields, Modifier.fillMaxSize())
+                }
             }
         } else {
             // The always-on emoji row hides while this panel is open; absorbing
@@ -138,11 +219,17 @@ internal fun ClipboardPanelHost(state: KeyboardUiState, callbacks: PanelLayoutCa
     val fields: @Composable (PanelFieldKind) -> Unit = { kind ->
         ClipboardField(kind, state, session, callbacks.clipboard)
     }
+    // The strips only exist when they have something to show, as before: a
+    // row holding nothing but an empty strip takes no height.
+    val collapsed = buildSet {
+        if (!session.showSearch) add(PanelFieldKind.CLIPBOARD_SEARCH)
+        if (session.entities.isEmpty()) add(PanelFieldKind.CLIPBOARD_ENTITIES)
+    }
     if (state.settings.clipboard.fullBleed) {
         // Full-bleed (opt-in): the toolbar row becomes the back header and the
         // reclaimed rows go to the history.
         FullBleedTool(state, stringResource(R.string.ime_tool_clipboard), onClose = onClose) {
-            PanelLayoutGrid(state, spec, callbacks, onClose, fields, Modifier.fillMaxSize())
+            PanelLayoutGrid(state, spec, callbacks, onClose, fields, Modifier.fillMaxSize(), collapsed)
         }
     } else {
         Box(
@@ -150,7 +237,7 @@ internal fun ClipboardPanelHost(state: KeyboardUiState, callbacks: PanelLayoutCa
                 .fillMaxWidth()
                 .height(keyRowsHeight(state)),
         ) {
-            PanelLayoutGrid(state, spec, callbacks, onClose, fields, Modifier.fillMaxSize())
+            PanelLayoutGrid(state, spec, callbacks, onClose, fields, Modifier.fillMaxSize(), collapsed)
         }
     }
 }
@@ -166,6 +253,27 @@ internal fun TextEditPanelHost(state: KeyboardUiState, callbacks: PanelLayoutCal
     ) {
         PanelLayoutGrid(
             state, state.panelLayout(PanelKind.TEXT_EDIT), callbacks, onClose,
+            fields = { _ -> },
+            modifier = Modifier.fillMaxSize(),
+        )
+    }
+}
+
+/**
+ * The Numpad tool's pad, a keys-only panel layout like the text-editing pad
+ * (issue #63): the layout's own tab, the shared pad, the layout's Number
+ * layer or the shipped pad, in that order — see [panelLayout].
+ */
+@Composable
+internal fun NumpadPanelHost(state: KeyboardUiState, callbacks: PanelLayoutCallbacks) {
+    val onClose = { callbacks.onPanelChange(PanelMode.NUMPAD) }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(keyRowsHeight(state)),
+    ) {
+        PanelLayoutGrid(
+            state, state.panelLayout(PanelKind.NUMPAD), callbacks, onClose,
             fields = { _ -> },
             modifier = Modifier.fillMaxSize(),
         )

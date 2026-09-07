@@ -73,6 +73,35 @@ data class Key(
      * See [KeyAlternate] for why the two lists stay separate.
      */
     val actionAlternates: List<KeyAlternate> = emptyList(),
+    /**
+     * Draws [actionAlternates] *before* the [longPress] characters instead of
+     * after them, which puts the first of them at entry 0 — the entry a plain
+     * hold-and-release commits when hold-to-select is on.
+     *
+     * Set at resolve time from
+     * [com.wasimaster.wmkeyboard.core.settings.LongPressLetterActions.actionFirst],
+     * not authored: it is the user saying they would rather a held `c` copy
+     * than type ç. Authoring it is harmless and does the same thing.
+     *
+     * Read only through [alternateEntries] — the order lives there so the
+     * popup's draw and its commit cannot disagree about which entry is which.
+     */
+    val actionAlternatesFirst: Boolean = false,
+    /**
+     * Columns this key's alternates popup lays itself out on, or 0 to follow the
+     * global setting (issue #64).
+     *
+     * Per key rather than only per keyboard because the popups differ in kind:
+     * the `1` key of a fractions layout carries a dozen entries that want a grid,
+     * while `e` carries four accents that want one row. A count that suits one is
+     * wrong for the other, and the point of fixing the count at all is that a
+     * given key's popup looks the same every time it opens.
+     *
+     * 0 is not a column count but the absence of one: the key defers to
+     * `KeyPopupSettings.alternatesColumns`, which is itself 0 (automatic wrap) by
+     * default. Anything else is in [AlternateColumnsRange].
+     */
+    val alternateColumns: Int = 0,
     /** Clipboard shortcut fired on long press instead of the alternates popup. */
     val clipboardAction: ClipboardKeyAction? = null,
     /** What this key means to field adaptation; null infers it from position. */
@@ -169,6 +198,44 @@ fun Key.opensAlternatesPopup(): Boolean =
  * question the layout editor asks before drawing the fields that author them.
  */
 fun Key.canHoldAlternates(): Boolean = clipboardAction == null && !action.holdIsSpokenFor()
+
+/**
+ * Column counts a fixed alternates grid may be set to, on [Key.alternateColumns]
+ * or on the global setting behind it.
+ *
+ * 0 is deliberately outside it: that value is "no count", not a count of none.
+ * Below three a popup is a list rather than a grid, and past eleven the entries
+ * are narrower than a fingertip on a phone.
+ */
+val AlternateColumnsRange: IntRange = 3..11
+
+/** One entry of the alternates popup: a character to type, or an action to run. */
+sealed interface AlternateEntry {
+    /** One of [Key.longPress] — committed with the key's text path. */
+    @JvmInline
+    value class Character(val text: String) : AlternateEntry
+
+    /** One of [Key.actionAlternates] — committed as a key press. */
+    @JvmInline
+    value class Action(val alternate: KeyAlternate) : AlternateEntry
+}
+
+/**
+ * The popup's entries in the one order everything must agree on: the characters
+ * then the actions, or the reverse when [Key.actionAlternatesFirst] is set.
+ *
+ * A function rather than a rule each reader re-implements, because the index is
+ * the entry's identity. Two places consume it — the popup's draw and the
+ * hold-to-select commit — and when they disagreed by one the popup highlighted
+ * à and committed select-all. Position 0 also matters on its own: with
+ * hold-to-select on it is what a plain hold-and-release fires, which is the
+ * whole point of [Key.actionAlternatesFirst].
+ */
+fun Key.alternateEntries(): List<AlternateEntry> {
+    val characters = longPress.map { AlternateEntry.Character(it) }
+    val actions = actionAlternates.map { AlternateEntry.Action(it) }
+    return if (actionAlternatesFirst) actions + characters else characters + actions
+}
 
 /**
  * What a [Key.labelScale] is honoured at.

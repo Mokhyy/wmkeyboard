@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
+import android.text.format.Formatter
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -68,6 +69,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.os.Build
+import com.wasimaster.wmkeyboard.core.handwriting.HandwritingDownloadProgress
+import com.wasimaster.wmkeyboard.core.handwriting.HandwritingModelSizes
 import com.wasimaster.wmkeyboard.core.handwriting.HandwritingModels
 import com.wasimaster.wmkeyboard.core.icons.IconSlots
 import com.wasimaster.wmkeyboard.core.util.runCancellable
@@ -105,12 +108,21 @@ import com.wasimaster.wmkeyboard.core.layout.language
 import com.wasimaster.wmkeyboard.core.settings.LauncherToolSettings
 import com.wasimaster.wmkeyboard.core.settings.KeyboardSettings
 import com.wasimaster.wmkeyboard.core.settings.isSupportedTool
-import com.wasimaster.wmkeyboard.core.settings.isUsableTool
+import com.wasimaster.wmkeyboard.core.settings.ToolBlocker
+import com.wasimaster.wmkeyboard.core.settings.toolBlocker
 import com.wasimaster.wmkeyboard.core.settings.PowerSavingTrigger
 import com.wasimaster.wmkeyboard.core.settings.SettingsRepository
 import com.wasimaster.wmkeyboard.core.settings.ToolbarTool
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+import androidx.compose.material.icons.outlined.AltRoute
+import androidx.compose.material.icons.outlined.Keyboard
+import androidx.compose.material.icons.outlined.Timer10
+import androidx.compose.material.icons.outlined.Timer3
+import androidx.compose.material.icons.outlined.TimerOff
+import androidx.compose.material.icons.outlined.PhotoSizeSelectActual
+import androidx.compose.material.icons.outlined.PhotoSizeSelectLarge
+import androidx.compose.material.icons.outlined.PhotoSizeSelectSmall
 
 /**
  * What a press and hold on this tool does while it is pinned to the toolbar.
@@ -246,15 +258,19 @@ internal fun ToolDetailSettings(
     val daysAheadFormat = stringResource(R.string.values_days_ahead)
     SettingsGroup {
         item {
-            // The search tools need a key before they can be switched on; the
-            // field that takes one is further down this same screen.
-            val usable = isUsableTool(tool, settings)
+            // A blocked tool cannot be switched on; what unblocks it is further
+            // down this same screen (the key field, the Key layouts link), and
+            // the subtitle names it rather than guessing a key.
+            val blocker = toolBlocker(tool, settings)
+            val usable = blocker == null
             ToggleSetting(
                 CommonR.string.common_enable,
-                if (usable) {
-                    stringResource(R.string.tooldetail_enabled_subtitle)
-                } else {
-                    stringResource(R.string.tooldetail_enabled_needs_key_subtitle)
+                when (blocker) {
+                    null -> stringResource(R.string.tooldetail_enabled_subtitle)
+                    ToolBlocker.NEEDS_SEARCH_KEY ->
+                        stringResource(R.string.tooldetail_enabled_needs_key_subtitle)
+                    ToolBlocker.NEEDS_SECONDARY_LAYOUT ->
+                        stringResource(R.string.tooldetail_enabled_needs_layout_subtitle)
                 },
                 usable && tool in settings.enabledTools,
                 switchKey = landingKey("switch"),
@@ -270,11 +286,11 @@ internal fun ToolDetailSettings(
                 ColorSetting(
                     // With the gradients off there is one colour and it needs
                     // no qualifier; with them on the two rows have to say which
-                    // end of the gradient each one is.
-                    title = stringResource(
-                        if (gradient) R.string.tooldetail_icon_colour_start_title
-                        else R.string.tooldetail_icon_colour_title,
-                    ),
+                    // end of the gradient each one is. Named by resource rather
+                    // than resolved here, so the row picks its icon out of
+                    // [SettingsRowIcons] like every other settings row.
+                    title = if (gradient) R.string.tooldetail_icon_colour_start_title
+                    else R.string.tooldetail_icon_colour_title,
                     color = settings.toolColorOverrides[tool],
                     fallback = toolAccentColorArgb(tool),
                     onChange = { scope.launch { repository.setToolColor(tool, it) } },
@@ -283,7 +299,7 @@ internal fun ToolDetailSettings(
             if (gradient) {
                 item {
                     ColorSetting(
-                        title = stringResource(R.string.tooldetail_icon_colour_end_title),
+                        title = R.string.tooldetail_icon_colour_end_title,
                         color = settings.toolColorEndOverrides[tool],
                         // Derived from whichever colour the near end currently
                         // is, so the pair moves together until it is pinned.
@@ -646,6 +662,15 @@ internal fun ToolDetailSettings(
                         selected = settings.camera.timerSeconds,
                         info = stringResource(R.string.tooldetail_camera_timer_info),
                         default = SettingsDefaults.camera.timerSeconds,
+                        detail = { seconds ->
+                            ChoiceDetail(
+                                icon = when (seconds) {
+                                    3 -> Icons.Outlined.Timer3
+                                    10 -> Icons.Outlined.Timer10
+                                    else -> Icons.Outlined.TimerOff
+                                },
+                            )
+                        },
                     ) { scope.launch { repository.setCameraTimerSeconds(it) } }
                 }
                 item {
@@ -662,6 +687,23 @@ internal fun ToolDetailSettings(
                         selected = settings.camera.captureMaxPx,
                         info = stringResource(R.string.tooldetail_camera_resolution_info),
                         default = SettingsDefaults.camera.captureMaxPx,
+                        detail = { px ->
+                            ChoiceDetail(
+                                stringResource(
+                                    when {
+                                        px <= 1000 -> R.string.tooldetail_camera_resolution_small_desc
+                                        px <= 1600 -> R.string.tooldetail_camera_resolution_medium_desc
+                                        px <= 2400 -> R.string.tooldetail_camera_resolution_large_desc
+                                        else -> R.string.tooldetail_camera_resolution_max_desc
+                                    },
+                                ),
+                                when {
+                                    px <= 1000 -> Icons.Outlined.PhotoSizeSelectSmall
+                                    px <= 1600 -> Icons.Outlined.PhotoSizeSelectLarge
+                                    else -> Icons.Outlined.PhotoSizeSelectActual
+                                },
+                            )
+                        },
                     ) { scope.launch { repository.setCameraCaptureMaxPx(it) } }
                 }
                 item {
@@ -913,6 +955,22 @@ internal fun ToolDetailSettings(
                     default = SettingsDefaults.numpadCalculatorLayout,
                 ) { scope.launch { repository.setNumpadCalculatorLayout(it) } }
             }
+            item {
+                // The pad is a panel layout now (issue #63): the same editor
+                // and the same row the text-editing pad has.
+                val customPanels by repository.customPanelLayouts.collectAsStateWithLifecycle(emptyList())
+                NavRow(
+                    title = R.string.panel_layout_row_title,
+                    subtitle = stringResource(R.string.panel_layout_row_subtitle),
+                    value = stringResource(
+                        if (customPanels.none { it.panel == PanelKind.NUMPAD }) {
+                            R.string.panel_layout_value_default
+                        } else {
+                            R.string.panel_layout_value_custom
+                        },
+                    ),
+                ) { onNavigate("panel_edit/${PanelKind.NUMPAD.name}") }
+            }
         }
         ToolbarTool.INCOGNITO -> {
             SettingsGroup(stringResource(R.string.tooldetail_incognito_group)) {
@@ -963,6 +1021,7 @@ internal fun ToolDetailSettings(
                         options = PowerSavingTrigger.entries.map { it to stringResource(it.labelRes) },
                         selected = ps.trigger,
                         default = SettingsDefaults.powerSaving.trigger,
+                        detail = { trigger -> ChoiceDetail(stringResource(powerTriggerDescRes(trigger))) },
                     ) { scope.launch { repository.setPowerSavingTrigger(it) } }
                 }
                 if (ps.trigger == PowerSavingTrigger.LOW_BATTERY ||
@@ -1197,6 +1256,12 @@ internal fun ToolDetailSettings(
                             secondaries.map { it.id to it.name },
                         selected = behavior.customLayoutToolId
                             ?.takeIf { id -> secondaries.any { it.id == id } },
+                        detail = { id ->
+                            ChoiceDetail(
+                                icon = if (id == null) Icons.Outlined.AltRoute
+                                else Icons.Outlined.Keyboard,
+                            )
+                        },
                     ) { scope.launch { repository.setCustomLayoutToolLayout(it) } }
                 }
                 item {
@@ -1385,6 +1450,17 @@ internal fun ToolDetailSettings(
                             ),
                             selected = settings.stickerSendMode,
                             default = SettingsDefaults.stickerSendMode,
+                            detail = { mode ->
+                                ChoiceDetail(
+                                    stringResource(
+                                        if (mode == MediaSendMode.STICKER) {
+                                            R.string.tooldetail_media_sticker_send_sticker_desc
+                                        } else {
+                                            R.string.tooldetail_media_sticker_send_image_desc
+                                        },
+                                    ),
+                                )
+                            },
                         ) { scope.launch { repository.setStickerSendMode(it) } }
                     } else {
                         ChoiceSetting(
@@ -1397,14 +1473,22 @@ internal fun ToolDetailSettings(
                             ),
                             selected = settings.gifSendMode,
                             default = SettingsDefaults.gifSendMode,
+                            detail = { mode ->
+                                ChoiceDetail(
+                                    stringResource(
+                                        if (mode == MediaSendMode.STICKER) {
+                                            R.string.tooldetail_media_gif_send_sticker_desc
+                                        } else {
+                                            R.string.tooldetail_media_gif_send_image_desc
+                                        },
+                                    ),
+                                )
+                            },
                         ) { scope.launch { repository.setGifSendMode(it) } }
                     }
                 }
             }
-            SectionHeader(
-                stringResource(R.string.tooldetail_media_sources_header),
-                info = stringResource(R.string.tooldetail_media_sources_info),
-            )
+            SectionHeader(stringResource(R.string.tooldetail_media_sources_header))
             ChoiceControl(
                 options = GifSourceMode.entries.map { mode ->
                     mode to when (mode) {
@@ -1414,6 +1498,7 @@ internal fun ToolDetailSettings(
                 },
                 selected = settings.gifSourceMode,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                detail = { mode -> ChoiceDetail(stringResource(gifSourceDescRes(mode))) },
             ) { mode -> scope.launch { repository.setGifSourceMode(mode) } }
             SectionHeader(
                 stringResource(R.string.tooldetail_media_filter_header),
@@ -1431,6 +1516,7 @@ internal fun ToolDetailSettings(
                 },
                 selected = settings.gifContentFilter,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                detail = { filter -> ChoiceDetail(stringResource(gifFilterDescRes(filter))) },
             ) { filter -> scope.launch { repository.setGifContentFilter(filter) } }
             SettingsGroup(stringResource(R.string.tooldetail_media_limit_group)) {
                 item {
@@ -1856,6 +1942,17 @@ internal fun ToolDetailSettings(
                         ),
                         selected = settings.qrSendMode,
                         default = SettingsDefaults.qrSendMode,
+                        detail = { mode ->
+                            ChoiceDetail(
+                                stringResource(
+                                    if (mode == MediaSendMode.STICKER) {
+                                        R.string.tooldetail_qr_gen_send_sticker_desc
+                                    } else {
+                                        R.string.tooldetail_qr_gen_send_image_desc
+                                    },
+                                ),
+                            )
+                        },
                     ) { scope.launch { repository.setQrSendMode(it) } }
                 }
                 item {
@@ -1874,6 +1971,7 @@ internal fun ToolDetailSettings(
                 options = QrEccLevel.entries.map { it to it.name },
                 selected = settings.qrEcc,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                detail = { level -> ChoiceDetail(stringResource(qrEccDescRes(level))) },
             ) { level -> scope.launch { repository.setQrEcc(level) } }
             SettingsGroup {
                 item {
@@ -1992,6 +2090,7 @@ internal fun ToolDetailSettings(
         }
         ToolbarTool.TYPING_TEST -> TypingTestToolSettings(repository, settings)
         ToolbarTool.AI -> AiToolSettings(repository, settings, onNavigate)
+        ToolbarTool.VOCABULARY -> VocabularyToolSettings(repository, settings, onNavigate)
         ToolbarTool.MODES -> SettingsGroup(stringResource(R.string.tooldetail_modes_group)) {
             item {
                 NavRow(
@@ -2707,6 +2806,45 @@ internal fun openSubtypeEnabler(context: Context) {
         runCatching { context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) }
     }
 }
+
+/**
+ * What a running download has to say for itself. Before the first byte there
+ * is only the wait, and calling that "downloading" is what makes a slow start
+ * look like a hang.
+ */
+@Composable
+private fun downloadSubtitle(progress: HandwritingDownloadProgress?): String {
+    val context = LocalContext.current
+    val bytes = progress?.bytes ?: 0L
+    if (bytes <= 0L) return stringResource(R.string.privacy_handwriting_status_preparing)
+    val size = Formatter.formatShortFileSize(context, bytes)
+    val total = progress?.totalBytes ?: 0L
+    return when {
+        (progress?.stalledForMs ?: 0L) >= HANDWRITING_STALL_HINT_MS ->
+            stringResource(R.string.privacy_handwriting_status_stalled, size)
+        total > 0L -> stringResource(
+            R.string.privacy_handwriting_status_downloading_of_total,
+            size,
+            Formatter.formatShortFileSize(context, total),
+        )
+        else -> stringResource(R.string.privacy_handwriting_status_downloading, size)
+    }
+}
+
+/** "Not downloaded", with what downloading it would actually cost. */
+@Composable
+private fun missingSubtitle(installedBytes: Long): String {
+    val context = LocalContext.current
+    if (installedBytes <= 0L) return stringResource(R.string.privacy_handwriting_status_missing)
+    return stringResource(
+        R.string.privacy_handwriting_status_missing_sized,
+        Formatter.formatShortFileSize(context, installedBytes),
+    )
+}
+
+/** How long with nothing arriving before the row admits it is stuck. */
+private const val HANDWRITING_STALL_HINT_MS = 20_000L
+
 /**
  * Download/delete state for the handwriting model of every language the user
  * types in — drawn from ML Kit's full ink catalogue, then narrowed to the
@@ -2723,12 +2861,19 @@ private fun HandwritingModelManager(settings: KeyboardSettings) {
         settings.enabledLanguages.distinctBy { it.id }
             .filter { HandwritingModels.tagFor(it) == null }
     }
+    val context = LocalContext.current
     // tag -> "checking" | "missing" | "downloaded" | "downloading" | "error"
     val statuses = remember { mutableStateMapOf<String, String>() }
+    // Live byte counts while a download runs, measured off disk — ML Kit's
+    // API reports no progress — and checked against the size it ships in its
+    // own asset manifest.
+    val progress = remember { mutableStateMapOf<String, HandwritingDownloadProgress>() }
+    val sizes = remember { mutableStateMapOf<String, Long>() }
     LaunchedEffect(languages) {
         for (language in languages) {
             statuses[language.tag] =
                 if (HandwritingModels.isDownloaded(language.tag)) "downloaded" else "missing"
+            sizes[language.tag] = HandwritingModelSizes.installedBytes(context, language.tag)
         }
     }
     if (languages.isEmpty()) {
@@ -2744,9 +2889,9 @@ private fun HandwritingModelManager(settings: KeyboardSettings) {
                     subtitle = when (status) {
                             "checking" -> stringResource(R.string.privacy_handwriting_status_checking)
                             "downloaded" -> stringResource(R.string.privacy_handwriting_status_downloaded)
-                            "downloading" -> stringResource(CommonR.string.common_downloading)
+                            "downloading" -> downloadSubtitle(progress[language.tag])
                             "error" -> stringResource(R.string.privacy_handwriting_status_failed)
-                            else -> stringResource(R.string.privacy_handwriting_status_missing)
+                            else -> missingSubtitle(sizes[language.tag] ?: 0L)
                         },
                     trailing = {
                         when (status) {
@@ -2772,8 +2917,14 @@ private fun HandwritingModelManager(settings: KeyboardSettings) {
                             }
                             else -> TextButton(onClick = {
                                 statuses[language.tag] = "downloading"
+                                progress[language.tag] = HandwritingDownloadProgress()
                                 scope.launch {
-                                    val ok = runCancellable { HandwritingModels.download(language.tag) }.isSuccess
+                                    val ok = runCancellable {
+                                        HandwritingModels.download(context, language.tag) {
+                                            progress[language.tag] = it
+                                        }
+                                    }.isSuccess
+                                    progress.remove(language.tag)
                                     statuses[language.tag] = if (ok) "downloaded" else "error"
                                 }
                             }) { Text(stringResource(CommonR.string.common_download)) }
@@ -2978,3 +3129,40 @@ internal fun WeatherLocationSetting(repository: SettingsRepository, settings: Ke
  */
 @StringRes
 internal val AUTO_INCOGNITO_INFO = R.string.privacy_auto_incognito_info
+
+/** What arms power saving under each answer, one line, for the picker sheet. */
+private fun powerTriggerDescRes(trigger: PowerSavingTrigger): Int = when (trigger) {
+    PowerSavingTrigger.OFF -> R.string.tooldetail_power_trigger_off_desc
+    PowerSavingTrigger.SYSTEM_SAVER -> R.string.tooldetail_power_trigger_system_desc
+    PowerSavingTrigger.LOW_BATTERY -> R.string.tooldetail_power_trigger_low_desc
+    PowerSavingTrigger.EITHER -> R.string.tooldetail_power_trigger_either_desc
+}
+
+/** How the GIF panel arranges its sources, one line, for the picker sheet. */
+private fun gifSourceDescRes(mode: GifSourceMode): Int = when (mode) {
+    GifSourceMode.TABS -> R.string.tooldetail_media_source_tabs_desc
+    GifSourceMode.MIX -> R.string.tooldetail_media_source_mixed_desc
+}
+
+/**
+ * What each filter level hides, with the rating it maps to. The level names
+ * are a scale with nothing on it: "Medium" says it is between two others and
+ * says nothing about what comes back.
+ */
+private fun gifFilterDescRes(filter: GifContentFilter): Int = when (filter) {
+    GifContentFilter.OFF -> R.string.tooldetail_media_filter_off_desc
+    GifContentFilter.LOW -> R.string.tooldetail_media_filter_low_desc
+    GifContentFilter.MEDIUM -> R.string.tooldetail_media_filter_medium_desc
+    GifContentFilter.HIGH -> R.string.tooldetail_media_filter_high_desc
+}
+
+/**
+ * What each error correction level buys and costs. The option names are the
+ * standard's own letters, so the sheet is the only place this can be said.
+ */
+private fun qrEccDescRes(level: QrEccLevel): Int = when (level) {
+    QrEccLevel.L -> R.string.tooldetail_qr_gen_ecc_l_desc
+    QrEccLevel.M -> R.string.tooldetail_qr_gen_ecc_m_desc
+    QrEccLevel.Q -> R.string.tooldetail_qr_gen_ecc_q_desc
+    QrEccLevel.H -> R.string.tooldetail_qr_gen_ecc_h_desc
+}

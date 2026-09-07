@@ -7,7 +7,14 @@
          theme gallery and in every theme picker. -->
     <string name="theme_default_name">Default (system)</string>
     <string name="theme_mode_section_title">Mode</string>
-    <string name="theme_mode_section_body">This applies to the settings app and to the Default theme.</string>
+    <!-- Caption over the light/dark choice. It says which two things the
+         choice applies to, because the option names do not. -->
+    <string name="theme_mode_choice_label">Light or dark, for the settings app and the Default theme</string>
+    <!-- Descriptions of the four modes. -->
+    <string name="theme_mode_system_desc">Follows the light and dark setting of your device</string>
+    <string name="theme_mode_light_desc">Always light, whatever your device is set to</string>
+    <string name="theme_mode_dark_desc">Always dark, whatever your device is set to</string>
+    <string name="theme_mode_amoled_desc">Dark, with a true black background. This saves battery on an OLED screen</string>
     <string name="theme_mode_system_label">System</string>
     <string name="theme_mode_light_label">Light</string>
     <string name="theme_mode_dark_label">Dark</string>
@@ -25,6 +32,8 @@
     <string name="theme_auto_dark_title">Dark theme</string>
     <!-- The two modes of one half of the pair, in the theme picker. "One
          theme" shows the same theme every time. "Random" selects from a set. -->
+    <!-- Caption over that choice. -->
+    <string name="theme_auto_slot_mode_label">Which theme to show</string>
     <string name="theme_auto_slot_mode_one_label">One theme</string>
     <string name="theme_auto_slot_mode_random_label">Random</string>
     <string name="theme_auto_slot_random_body">Select the themes you want. The keyboard shows one of them at a time.</string>
@@ -39,6 +48,13 @@
     <string name="theme_shuffle_now_subtitle">Select a new theme from your sets</string>
     <!-- Button that selects a new theme immediately. -->
     <string name="theme_shuffle_now_action">Change</string>
+    <!-- Caption over the choice of what makes the keyboard change between the
+         light theme and the dark theme. -->
+    <string name="theme_auto_trigger_label">When to change between them</string>
+    <!-- Descriptions of the three ways the pair changes over. -->
+    <string name="theme_auto_trigger_system_desc">Changes with the light and dark setting of your device</string>
+    <string name="theme_auto_trigger_schedule_desc">Changes at two times that you set</string>
+    <string name="theme_auto_trigger_sun_desc">Changes at sunrise and sunset where you are. This needs a saved location</string>
     <string name="theme_auto_trigger_system_body">The keyboard follows the light and dark setting of your device. This includes any schedule that Android runs for it.</string>
     <string name="theme_auto_light_from_title">Light theme from</string>
     <string name="theme_auto_dark_from_title">Dark theme from</string>
@@ -67,13 +83,15 @@
     <string name="theme_gallery_auto_on_body">Auto theme is on, so the gallery only shows what it would look like.</string>
     <!-- How the gallery shows a theme that has more than one look. Auto
          follows the answer from the setup questions. -->
+    <!-- Caption over that choice. -->
+    <string name="theme_gallery_style_label">How a theme with more than one look shows</string>
     <string name="theme_gallery_style_auto_label">Auto</string>
     <string name="theme_gallery_style_grouped_label">Grouped</string>
     <string name="theme_gallery_style_flat_label">Separate</string>
-    <!-- Caption over the choice when the gallery groups the looks. -->
-    <string name="theme_gallery_style_grouped_body">A theme with more than one look shows as one card. Press a dot on the card to use that look.</string>
-    <!-- Caption over the choice when every look is its own card. -->
-    <string name="theme_gallery_style_flat_body">Every look of every theme shows as its own card.</string>
+    <!-- Descriptions of the three gallery styles. -->
+    <string name="theme_gallery_style_auto_desc">Follows the answer you gave in the setup questions</string>
+    <string name="theme_gallery_style_grouped_desc">A theme with more than one look shows as one card. Press a dot on the card to use that look</string>
+    <string name="theme_gallery_style_flat_desc">Every look of every theme shows as its own card</string>
     <string name="theme_create_action">Create theme</string>
     <!-- Name the app gives to a theme the user has just created. The user can
          change it in the theme editor. -->
@@ -194,6 +212,10 @@
     <string name="theme_popup_text_title">Popup text</string>
     <string name="theme_popup_shape_title">Popup shape</string>
     <string name="theme_popup_placement_title">Popup placement</string>
+    <!-- Descriptions of the three popup placements. -->
+    <string name="theme_popup_placement_default_desc">Uses the placement from the keyboard settings</string>
+    <string name="theme_popup_placement_key_desc">The bubble grows out of the key that you press</string>
+    <string name="theme_popup_placement_float_desc">The bubble floats above the key, apart from it</string>
     <string name="theme_popup_placement_default_label">Default</string>
     <string name="theme_popup_placement_key_label">On the key</string>
     <string name="theme_popup_placement_float_label">Floating</string>
@@ -256,7 +278,11 @@
     <!-- Theme editor: animation. "Flow" and "Hue cycle" are the two names
          below. -->
     <string name="theme_animation_section_title">Animation</string>
-    <string name="theme_animation_section_body">Flow moves the board gradient slowly. Hue cycle turns the colors of the gradient, or the solid board color. The animation runs only while the keyboard is visible.</string>
+    <string name="theme_animation_section_body">An animation runs only while the keyboard is on the screen.</string>
+    <!-- Descriptions of the animations. -->
+    <string name="theme_animation_none_desc">The board keeps still</string>
+    <string name="theme_animation_flow_desc">Moves the board gradient slowly</string>
+    <string name="theme_animation_hue_cycle_desc">Turns the colors of the gradient, or the solid board color</string>
     <string name="theme_animation_flow_label">Flow</string>
     <string name="theme_animation_hue_cycle_label">Hue cycle</string>
     <string name="theme_animation_speed_title">Speed</string>
@@ -282,6 +308,12 @@
     <string name="theme_texture_popup_title">Key preview popup</string>
     <string name="theme_texture_set_label">Image set, tap to replace</string>
     <string name="theme_texture_unset_label">Tap to pick an image</string>
+    <!-- Caption over that choice. -->
+    <string name="theme_texture_scale_label">How the image fits a key</string>
+    <!-- Descriptions of the three ways an image fits a key. -->
+    <string name="theme_texture_scale_crop_desc">Fills the key and cuts off what does not fit</string>
+    <string name="theme_texture_scale_stretch_desc">Fills the key and changes the shape of the image</string>
+    <string name="theme_texture_scale_tile_desc">Repeats the image at its own size</string>
     <string name="theme_texture_scale_crop_label">Crop</string>
     <string name="theme_texture_scale_stretch_label">Stretch</string>
     <string name="theme_texture_scale_tile_label">Tile</string>
@@ -328,6 +360,12 @@
     <string name="theme_effect_color_trail_label">Trail</string>
     <string name="theme_effect_color_custom_label">Custom</string>
     <string name="theme_effect_color_random_label">Random</string>
+    <string name="theme_effect_color_natural_desc">Every emoji or image keeps its own colours</string>
+    <string name="theme_effect_color_key_text_desc">One flat colour, the same as the key labels</string>
+    <string name="theme_effect_color_accent_desc">One flat colour, the accent of this theme</string>
+    <string name="theme_effect_color_trail_desc">One flat colour, the same as the glide trail</string>
+    <string name="theme_effect_color_custom_desc">One flat colour that you pick below</string>
+    <string name="theme_effect_color_random_desc">A different colour for every particle</string>
     <string name="theme_effect_color_body">Natural keeps each emoji or image in its own colours. Every other choice paints the particles one flat colour, so a glyph becomes a silhouette.</string>
     <string name="theme_effect_size_title">Size</string>
     <string name="theme_effect_speed_title">Speed</string>
@@ -350,6 +388,12 @@
     <string name="theme_script_font_all_set_body">Every script already has a font in this theme.</string>
 
     <!-- Gradient editor. -->
+    <!-- Caption over the choice of gradient shape. -->
+    <string name="theme_gradient_type_label">Gradient shape</string>
+    <!-- Descriptions of the three gradient shapes. -->
+    <string name="theme_gradient_linear_desc">The colors run in a straight line, at the angle below</string>
+    <string name="theme_gradient_radial_desc">The colors run out from the center in rings</string>
+    <string name="theme_gradient_sweep_desc">The colors turn around the center like a clock hand</string>
     <string name="theme_gradient_linear_label">Linear</string>
     <string name="theme_gradient_radial_label">Radial</string>
     <string name="theme_gradient_sweep_label">Sweep</string>
@@ -363,6 +407,8 @@
     <!-- Image cropper. -->
     <string name="theme_crop_image_title">Crop image</string>
     <string name="theme_crop_image_subtitle">Pinch to zoom, drag to move the image</string>
+    <!-- Caption over the choice of crop shape. -->
+    <string name="theme_crop_ratio_label">Shape of the crop</string>
     <!-- Shapes of the crop frame. "Keyboard" is as wide as the keyboard. -->
     <string name="theme_crop_ratio_keyboard_label">Keyboard</string>
     <string name="theme_crop_ratio_wide_label">Wide</string>

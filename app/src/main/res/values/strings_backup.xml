@@ -90,6 +90,7 @@
     <string name="backup_section_addons_label">Add-on repositories</string>
     <string name="backup_section_emoji_label">Emoji history</string>
     <string name="backup_section_statistics_label">Typing statistics</string>
+    <string name="backup_section_vocab_label">Vocabulary</string>
 
     <!-- The same names in the middle of a sentence, for the list in     -->
     <!-- backup_restore_done ("The app restored themes, snippets.").      -->
@@ -105,6 +106,7 @@
     <string name="backup_section_addons_label_lowercase">add-on repositories</string>
     <string name="backup_section_emoji_label_lowercase">emoji history</string>
     <string name="backup_section_statistics_label_lowercase">typing statistics</string>
+    <string name="backup_section_vocab_label_lowercase">vocabulary</string>
 
     <!-- How much of each part a backup file holds. %1$d is the count. These -->
     <!-- go after the name of the part: "Themes: 3 custom themes".           -->
@@ -153,6 +155,10 @@
         <item quantity="one">%1$d day of typing</item>
         <item quantity="other">%1$d days of typing</item>
     </plurals>
+    <plurals name="backup_section_vocab_count">
+        <item quantity="one">%d word studied</item>
+        <item quantity="other">%d words studied</item>
+    </plurals>
 
     <!-- ================================================================== -->
     <!-- Backup: what the export file holds.                                -->
@@ -184,6 +190,7 @@
     <string name="backup_include_addons_subtitle">The add-on sources you added, so you can install from them again</string>
     <string name="backup_include_emoji_subtitle">Your recent emoji, your favourites and the skin tone of each one</string>
     <string name="backup_include_statistics_subtitle">Your daily typing counts and your all-time speed</string>
+    <string name="backup_include_vocab_subtitle">Your word lists, imported packs and learning progress. Downloaded packs are left out; they can be downloaded again.</string>
     <string name="backup_include_addons_info">This is only the list of addresses. The add-ons themselves go into the sections above. An installed theme is a custom theme, and an installed pack is an icon pack.</string>
 
     <!-- ================================================================== -->
@@ -305,6 +312,14 @@
 
     <string name="backup_auto_dest_title">Where to put backups</string>
     <string name="backup_auto_dest_subtitle">None of these send anything to a WM Keyboard server.</string>
+    <!-- One line under each option in the backup destination picker. -->
+    <string name="backup_auto_dest_folder_desc">A folder on your device, or one that another storage app gives you</string>
+    <string name="backup_auto_dest_webdav_desc">Your own server, such as Nextcloud. It needs a URL, a user name and a password</string>
+    <string name="backup_auto_dest_drive_desc">Your Google account, in a private app space that other apps cannot read</string>
+    <string name="backup_auto_dest_s3_desc">A bucket on AWS, R2, B2 or MinIO. It needs a key and a secret</string>
+    <string name="backup_auto_dest_ftp_desc">An FTP server. It needs a host, a user name and a password</string>
+    <string name="backup_auto_dest_dropbox_desc">Your Dropbox account, in the app folder</string>
+    <string name="backup_auto_dest_onedrive_desc">Your Microsoft account, in the app folder</string>
     <string name="backup_auto_dest_folder">Folder</string>
     <string name="backup_auto_dest_webdav">WebDAV</string>
     <string name="backup_auto_dest_drive">Google Drive</string>

@@ -197,6 +197,12 @@ data class LayoutSet(
      * Deliberately not a term in [rowSpan]: see `reservedRowSpan`.
      */
     val secondaries: Map<String, KeyboardLayout> = emptyMap(),
+    /**
+     * The panel grids this layout carries of its own (issue #63), repaired,
+     * by panel. Absent panels draw the user's shared panel layout, or the
+     * shipped one — see `KeyboardUiState.panelLayout`.
+     */
+    val panels: Map<PanelKind, PanelLayoutSpec> = emptyMap(),
 ) {
     /**
      * Rows the key grid reserves.
@@ -230,15 +236,15 @@ data class LayoutSet(
      * decoding it returns confident nonsense — is now a coverage measurement
      * against the language's own word list rather than a guess about a-z.
      */
-    val letterAlphabet: Set<Char> = buildSet {
+    val letterAlphabet: Set<Int> = buildSet {
         for (row in letters.rows) {
             for (key in row) {
                 if (key.action != KeyAction.Text) continue
                 fun take(spelling: String?) {
                     val label = spelling ?: return
                     addAll(keySpelling(label) ?: return)
-                    composedKeyChar(label)?.let { add(it) }
-                    decomposedKeyChars(label)?.let(::addAll)
+                    composedKeyChar(label)?.let { add(it.code) }
+                    decomposedKeyChars(label)?.forEach { add(it.code) }
                 }
                 take(key.output ?: key.label)
                 take(key.shiftLabel)
@@ -275,12 +281,12 @@ data class LayoutSet(
      */
     fun glideKeys(
         apostropheCenter: Pair<Float, Float>? = null,
-        centerOf: (Char) -> Pair<Float, Float>?,
+        centerOf: (Int) -> Pair<Float, Float>?,
     ): List<KeyCenter> {
         val out = ArrayList<KeyCenter>(letters.rows.sumOf { it.size } * 2)
         fun emit(spelling: String?, x: Float, y: Float) {
             val label = spelling ?: return
-            for (ch in keySpelling(label) ?: return) out.add(KeyCenter(ch, x, y))
+            for (codePoint in keySpelling(label) ?: return) out.add(KeyCenter(codePoint, x, y))
             composedKeyChar(label)?.let { out.add(KeyCenter(it, x, y)) }
             decomposedKeyChars(label)?.forEach { out.add(KeyCenter(it, x, y)) }
         }
@@ -356,7 +362,7 @@ val FieldKind.numericLayer: LayoutLayer?
 enum class PanelMode {
     NONE, EMOJI, CLIPBOARD, SNIPPETS, TOOLBOX, TEXT_EDIT, TRACKPAD,
     COMPASS, LEVEL, MOON_PHASE, WEATHER, CALENDAR,
-    THEMES, SOUND_HAPTICS, NUMPAD, HANDWRITING, CAMERA, DICTIONARY,
+    THEMES, SOUND_HAPTICS, NUMPAD, HANDWRITING, CAMERA, DICTIONARY, VOCABULARY,
     TRANSLATE, GIF, STICKER, WEB_SEARCH, IMAGE_SEARCH,
     OCR, QR_SCAN, VOICE, GRAMMAR,
     WIKIPEDIA, SYMBOLS, CALCULATOR, UNIT_CONVERT, CURRENCY, QR_GEN, PASSWORD_GEN, AI,
@@ -364,7 +370,30 @@ enum class PanelMode {
 
     /** The CJK candidate grid: the strip's overflow, opened from its chevron. */
     CANDIDATES,
+
+    /**
+     * The Custom layout tool's picker: one button per secondary layout, shown
+     * when the user has several and has not pinned one to the tool (issue
+     * #62). A tap opens that layout and closes this.
+     */
+    CUSTOM_LAYOUTS,
 }
+
+/**
+ * The panel layout behind a panel mode, for the four panels that are layouts
+ * (issue #63); null for every other panel and for none. Shared by the
+ * service's "keep this panel open" check and the theme resolution, so the two
+ * cannot disagree about which panels have a grid of their own.
+ */
+val PanelMode.layoutKind: PanelKind?
+    get() = when (this) {
+        PanelMode.EMOJI -> PanelKind.EMOJI
+        PanelMode.CLIPBOARD -> PanelKind.CLIPBOARD
+        PanelMode.TEXT_EDIT -> PanelKind.TEXT_EDIT
+        PanelMode.TRACKPAD -> PanelKind.TRACKPAD
+        PanelMode.NUMPAD -> PanelKind.NUMPAD
+        else -> null
+    }
 
 /**
  * Panels whose search box types into [KeyboardUiState.mediaQuery] (the same
@@ -375,6 +404,8 @@ val PanelMode.hasMediaSearch: Boolean
         this == PanelMode.WEB_SEARCH || this == PanelMode.IMAGE_SEARCH ||
         this == PanelMode.WIKIPEDIA || this == PanelMode.TRANSLATE ||
         this == PanelMode.APP_LAUNCHER ||
+        // The vocabulary panel's Browse tab searches the installed packs locally.
+        this == PanelMode.VOCABULARY ||
         // QR generator reuses the buffer as its own editable content, so it
         // encodes what the user types rather than the field's text.
         this == PanelMode.QR_GEN
@@ -461,6 +492,11 @@ fun panelFocusRegions(panel: PanelMode): List<FocusRegion> = when (panel) {
     PanelMode.DICTIONARY,
     PanelMode.WEB_SEARCH, PanelMode.IMAGE_SEARCH, PanelMode.WIKIPEDIA,
     -> listOf(FocusRegion.SEARCH, FocusRegion.RESULTS)
+    // Browse's search pill, the pack and filter chips, the word rows (or the
+    // card's related words), then the card's or the flashcard's action row.
+    PanelMode.VOCABULARY -> listOf(
+        FocusRegion.SEARCH, FocusRegion.CHIPS, FocusRegion.RESULTS, FocusRegion.ACTIONS,
+    )
     // Query, the pinned/recents row, then the app grid.
     PanelMode.APP_LAUNCHER ->
         listOf(FocusRegion.SEARCH, FocusRegion.CHIPS, FocusRegion.RESULTS)
@@ -515,7 +551,7 @@ fun panelFocusRegions(panel: PanelMode): List<FocusRegion> = when (panel) {
     // pointer-only and its three rare chips are not worth a ring over ink, and
     // TRACKPAD is a pointing surface and nothing else.
     PanelMode.NONE, PanelMode.TEXT_EDIT, PanelMode.TRACKPAD, PanelMode.COMPASS, PanelMode.LEVEL,
-    PanelMode.MOON_PHASE, PanelMode.NUMPAD, PanelMode.HANDWRITING,
+    PanelMode.MOON_PHASE, PanelMode.NUMPAD, PanelMode.HANDWRITING, PanelMode.CUSTOM_LAYOUTS,
     -> emptyList()
 }
 
@@ -556,6 +592,14 @@ data class HandwritingUi(
     /** Recognition in flight — strokes are frozen on screen until it lands. */
     val recognizing: Boolean = false,
     val errorMessage: String? = null,
+    /**
+     * Measured progress while [status] is DOWNLOADING, null otherwise. ML Kit
+     * publishes no percentage, so the panel counts the megabytes it can see
+     * arriving against the size ML Kit ships in its own asset manifest.
+     */
+    val download: com.wasimaster.wmkeyboard.core.handwriting.HandwritingDownloadProgress? = null,
+    /** What this language's model installs to, or 0 when ML Kit lists no size. */
+    val modelBytes: Long = 0,
 )
 
 /**
@@ -717,6 +761,9 @@ sealed interface SizingAction {
         val keyHeightDp: Int?,
         val numberRowHeightDp: Int?,
         val bottomPaddingDp: Int?,
+        /** The edge pads (issue #82), as fractions of the window width. */
+        val sidePadLeftScale: Float? = null,
+        val sidePadRightScale: Float? = null,
     ) : SizingAction
 
     /** Leave the inline resize tool without persisting anything. */
@@ -973,6 +1020,66 @@ sealed interface DictionaryUi {
     data class Ready(val entries: List<com.wasimaster.wmkeyboard.core.tools.DictEntry>) : DictionaryUi
 }
 
+/** The vocabulary panel's three views. */
+enum class VocabTab { CARD, BROWSE, REVIEW }
+
+/** Which words the Browse tab lists. */
+enum class VocabBrowseFilter { ALL, UNLEARNT, LEARNT }
+
+/** What the Card tab shows. */
+sealed interface VocabCardUi {
+    /** No word yet: nothing at the cursor and nothing opened before. */
+    data object Idle : VocabCardUi
+    data class NotFound(val word: String) : VocabCardUi
+    data class Ready(
+        val word: com.wasimaster.wmkeyboard.core.vocab.VocabWord,
+        val learnt: Boolean,
+        /** Leitner box, or null when the word was never reviewed. */
+        val box: Int?,
+        /** The lists the word is in, as display names. */
+        val sources: List<String>,
+        val inMyList: Boolean,
+    ) : VocabCardUi
+}
+
+data class VocabBrowseUi(
+    val packs: List<com.wasimaster.wmkeyboard.core.vocab.VocabPackMeta> = emptyList(),
+    /** The pack being browsed, or null for every pack. */
+    val packId: String? = null,
+    val filter: VocabBrowseFilter = VocabBrowseFilter.ALL,
+    val rows: List<com.wasimaster.wmkeyboard.core.vocab.VocabWord> = emptyList(),
+    /** Lemmas among [rows] the user marked learnt, for the tick. */
+    val learnt: Set<String> = emptySet(),
+)
+
+data class VocabReviewUi(
+    val queue: List<com.wasimaster.wmkeyboard.core.vocab.VocabWord> = emptyList(),
+    val index: Int = 0,
+    val flipped: Boolean = false,
+    val total: Int = 0,
+    val done: Int = 0,
+) {
+    val current: com.wasimaster.wmkeyboard.core.vocab.VocabWord? get() = queue.getOrNull(index)
+}
+
+/**
+ * Vocabulary panel state, owned by the service: it holds the pack index and
+ * the learning record, and the card must survive the panel closing.
+ */
+data class VocabPanelUi(
+    /** At least one enabled pack is loaded. */
+    val available: Boolean = false,
+    val tab: VocabTab = VocabTab.CARD,
+    val card: VocabCardUi = VocabCardUi.Idle,
+    /** Cards opened from a related-word chip, for the header's back button. */
+    val stack: List<String> = emptyList(),
+    val browse: VocabBrowseUi = VocabBrowseUi(),
+    val review: VocabReviewUi = VocabReviewUi(),
+)
+
+/** The word-of-the-day chip on the strip; [day] is the local epoch day it was drawn for. */
+data class VocabDailyChip(val word: String, val day: Int)
+
 /**
  * What the enter key does in the focused field, from EditorInfo.imeOptions.
  *
@@ -1026,6 +1133,14 @@ data class TypingTestUi(
     val totalKeystrokes: Int = 0,
     /** …of which landed on the right letter first time. */
     val correctKeystrokes: Int = 0,
+    /**
+     * Keystrokes spent on the word being typed, on a transliterating layout
+     * where none of them can be judged as it lands: Avro's "k" is ক on its
+     * way to খ. They are settled into [correctKeystrokes] when the word
+     * closes. Always zero on a layout that types letters directly, which
+     * scores each key as it is pressed.
+     */
+    val pendingKeystrokes: Int = 0,
     val samples: List<WpmSample> = emptyList(),
     /** Non-null once the run is over; the panel switches to the results view. */
     val result: TypingResult? = null,
@@ -1211,6 +1326,35 @@ data class SnippetPickerUi(
     fun canDrill(id: Long): Boolean = id != rootId && id !in path
 }
 
+/** What kind of dictionary a [DictionaryChip] stands for. */
+enum class DictionaryKind {
+    /** The language's shipped or downloaded word list, as one unit. */
+    WORDS,
+    /** The language's emoji keyword packs (download plus imports), as one unit. */
+    EMOJI,
+    /** One imported word list, switched by renaming its file. */
+    IMPORTED,
+}
+
+/**
+ * One dictionary on the device, as the dictionary bar (issue #51) lists it.
+ *
+ * Built by the service from the file system and the settings, never by the
+ * renderer: which lists exist is a disk walk, and which are on is spread over
+ * three stores (a settings set for word lists, another for emoji packs, a file
+ * suffix for imports). The chip carries the answer, and its tap goes back to
+ * the service to be applied wherever it lives.
+ */
+data class DictionaryChip(
+    val langId: String,
+    val kind: DictionaryKind,
+    /** The imported list's file name, for [DictionaryKind.IMPORTED]; empty otherwise. */
+    val fileName: String = "",
+    /** The label drawn for an imported list; null for the two built-in kinds, which the strip names itself. */
+    val label: String? = null,
+    val enabled: Boolean = true,
+)
+
 /**
  * Immutable UI state rendered by the Compose keyboard. The service owns a
  * MutableStateFlow of this and mutates it via copy().
@@ -1351,6 +1495,18 @@ data class KeyboardUiState(
      * whenever the last commit had no near miss, or the chip is switched off.
      */
     val correctionOffer: String? = null,
+    /**
+     * The word the user actually typed before autocorrect rewrote it, offered
+     * back on the same rewrite-chip slot as the three above — last in that
+     * queue, since taking an old correction back can wait behind anything
+     * about the word being typed right now.
+     *
+     * The one chip on that slot that undoes rather than rewrites, and the only
+     * one that outlives the commit it belongs to: it stands until the sentence
+     * ends. Null whenever the last correction was too plainly right to be
+     * worth mentioning, or the chip is switched off.
+     */
+    val correctionUndo: String? = null,
     /** Spacing form of the dead-key accent waiting for a letter, if any. */
     val pendingDeadKey: String? = null,
     /**
@@ -1490,6 +1646,8 @@ data class KeyboardUiState(
     val smart: SmartSuggest.SmartHit? = null,
     /** Input a chip loaded into the tool it is about to open; consumed once. */
     val toolPrefill: ToolPrefill? = null,
+    /** The word-of-the-day chip, offered once on the first field of the day. */
+    val vocabDaily: VocabDailyChip? = null,
     /**
      * The calculator's live expression. Service state, not panel-local, so a
      * physical keyboard can type into it through the same routing every other
@@ -1541,6 +1699,16 @@ data class KeyboardUiState(
      * learning" is on and such a word is on the strip right now.
      */
     val learnOffer: String? = null,
+    /**
+     * The one-tap actions offered for the current selection, or null when
+     * there is no selection to act on (or the feature is off).
+     *
+     * Held as a resolved offer rather than as the selected text alone: what the
+     * selection *is* costs a set of regexes, the answer decides whether a whole
+     * row of the keyboard exists, and both are read on every frame the bar
+     * draws. See [SelectionMacroOffer].
+     */
+    val selectionMacros: SelectionMacroOffer? = null,
     val snippets: List<Snippet> = emptyList(),
     /** The folders [snippets] are filed under, in the order the panel draws them. */
     val snippetFolders: List<SnippetFolder> = emptyList(),
@@ -1616,6 +1784,13 @@ data class KeyboardUiState(
      * (the tap persists immediately, so nothing is lost).
      */
     val activeFancyStyleId: String? = null,
+    /**
+     * Every dictionary the dictionary bar can offer, for every enabled
+     * language, refreshed by the service whenever the settings or the files
+     * behind them change. Empty while the bar is off, so nothing is walked
+     * for a row nobody sees.
+     */
+    val dictionaryBar: List<DictionaryChip> = emptyList(),
     val enterAction: EnterAction = EnterAction.DEFAULT,
     /**
      * The app's own label for the enter key (EditorInfo.actionLabel), set
@@ -1631,6 +1806,7 @@ data class KeyboardUiState(
     val dictionaryQuery: String = "",
     /** Typing edits [dictionaryQuery] (letters show under the panel). */
     val dictionarySearchActive: Boolean = false,
+    val vocab: VocabPanelUi = VocabPanelUi(),
     /**
      * What the vowel keys should produce given the character before the
      * cursor: kar (া, ি …) after a consonant, the য়-glide (য়া, য়ে) after
@@ -1740,6 +1916,11 @@ data class KeyboardUiState(
      * Only the one-shot shift the user armed themselves counts. Caps lock is
      * excluded on purpose: it says the *letters* are upper case, and reading it
      * here would silently stop Enter from ever sending while it is on.
+     *
+     * Enter does not spend the shift the way a letter does, so this stays true
+     * for every Enter until the shift goes down of its own accord — a shift put
+     * up to break lines is being held as a modifier, and a message written over
+     * three lines would otherwise send itself on the second Enter.
      */
     val softShiftForcesNewline: Boolean
         get() = shiftState == ShiftState.ON && shiftPressedByUser
@@ -1982,14 +2163,26 @@ sealed interface PluginPanelUi {
  * longer does not. The bound matters — a key whose label is a whole word, which
  * a custom layout is free to have, must not scatter its letters across the grid
  * and let the decoder spell them from one spot.
+ *
+ * Code points, not `Char`s. A key in Osage, Adlam or Warang Citi writes one
+ * letter that is two UTF-16 units, and a lone surrogate is not a letter — so
+ * indexed per `Char` every such key vanished from the glide grid and from
+ * [LayoutSet.letterAlphabet], and typing worked while glide and the coverage
+ * gate silently did not.
  */
-fun keySpelling(label: String): List<Char>? {
-    if (label.isEmpty() || label.length > MAX_KEY_SPELLING) return null
-    if (!isLetterKeyChar(label[0])) return null
-    for (i in 1 until label.length) {
-        if (!isCombiningMark(label[i])) return null
+fun keySpelling(label: String): List<Int>? {
+    if (label.isEmpty()) return null
+    val out = ArrayList<Int>(MAX_KEY_SPELLING)
+    var at = 0
+    while (at < label.length) {
+        val codePoint = label.codePointAt(at)
+        at += Character.charCount(codePoint)
+        if (out.size >= MAX_KEY_SPELLING) return null
+        val allowed = if (out.isEmpty()) isLetterKeyCodePoint(codePoint) else isCombiningMark(codePoint)
+        if (!allowed) return null
+        out.add(Character.toLowerCase(codePoint))
     }
-    return label.map { it.lowercaseChar() }
+    return out
 }
 
 /**
@@ -2001,9 +2194,10 @@ fun keySpelling(label: String): List<Char>? {
  * them at all, and every Bengali word containing one becomes unglidable, which
  * is very nearly all of them.
  */
-private fun isLetterKeyChar(ch: Char): Boolean = ch.isLetter() || isCombiningMark(ch)
+private fun isLetterKeyCodePoint(codePoint: Int): Boolean =
+    Character.isLetter(codePoint) || isCombiningMark(codePoint)
 
-private fun isCombiningMark(ch: Char): Boolean = when (Character.getType(ch)) {
+private fun isCombiningMark(codePoint: Int): Boolean = when (Character.getType(codePoint)) {
     Character.NON_SPACING_MARK.toInt(),
     Character.COMBINING_SPACING_MARK.toInt(),
     -> true
@@ -2030,7 +2224,8 @@ private fun isCombiningMark(ch: Char): Boolean = when (Character.getType(ch)) {
  * handful of such keys and asks about each one repeatedly.
  */
 fun composedKeyChar(label: String): Char? {
-    if (label.length < 2) return null
+    // Two units that are one letter outside the BMP, not a base plus a mark.
+    if (label.length < 2 || label[0].isSurrogate()) return null
     val cached = composedCache.getOrPut(label) { searchComposed(label) ?: NOT_COMPOSED }
     return cached.takeIf { it != NOT_COMPOSED }
 }

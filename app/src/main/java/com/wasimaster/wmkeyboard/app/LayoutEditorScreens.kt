@@ -66,6 +66,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -118,6 +119,9 @@ import com.wasimaster.wmkeyboard.core.layout.Key
 import com.wasimaster.wmkeyboard.core.layout.KeyAction
 import com.wasimaster.wmkeyboard.core.layout.KeyAlternate
 import com.wasimaster.wmkeyboard.core.layout.PanelFieldKind
+import com.wasimaster.wmkeyboard.core.layout.PanelKind
+import com.wasimaster.wmkeyboard.core.layout.panelLayer
+import com.wasimaster.wmkeyboard.core.layout.resolvePanelLayout
 import com.wasimaster.wmkeyboard.core.layout.KeyboardLayout
 import com.wasimaster.wmkeyboard.core.layout.LayoutLayer
 import com.wasimaster.wmkeyboard.core.layout.LayoutSpec
@@ -172,6 +176,12 @@ import kotlinx.coroutines.launch
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material.icons.outlined.AutoMode
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.FiberManualRecord
+import androidx.compose.material.icons.outlined.MoreHoriz
 
 // ---------------------------------------------------------------------------
 // Gallery
@@ -286,6 +296,30 @@ private fun composerLabel(type: ComposerType): String = stringResource(
         ComposerType.JYUTPING -> R.string.layout_editor_composer_jyutping
     },
 )
+
+/**
+ * What you actually press under each typing method, one line, for the picker
+ * sheet. Null is the "follow the language" option. The names are the names the
+ * methods are known by, which help only a reader who already knows them.
+ */
+private fun composerDescRes(type: ComposerType?): Int = when (type) {
+    null -> R.string.layout_editor_composer_inherit_desc
+    ComposerType.NONE -> R.string.layout_editor_composer_none_desc
+    ComposerType.DEAD_KEY -> R.string.layout_editor_composer_dead_key_desc
+    ComposerType.TRANSLITERATE -> R.string.layout_editor_composer_transliterate_desc
+    ComposerType.INDIC_CLUSTER -> R.string.layout_editor_composer_indic_desc
+    ComposerType.HANGUL -> R.string.layout_editor_composer_hangul_desc
+    ComposerType.TELEX -> R.string.layout_editor_composer_telex_desc
+    ComposerType.VNI -> R.string.layout_editor_composer_vni_desc
+    ComposerType.ROMAJI -> R.string.layout_editor_composer_romaji_desc
+    ComposerType.PINYIN -> R.string.layout_editor_composer_pinyin_desc
+    ComposerType.STROKE -> R.string.layout_editor_composer_stroke_desc
+    ComposerType.T9_PINYIN -> R.string.layout_editor_composer_t9_pinyin_desc
+    ComposerType.ZHUYIN -> R.string.layout_editor_composer_zhuyin_desc
+    ComposerType.CANGJIE -> R.string.layout_editor_composer_cangjie_desc
+    ComposerType.CANGJIE_QUICK -> R.string.layout_editor_composer_cangjie_quick_desc
+    ComposerType.JYUTPING -> R.string.layout_editor_composer_jyutping_desc
+}
 
 @Composable
 private fun ForeignLanguageDialog(
@@ -1060,6 +1094,13 @@ internal fun rememberLayoutEnableGate(
 internal data class KeyRef(val row: Int, val col: Int)
 
 /**
+ * How much of the window the pinned preview may take while it is drawn at the
+ * user's real key height. Past this it scrolls inside itself, so a tall key
+ * height cannot leave the controls below it off screen.
+ */
+private const val ActualSizePreviewShare = 0.55f
+
+/**
  * Undo holds whole layouts rather than diffs. A layout is a few kB of data
  * classes, thirty of them cost nothing, and a diff type would need an inverse
  * for every edit the sheet can make — which is exactly the list that keeps
@@ -1092,6 +1133,14 @@ internal fun KeyLayoutEditorScreen(
     val secondary = layout.secondary
     var layer by rememberSaveable(layoutId) { mutableStateOf(LayoutLayer.LETTERS) }
     var selection by remember(layoutId, layer) { mutableStateOf<KeyRef?>(null) }
+    // Issue #63, the per-layout half: the four panels are tabs of this editor
+    // too. A panel tab set aside the typing layer; the grid, its selection and
+    // its sheet are then the panel's, edited into this layout's own copy of
+    // the panel grid over the user's shared one.
+    var panelTab by rememberSaveable(layoutId) { mutableStateOf<PanelKind?>(null) }
+    var panelSelection by remember(layoutId, panelTab) { mutableStateOf<KeyRef?>(null) }
+    var panelSheetOpen by remember(layoutId, panelTab) { mutableStateOf(false) }
+    val customPanels by repository.customPanelLayouts.collectAsStateWithLifecycle(emptyList())
     var showShift by rememberSaveable(layoutId) { mutableStateOf(false) }
     // Draw the preview at the user's real key height instead of the clamped
     // one. Off by default because a tall setting pushes the grid off screen.
@@ -1211,6 +1260,18 @@ internal fun KeyLayoutEditorScreen(
     // copy of QWERTY into the Fn layer and took the template row away. An empty
     // grid here leaves "Add an Fn layer" as the only way in, which is what the
     // caption below already says it is.
+    val panelKind = panelTab
+    val sharedPanelGrid = panelKind?.let { resolvePanelLayout(it, customPanels).grid }
+    val panelGrid = panelKind?.let { layout.panelLayer(it) ?: sharedPanelGrid }
+    val panelPreviewPair = if (panelKind != null && panelGrid != null) {
+        remember(panelKind, panelGrid, layout.appearance, settings.keyHeightDp, actualSize, layout.themeId) {
+            // The panel's own theme, else the layout's: what the board draws.
+            panelPreview(panelKind, panelGrid, layout.appearance, settings, actualSize, panelGrid.themeId ?: layout.themeId)
+        }
+    } else {
+        null
+    }
+
     val inheritable = layout.layer(layer) != null || BuiltInLayouts.default.layer(layer) != null
     val compiled = if (inheritable) {
         layout.compile(layer)
@@ -1292,6 +1353,7 @@ internal fun KeyLayoutEditorScreen(
                         ComposerType.entries.map { it to composerLabel(it) },
                     selected = layout.composer,
                     info = stringResource(R.string.layout_editor_composer_info),
+                    detail = { type -> ChoiceDetail(stringResource(composerDescRes(type))) },
                 ) { chosen -> edit { it.copy(composer = chosen) } }
             }
         }
@@ -1370,9 +1432,26 @@ internal fun KeyLayoutEditorScreen(
         )
     }
 
-    if (!secondary) LayerChips(layout, layer) { layer = it; selection = null }
+    if (!secondary) {
+        LayerChips(
+            layout = layout,
+            selected = layer,
+            selectedPanel = panelTab,
+            onSelect = { layer = it; panelTab = null; selection = null },
+            onSelectPanel = { panelTab = it; selection = null },
+        )
+    }
 
-    if (layout.layer(layer) == null) {
+    if (panelKind != null) {
+        if (layout.panelLayer(panelKind) == null) {
+            CaptionText(
+                stringResource(
+                    R.string.layout_editor_panel_inherited_caption,
+                    stringResource(panelTitleRes(panelKind)),
+                ),
+            )
+        }
+    } else if (layout.layer(layer) == null) {
         if (layer == LayoutLayer.FN) {
             // Nothing ships an Fn layer, so there is no built-in to inherit and
             // the grid above is a stand-in. Offer the template instead.
@@ -1442,25 +1521,84 @@ internal fun KeyLayoutEditorScreen(
     }
 
     // The grid stays under the bar while the row-height and key-width
-    // controls further down scroll (#43). At actual size it can be taller
-    // than the viewport, so it scrolls with the body instead.
-    val grid: @Composable () -> Unit = {
-        EditorGrid(
-            layout = compiled,
-            settings = settings,
-            selection = selection,
-            showShift = showShift,
+    // controls further down scroll (#43) — at actual size as well. It used to
+    // join the body there, on the grounds that a real key height can be taller
+    // than the viewport, which cost a scroll back up to the top after every
+    // edit. It keeps its place under the bar now and takes a ceiling instead:
+    // over that it scrolls within itself, and the page below never moves.
+    RegisterPinned {
+        val gridScroll = rememberScrollState()
+        val ceiling = LocalConfiguration.current.screenHeightDp.dp * ActualSizePreviewShare
+        Box(
+            modifier = if (actualSize) {
+                Modifier.heightIn(max = ceiling).verticalScroll(gridScroll)
+            } else {
+                Modifier
+            },
+        ) {
+            EditorGrid(
+                layout = panelPreviewPair?.first ?: compiled,
+                settings = settings,
+                selection = if (panelKind != null) panelSelection else selection,
+                showShift = showShift && panelKind == null,
+                actualSize = actualSize,
+                onSelect = { ref ->
+                    stepPushed = false
+                    if (panelKind != null) {
+                        panelSelection = ref
+                        panelSheetOpen = true
+                    } else {
+                        selection = ref
+                        sheetOpen = true
+                    }
+                },
+                rowHeightsDp = panelPreviewPair?.second,
+            )
+        }
+    }
+
+    if (panelKind != null) {
+        val shared = requireNotNull(sharedPanelGrid)
+        val panelName = stringResource(panelTitleRes(panelKind))
+        // Every edit lands on this layout's own copy, forked from the shared
+        // panel layout on the first touch — the same rule an inherited
+        // symbols page follows — and through the same undo stack as the keys.
+        fun panelBase(spec: LayoutSpec): LayerSpec = spec.panelLayer(panelKind) ?: shared
+        PanelEditorBody(
+            kind = panelKind,
+            grid = requireNotNull(panelGrid),
+            selection = panelSelection,
+            onSelectionChange = { panelSelection = it },
+            sheetOpen = panelSheetOpen,
+            onSheetOpenChange = { panelSheetOpen = it },
             actualSize = actualSize,
-            onSelect = { ref ->
-                selection = ref
-                stepPushed = false
-                sheetOpen = true
+            onActualSizeChange = { actualSize = it },
+            editGrid = { transform ->
+                edit { spec -> spec.copy(layers = spec.layers + (panelKind.layerKey to transform(panelBase(spec)))) }
+            },
+            editGridCoalesced = { transform ->
+                editCoalesced { spec ->
+                    spec.copy(layers = spec.layers + (panelKind.layerKey to transform(panelBase(spec))))
+                }
+            },
+            jsonRoute = "keymap_json/$layoutId",
+            onNavigate = onNavigate,
+            settings = settings,
+            reset = if (layout.panelLayer(panelKind) != null) {
+                ResetRow(
+                    R.string.layout_editor_reset_panel_title,
+                    stringResource(R.string.layout_editor_reset_panel_subtitle, panelName),
+                ) {
+                    edit { it.copy(layers = it.layers - panelKind.layerKey) }
+                    panelSelection = null
+                }
+            } else {
+                null
             },
         )
     }
-    if (actualSize) grid() else RegisterPinned(grid)
 
-    selection?.let { ref ->
+    if (panelKind == null) selection?.let { ref ->
         if (ref.row in rows.indices) {
             // A row is as wide as its own keys plus the columns a spanning key
             // above holds over it — that is the number the keyboard centres it
@@ -1520,7 +1658,7 @@ internal fun KeyLayoutEditorScreen(
         }
     }
 
-    SettingsGroup {
+    if (panelKind == null) SettingsGroup {
         item {
             WmRow(
                 title = stringResource(R.string.layout_editor_add_row_title),
@@ -1761,7 +1899,7 @@ internal fun KeyLayoutEditorScreen(
     )
 
     val ref = selection
-    if (sheetOpen && ref != null && selectedKey != null) {
+    if (panelKind == null && sheetOpen && ref != null && selectedKey != null) {
         KeyEditSheet(
             key = selectedKey,
             ref = ref,
@@ -1939,32 +2077,53 @@ private fun LayerChips(
     layout: LayoutSpec,
     selected: LayoutLayer,
     onSelect: (LayoutLayer) -> Unit,
+    /** The panel tab on screen, or null while a typing layer is; see issue #63. */
+    selectedPanel: PanelKind? = null,
+    onSelectPanel: (PanelKind) -> Unit = {},
 ) {
     LazyRow(
         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         items(LayoutLayer.entries) { layer ->
-            val authored = layout.layer(layer) != null
-            FilterChip(
-                selected = layer == selected,
+            LayerChip(
+                title = stringResource(layerTitleRes(layer)),
+                selected = selectedPanel == null && layer == selected,
+                authored = layout.layer(layer) != null,
                 onClick = { onSelect(layer) },
-                label = { Text(stringResource(layerTitleRes(layer)), maxLines = 1) },
-                leadingIcon = if (authored) {
-                    {
-                        Icon(
-                            Icons.Outlined.Edit,
-                            contentDescription =
-                                stringResource(R.string.layout_editor_customised_desc),
-                            modifier = Modifier.size(16.dp),
-                        )
-                    }
-                } else {
-                    null
-                },
+            )
+        }
+        // The panels, after the typing layers: every sub-layout of this
+        // layout on one strip, which is what issue #63 asked for.
+        items(PanelKind.entries.filter { it.shipped }) { kind ->
+            LayerChip(
+                title = stringResource(panelTitleRes(kind)),
+                selected = kind == selectedPanel,
+                authored = layout.panelLayer(kind) != null,
+                onClick = { onSelectPanel(kind) },
             )
         }
     }
+}
+
+@Composable
+private fun LayerChip(title: String, selected: Boolean, authored: Boolean, onClick: () -> Unit) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(title, maxLines = 1) },
+        leadingIcon = if (authored) {
+            {
+                Icon(
+                    Icons.Outlined.Edit,
+                    contentDescription = stringResource(R.string.layout_editor_customised_desc),
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        } else {
+            null
+        },
+    )
 }
 
 /**
@@ -2806,6 +2965,15 @@ internal fun KeyEditSheet(
                 ActionAlternatesRows(key.actionAlternates, secondaryLayouts) { alternatesList ->
                     onChange { it.copy(actionAlternates = alternatesList) }
                 }
+
+                // Only once the key has a popup to shape. A column count on a
+                // key with no alternates is a control for something the user
+                // cannot see, and this sheet is long enough already.
+                if (key.opensAlternatesPopup()) {
+                    AlternateColumnsRow(key.alternateColumns) { columns ->
+                        onChange { it.copy(alternateColumns = columns) }
+                    }
+                }
             }
 
             if (key.action == KeyAction.Text) {
@@ -3231,6 +3399,22 @@ private fun HintRow(key: Key, onChange: ((Key) -> Key) -> Unit) {
         ),
         selected = keyHintMode(key),
         default = KeyHintMode.Auto,
+        detail = { mode ->
+            ChoiceDetail(
+                icon = when (mode) {
+                    KeyHintMode.Auto -> Icons.Outlined.AutoMode
+                    KeyHintMode.Always -> Icons.Outlined.Visibility
+                    KeyHintMode.Never -> Icons.Outlined.VisibilityOff
+                },
+                description = stringResource(
+                    when (mode) {
+                        KeyHintMode.Auto -> R.string.layout_editor_hint_auto_desc
+                        KeyHintMode.Always -> R.string.layout_editor_hint_always_desc
+                        KeyHintMode.Never -> R.string.layout_editor_hint_never_desc
+                    },
+                ),
+            )
+        },
     ) { mode ->
         onChange {
             it.copy(hideHint = mode == KeyHintMode.Never, forceHint = mode == KeyHintMode.Always)
@@ -3252,6 +3436,32 @@ private fun keyHintMode(key: Key): KeyHintMode = when {
     else -> KeyHintMode.Auto
 }
 
+/**
+ * This key's own alternates column count (issue #64).
+ *
+ * A key rather than the keyboard, because that is what the count is for: a `1`
+ * carrying a dozen fractions wants a grid, an `e` carrying four accents wants one
+ * row, and one number cannot be right for both. The first step is not a count at
+ * all but "follow the setting", which is where every key starts and where the
+ * global **Alternate key columns** row takes over.
+ */
+@Composable
+private fun AlternateColumnsRow(columns: Int, onChange: (Int) -> Unit) {
+    // Read out here rather than inside `display`: that is a plain lambda, and
+    // stringResource needs a composition.
+    val followsSetting = stringResource(R.string.layout_editor_alternate_columns_default)
+    StepperSetting(
+        title = R.string.layout_editor_alternate_columns_title,
+        subtitle = stringResource(R.string.layout_editor_alternate_columns_subtitle),
+        value = columns,
+        range = AlternatesColumnsSteps,
+        display = { if (it == 0) followsSetting else it.toString() },
+        info = stringResource(R.string.layout_editor_alternate_columns_info),
+        default = 0,
+        onChange = onChange,
+    )
+}
+
 /** Which slot this key fills for field adaptation, or none. */
 @Composable
 private fun RoleRow(role: KeyRole?, onChange: (KeyRole?) -> Unit) {
@@ -3264,6 +3474,22 @@ private fun RoleRow(role: KeyRole?, onChange: (KeyRole?) -> Unit) {
             KeyRole.Period to stringResource(R.string.layout_editor_role_period),
         ),
         selected = role,
+        detail = { slot ->
+            ChoiceDetail(
+                icon = when (slot) {
+                    null -> Icons.Outlined.Block
+                    KeyRole.Comma -> Icons.Outlined.MoreHoriz
+                    KeyRole.Period -> Icons.Outlined.FiberManualRecord
+                },
+                description = stringResource(
+                    when (slot) {
+                        null -> R.string.layout_editor_role_none_desc
+                        KeyRole.Comma -> R.string.layout_editor_role_comma_desc
+                        KeyRole.Period -> R.string.layout_editor_role_period_desc
+                    },
+                ),
+            )
+        },
         onChange = onChange,
     )
 }

@@ -21,6 +21,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import com.wasimaster.wmkeyboard.core.media.hasNotificationAccess
+import com.wasimaster.wmkeyboard.core.prediction.UndoMemory
 import com.wasimaster.wmkeyboard.core.settings.BackspaceSwipeUnit
 import com.wasimaster.wmkeyboard.core.settings.SettingsDefaults
 import com.wasimaster.wmkeyboard.core.settings.SuggestionHotkeyMode
@@ -74,11 +75,16 @@ import com.wasimaster.wmkeyboard.core.settings.isSupportedTool
 import com.wasimaster.wmkeyboard.core.settings.isUsableTool
 import com.wasimaster.wmkeyboard.core.settings.SettingsRepository
 import com.wasimaster.wmkeyboard.core.settings.LetterSwipeAction
+import com.wasimaster.wmkeyboard.core.settings.NumberGrouping
 import com.wasimaster.wmkeyboard.core.settings.SpaceSwipeAction
 import com.wasimaster.wmkeyboard.core.settings.SpacebarDisplay
 import com.wasimaster.wmkeyboard.core.settings.ToolbarTool
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.FiberManualRecord
+import androidx.compose.material.icons.outlined.KeyboardTab
+import androidx.compose.ui.graphics.vector.ImageVector
 
 /** One spacebar-swipe slot (quick or hold+swipe): nothing / language / cursor. */
 @Composable
@@ -108,6 +114,7 @@ private fun SpaceSwipeSetting(
         },
         selected = value,
         default = default,
+        detail = { action -> ChoiceDetail(stringResource(spaceSwipeDescRes(action))) },
         onChange = onChange,
     )
 }
@@ -206,6 +213,17 @@ internal fun TypingSettings(
                     ),
                     selected = settings.textEditing.backspaceSwipeUnit,
                     default = SettingsDefaults.textEditing.backspaceSwipeUnit,
+                    detail = { unit ->
+                        ChoiceDetail(
+                            stringResource(
+                                if (unit == BackspaceSwipeUnit.WORD) {
+                                    R.string.typing_backspace_unit_word_desc
+                                } else {
+                                    R.string.typing_backspace_unit_character_desc
+                                },
+                            ),
+                        )
+                    },
                 ) { scope.launch { repository.setBackspaceSwipeUnit(it) } }
             }
             item {
@@ -344,6 +362,45 @@ internal fun TypingCorrectionsSettings(
             }
             item {
                 ToggleSetting(
+                    R.string.typing_undo_chip_title,
+                    stringResource(R.string.typing_undo_chip_subtitle),
+                    settings.suggestionStrip.undoCorrectionChip,
+                    info = stringResource(R.string.typing_undo_chip_info),
+                    default = SettingsDefaults.suggestionStrip.undoCorrectionChip,
+                ) { scope.launch { repository.setUndoCorrectionChip(it) } }
+            }
+            if (settings.suggestionStrip.undoCorrectionChip) {
+                item {
+                    val percentFormat = stringResource(R.string.typing_value_percent)
+                    SliderSetting(
+                        R.string.typing_undo_chip_obviousness_title,
+                        subtitle = stringResource(R.string.typing_undo_chip_obviousness_subtitle),
+                        value = settings.suggestionStrip.undoChipObviousness,
+                        range = 0f..1f,
+                        display = { percentFormat.format((it * 100).toInt()) },
+                        info = stringResource(R.string.typing_undo_chip_obviousness_info),
+                        default = SettingsDefaults.suggestionStrip.undoChipObviousness,
+                    ) { scope.launch { repository.setUndoChipObviousness(it) } }
+                }
+            }
+            item {
+                ChoiceSetting(
+                    R.string.typing_undo_memory_title,
+                    subtitle = stringResource(R.string.typing_undo_memory_subtitle),
+                    info = stringResource(R.string.typing_undo_memory_info),
+                    options = listOf(
+                        UndoMemory.OFF to stringResource(R.string.typing_undo_memory_off),
+                        UndoMemory.LIGHT to stringResource(R.string.typing_undo_memory_light),
+                        UndoMemory.NORMAL to stringResource(R.string.typing_undo_memory_normal),
+                        UndoMemory.STRICT to stringResource(R.string.typing_undo_memory_strict),
+                    ),
+                    selected = settings.autocorrectUndoMemory,
+                    default = SettingsDefaults.autocorrectUndoMemory,
+                    detail = { level -> ChoiceDetail(stringResource(undoMemoryDescRes(level))) },
+                ) { scope.launch { repository.setAutocorrectUndoMemory(it) } }
+            }
+            item {
+                ToggleSetting(
                     R.string.typing_skip_all_caps_title,
                     stringResource(R.string.typing_skip_all_caps_subtitle),
                     settings.autocorrectSkipAllCaps,
@@ -402,6 +459,9 @@ internal fun TypingCorrectionsSettings(
                         ),
                         selected = settings.suggestionStrip.languageDetectionStrength,
                         default = SettingsDefaults.suggestionStrip.languageDetectionStrength,
+                        detail = { strength ->
+                            ChoiceDetail(stringResource(detectionStrengthDescRes(strength)))
+                        },
                     ) { scope.launch { repository.setLanguageDetectionStrength(it) } }
                 }
             }
@@ -457,6 +517,7 @@ internal fun TypingCorrectionsSettings(
                 options = DoubleSpaceAction.entries.map { it to stringResource(it.labelRes) },
                 selected = doubleSpace,
                 default = DefaultDoubleSpace,
+                detail = { action -> ChoiceDetail(stringResource(action.descRes), action.icon) },
             ) { action ->
                 scope.launch {
                     repository.setDoubleSpacePeriod(action == DoubleSpaceAction.PERIOD)
@@ -523,6 +584,7 @@ internal fun TypingSuggestionsSettings(
     onOpenDictionary: () -> Unit,
     onOpenCustomDictionaries: () -> Unit,
     onOpenBlacklist: () -> Unit,
+    onOpenAutopilot: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     SettingsGroup(stringResource(R.string.typing_group_suggestions_title)) {
@@ -573,6 +635,15 @@ internal fun TypingSuggestionsSettings(
                 info = stringResource(R.string.typing_suggestion_scroll_info),
                 default = SettingsDefaults.suggestionStrip.scrollable,
             ) { scope.launch { repository.setSuggestionScrollable(it) } }
+        }
+        item {
+            ColorSetting(
+                R.string.typing_suggestion_primary_color_title,
+                subtitle = stringResource(R.string.typing_suggestion_primary_color_subtitle),
+                color = settings.suggestionStrip.primaryColor,
+                fallback = MaterialTheme.colorScheme.onSurface.argbLong(),
+                info = stringResource(R.string.typing_suggestion_primary_color_info),
+            ) { scope.launch { repository.setSuggestionPrimaryColor(it) } }
         }
         item {
             val once = stringResource(R.string.typing_learn_threshold_once)
@@ -741,13 +812,12 @@ internal fun TypingSuggestionsSettings(
             }
         }
         item {
-            ToggleSetting(
-                R.string.typing_smart_hit_detection_title,
-                stringResource(R.string.typing_smart_hit_detection_subtitle),
-                settings.layoutBehavior.smartHitDetection,
-                info = stringResource(R.string.typing_smart_hit_detection_info),
-                default = SettingsDefaults.layoutBehavior.smartHitDetection,
-            ) { scope.launch { repository.setSmartHitDetection(it) } }
+            NavRow(
+                R.string.typing_group_autopilot_title,
+                stringResource(R.string.typing_group_autopilot_subtitle),
+                route = "typing/autopilot",
+                onClick = onOpenAutopilot,
+            )
         }
         item {
             NavRow(
@@ -777,6 +847,78 @@ internal fun TypingSuggestionsSettings(
                 route = "blacklist",
                 onClick = onOpenBlacklist,
             )
+        }
+    }
+}
+
+/**
+ * Autopilot: the touch areas of the letters the word list expects next, and the
+ * two ways of seeing what that is doing.
+ *
+ * Its own page because the three rows below it are meaningless with the feature
+ * off, and the suggestions page already carries twenty rows.
+ */
+@Composable
+internal fun TypingAutopilotSettings(
+    repository: SettingsRepository,
+    settings: KeyboardSettings,
+) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    SettingsGroup {
+        item {
+            ToggleSetting(
+                R.string.typing_smart_hit_detection_title,
+                stringResource(R.string.typing_smart_hit_detection_subtitle),
+                settings.layoutBehavior.smartHitDetection,
+                info = stringResource(R.string.typing_smart_hit_detection_info),
+                default = SettingsDefaults.layoutBehavior.smartHitDetection,
+            ) { scope.launch { repository.setSmartHitDetection(it) } }
+        }
+        if (settings.layoutBehavior.smartHitDetection) {
+            item {
+                SliderSetting(
+                    R.string.typing_autopilot_strength_title,
+                    subtitle = stringResource(R.string.typing_autopilot_strength_subtitle),
+                    value = settings.layoutBehavior.autopilotStrength.toFloat(),
+                    range = 1f..10f,
+                    display = { context.getString(R.string.values_number, it.toInt()) },
+                    info = stringResource(R.string.typing_autopilot_strength_info),
+                    default = SettingsDefaults.layoutBehavior.autopilotStrength.toFloat(),
+                ) { scope.launch { repository.setAutopilotStrength(it.toInt()) } }
+            }
+            item {
+                ToggleSetting(
+                    R.string.typing_autopilot_show_title,
+                    stringResource(R.string.typing_autopilot_show_subtitle),
+                    settings.layoutBehavior.autopilotShowEffect,
+                    info = stringResource(R.string.typing_autopilot_show_info),
+                    default = SettingsDefaults.layoutBehavior.autopilotShowEffect,
+                ) { scope.launch { repository.setAutopilotShowEffect(it) } }
+            }
+            if (settings.layoutBehavior.autopilotShowEffect) {
+                item {
+                    val valueFormat = stringResource(R.string.typing_value_multiplier_prefix)
+                    SliderSetting(
+                        R.string.typing_autopilot_size_title,
+                        subtitle = stringResource(R.string.typing_autopilot_size_subtitle),
+                        value = settings.layoutBehavior.autopilotVisualScale,
+                        range = 1f..3f,
+                        display = { valueFormat.format("%.1f".format(it)) },
+                        info = stringResource(R.string.typing_autopilot_size_info),
+                        default = SettingsDefaults.layoutBehavior.autopilotVisualScale,
+                    ) { scope.launch { repository.setAutopilotVisualScale(it) } }
+                }
+            }
+            item {
+                ToggleSetting(
+                    R.string.typing_autopilot_outline_title,
+                    stringResource(R.string.typing_autopilot_outline_subtitle),
+                    settings.layoutBehavior.autopilotOutline,
+                    info = stringResource(R.string.typing_autopilot_outline_info),
+                    default = SettingsDefaults.layoutBehavior.autopilotOutline,
+                ) { scope.launch { repository.setAutopilotOutline(it) } }
+            }
         }
     }
 }
@@ -870,6 +1012,40 @@ internal fun TypingSmartChipsSettings(
                     settings.smartChips.gifs,
                     default = SettingsDefaults.smartChips.gifs,
                 ) { scope.launch { repository.setSmartChipGifs(it) } }
+            }
+            item {
+                ToggleSetting(
+                    R.string.typing_smart_numbers_title,
+                    stringResource(R.string.typing_smart_numbers_subtitle),
+                    settings.smartChips.numbers,
+                    info = stringResource(R.string.typing_smart_numbers_info),
+                    default = SettingsDefaults.smartChips.numbers,
+                ) { scope.launch { repository.setSmartChipNumbers(it) } }
+            }
+            if (settings.smartChips.numbers) {
+                item {
+                    ChoiceSetting(
+                        R.string.typing_smart_number_grouping_title,
+                        subtitle = stringResource(
+                            R.string.typing_smart_number_grouping_subtitle,
+                        ),
+                        options = listOf(
+                            NumberGrouping.AUTO to
+                                stringResource(R.string.typing_smart_number_grouping_auto),
+                            NumberGrouping.WESTERN to
+                                stringResource(R.string.typing_smart_number_grouping_western),
+                            NumberGrouping.SOUTH_ASIAN to
+                                stringResource(
+                                    R.string.typing_smart_number_grouping_south_asian,
+                                ),
+                        ),
+                        selected = settings.smartChips.numberGrouping,
+                        default = SettingsDefaults.smartChips.numberGrouping,
+                        detail = { style ->
+                            ChoiceDetail(stringResource(numberGroupingDescRes(style)))
+                        },
+                    ) { scope.launch { repository.setSmartChipNumberGrouping(it) } }
+                }
             }
         }
     }
@@ -991,6 +1167,17 @@ internal fun TypingGesturesSettings(
                     selected = settings.letterSwipeAction,
                     onChange = { scope.launch { repository.setLetterSwipeAction(it) } },
                     default = SettingsDefaults.letterSwipeAction,
+                    detail = { action ->
+                        ChoiceDetail(
+                            stringResource(
+                                if (action == LetterSwipeAction.HANDWRITE) {
+                                    R.string.typing_letter_swipe_handwrite_desc
+                                } else {
+                                    R.string.typing_letter_swipe_type_words_desc
+                                },
+                            ),
+                        )
+                    },
                 )
             }
         }
@@ -1073,6 +1260,7 @@ internal fun TypingGesturesSettings(
                         selected = settings.gesture.apostropheKey,
                         onChange = { scope.launch { repository.setGestureApostropheKey(it) } },
                         default = SettingsDefaults.gesture.apostropheKey,
+                        detail = { key -> ChoiceDetail(stringResource(glideApostropheDescRes(key))) },
                     )
                 }
                 // The possessive flick hangs off that key, and the spacebar
@@ -1462,6 +1650,7 @@ internal fun TypingHardwareSettings(
                 options = SuggestionHotkeyMode.entries.map { it to stringResource(it.labelRes) },
                 selected = hw.suggestionHotkeys,
                 default = SettingsDefaults.hardwareKeyboard.suggestionHotkeys,
+                detail = { mode -> ChoiceDetail(stringResource(suggestionHotkeyDescRes(mode))) },
             ) { scope.launch { repository.setHwSuggestionHotkeys(it) } }
         }
         if (hw.suggestionHotkeys == SuggestionHotkeyMode.ALT_DIGIT) {
@@ -1799,10 +1988,28 @@ private fun LetterCaptureDialog(
  * decision on screen: the tab had priority over the full stop whenever both
  * were on, so the pair only ever meant one of these three.
  */
-private enum class DoubleSpaceAction(@StringRes val labelRes: Int) {
-    NONE(R.string.typing_double_space_none_label),
-    PERIOD(R.string.typing_double_space_period_label),
-    TAB(R.string.typing_double_space_tab_label),
+// See the note on ToolbarFit: a file-private enum carries its own glyph,
+// because [ChoiceOptionIcons] cannot name a type it cannot see.
+private enum class DoubleSpaceAction(
+    @StringRes val labelRes: Int,
+    @StringRes val descRes: Int,
+    val icon: ImageVector,
+) {
+    NONE(
+        R.string.typing_double_space_none_label,
+        R.string.typing_double_space_none_desc,
+        Icons.Outlined.Block,
+    ),
+    PERIOD(
+        R.string.typing_double_space_period_label,
+        R.string.typing_double_space_period_desc,
+        Icons.Outlined.FiberManualRecord,
+    ),
+    TAB(
+        R.string.typing_double_space_tab_label,
+        R.string.typing_double_space_tab_desc,
+        Icons.Outlined.KeyboardTab,
+    ),
 }
 
 private val DefaultDoubleSpace = when {
@@ -1861,4 +2068,56 @@ private fun HardwareShortcutRow(
                 },
                 onClick = onEdit,
             )
+}
+
+/** What one spacebar swipe slot does under each answer, for the sheet. */
+private fun spaceSwipeDescRes(action: SpaceSwipeAction): Int = when (action) {
+    SpaceSwipeAction.NONE -> R.string.typing_space_swipe_none_desc
+    SpaceSwipeAction.LANGUAGE -> R.string.typing_space_swipe_language_desc
+    SpaceSwipeAction.CURSOR -> R.string.typing_space_swipe_cursor_desc
+    SpaceSwipeAction.NUMPAD -> R.string.typing_space_swipe_numpad_desc
+}
+
+/**
+ * How far a detected language is allowed to go, for the sheet. The names are
+ * three points on a dial and say nothing about what moves.
+ */
+private fun detectionStrengthDescRes(strength: LanguageDetectionStrength): Int = when (strength) {
+    LanguageDetectionStrength.GENTLE -> R.string.typing_language_detection_gentle_desc
+    LanguageDetectionStrength.BALANCED -> R.string.typing_language_detection_balanced_desc
+    LanguageDetectionStrength.AGGRESSIVE -> R.string.typing_language_detection_aggressive_desc
+}
+
+/**
+ * How long an undone correction stays undone, for the sheet. Each line says
+ * what the level costs the user, not how the store spells it.
+ */
+private fun undoMemoryDescRes(level: UndoMemory): Int = when (level) {
+    UndoMemory.OFF -> R.string.typing_undo_memory_off_desc
+    UndoMemory.LIGHT -> R.string.typing_undo_memory_light_desc
+    UndoMemory.NORMAL -> R.string.typing_undo_memory_normal_desc
+    UndoMemory.STRICT -> R.string.typing_undo_memory_strict_desc
+}
+
+/** What each grouping does to a long number, for the sheet. */
+private fun numberGroupingDescRes(style: NumberGrouping): Int = when (style) {
+    NumberGrouping.AUTO -> R.string.typing_smart_number_grouping_auto_desc
+    NumberGrouping.WESTERN -> R.string.typing_smart_number_grouping_western_desc
+    NumberGrouping.SOUTH_ASIAN -> R.string.typing_smart_number_grouping_south_asian_desc
+}
+
+/** Which key carries the apostrophe in a glide, and what it costs, for the sheet. */
+private fun glideApostropheDescRes(key: GlideApostropheKey): Int = when (key) {
+    GlideApostropheKey.OFF -> R.string.typing_glide_apostrophe_off_desc
+    GlideApostropheKey.COMMA -> R.string.typing_glide_apostrophe_comma_desc
+    GlideApostropheKey.PERIOD -> R.string.typing_glide_apostrophe_period_desc
+    GlideApostropheKey.SPACE -> R.string.typing_glide_apostrophe_space_desc
+    GlideApostropheKey.APOSTROPHE -> R.string.typing_glide_apostrophe_key_desc
+}
+
+/** What a number key does on a physical keyboard, for the sheet. */
+private fun suggestionHotkeyDescRes(mode: SuggestionHotkeyMode): Int = when (mode) {
+    SuggestionHotkeyMode.OFF -> R.string.typing_hw_suggestion_hotkeys_off_desc
+    SuggestionHotkeyMode.LEADER_DIGIT -> R.string.typing_hw_suggestion_hotkeys_leader_desc
+    SuggestionHotkeyMode.ALT_DIGIT -> R.string.typing_hw_suggestion_hotkeys_alt_desc
 }

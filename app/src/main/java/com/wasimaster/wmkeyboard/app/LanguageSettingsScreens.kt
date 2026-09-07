@@ -55,6 +55,8 @@ import com.wasimaster.wmkeyboard.core.emoji.EmojiDictCatalog
 import com.wasimaster.wmkeyboard.core.emoji.EmojiDictDownloadManager
 import com.wasimaster.wmkeyboard.core.emoji.EmojiDictEntry
 import com.wasimaster.wmkeyboard.core.emoji.EmojiDictStore
+import com.wasimaster.wmkeyboard.core.emoji.EmojiKeywordPacks
+import com.wasimaster.wmkeyboard.core.settings.keywordsEnabledFor
 import com.wasimaster.wmkeyboard.core.input.composer.CjkDictCatalog
 import com.wasimaster.wmkeyboard.core.input.composer.CjkDictDownloadManager
 import com.wasimaster.wmkeyboard.core.input.composer.CjkDictPack
@@ -64,6 +66,7 @@ import com.wasimaster.wmkeyboard.core.input.composer.HanVariant
 import com.wasimaster.wmkeyboard.core.layout.AssetLayouts
 import com.wasimaster.wmkeyboard.core.layout.BuiltInLayouts
 import com.wasimaster.wmkeyboard.core.layout.KeymanBinding
+import com.wasimaster.wmkeyboard.core.layout.composerType
 import com.wasimaster.wmkeyboard.core.layout.language
 import com.wasimaster.wmkeyboard.core.layout.resolveLayout
 import com.wasimaster.wmkeyboard.core.prediction.BengaliSpellingMap
@@ -83,6 +86,7 @@ import com.wasimaster.wmkeyboard.core.settings.KeyboardSettings
 import com.wasimaster.wmkeyboard.core.settings.MeteredDecision
 import com.wasimaster.wmkeyboard.core.settings.SettingsDefaults
 import com.wasimaster.wmkeyboard.core.settings.SettingsRepository
+import com.wasimaster.wmkeyboard.core.settings.TransliterationHintMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.io.File
@@ -221,13 +225,6 @@ internal fun enabledLanguagesSummary(settings: KeyboardSettings): String {
 }
 
 private const val LANGUAGE_SUMMARY_LIMIT = 3
-
-/**
- * How many suggestions the Languages screen offers before the user has to go
- * through "Add language". Short enough that it reads as a shortcut rather than
- * as a second list.
- */
-internal const val LANGUAGE_SCREEN_SUGGESTIONS = 4
 
 /**
  * The languages this device suggests, minus whatever is already enabled.
@@ -422,7 +419,8 @@ private fun conjunctSample(script: ScriptId): String? = when (script) {
     ScriptId.LATIN, ScriptId.CYRILLIC, ScriptId.GREEK, ScriptId.ARMENIAN, ScriptId.GEORGIAN, ScriptId.ARABIC, ScriptId.HEBREW,
     ScriptId.SYRIAC, ScriptId.THAI, ScriptId.LAO, ScriptId.HANGUL, ScriptId.ETHIOPIC, ScriptId.THAANA, ScriptId.JAPANESE, ScriptId.HAN,
     ScriptId.IPA, ScriptId.TIFINAGH, ScriptId.CHEROKEE, ScriptId.NKO, ScriptId.CANADIAN_ABORIGINAL_SYLLABICS, ScriptId.OL_CHIKI,
-    ScriptId.MEETEI_MAYEK, ScriptId.TAI_LE, ScriptId.VAI, ScriptId.OSAGE, ScriptId.ADLAM, ScriptId.AHOM, ScriptId.AVESTAN,
+    ScriptId.MEETEI_MAYEK, ScriptId.TAI_LE, ScriptId.VAI, ScriptId.OSAGE, ScriptId.ADLAM, ScriptId.WARANG_CITI, ScriptId.AHOM,
+    ScriptId.AVESTAN,
     ScriptId.BALINESE, ScriptId.BAMUM, ScriptId.BASSA_VAH, ScriptId.BATAK, ScriptId.BHAIKSUKI, ScriptId.BOPOMOFO, ScriptId.BRAHMI,
     ScriptId.BUGINESE, ScriptId.BUHID, ScriptId.CAUCASIAN_ALBANIAN, ScriptId.CHAKMA, ScriptId.CHAM, ScriptId.COPTIC, ScriptId.CYPRIOT,
     ScriptId.CYPRO_MINOAN, ScriptId.DESERET, ScriptId.DIVES_AKURU, ScriptId.DOGRA, ScriptId.ELBASAN, ScriptId.GLAGOLITIC,
@@ -962,6 +960,48 @@ internal fun LanguageDetailScreen(
         }
     }
 
+    // Key hints, for a language typed phonetically. Here rather than on the Key
+    // press screen because it is the one setting on that screen that means
+    // nothing to most boards: it exists because a phonetic layout wears a roman
+    // grid, so its keys never say what they write, and that is a fact about the
+    // language you picked rather than about how you press a key.
+    //
+    // Gated on an *enabled* transliterating layout rather than on the language:
+    // someone typing Bengali on Probhat alone has Bengali keys in front of them
+    // and nothing to hint.
+    val transliterating = settings.enabledLayoutIds.any { id ->
+        val spec = resolveLayout(settings.customLayouts, id)
+        spec.langId == langId && spec.composerType() == ComposerType.TRANSLITERATE
+    }
+    if (transliterating) {
+        SettingsGroup(stringResource(R.string.languages_translit_hints_title)) {
+            item {
+                ChoiceSetting(
+                    R.string.languages_translit_hints_row_title,
+                    subtitle = stringResource(
+                        R.string.languages_translit_hints_row_subtitle,
+                        lang.englishName,
+                    ),
+                    options = listOf(
+                        TransliterationHintMode.OFF to
+                            stringResource(R.string.languages_translit_hints_off_label),
+                        TransliterationHintMode.ADDED to
+                            stringResource(R.string.languages_translit_hints_added_label),
+                        TransliterationHintMode.CLUSTER to
+                            stringResource(R.string.languages_translit_hints_cluster_label),
+                    ),
+                    selected = settings.layoutBehavior.transliterationHints,
+                    info = stringResource(
+                        R.string.languages_translit_hints_info,
+                        lang.englishName,
+                    ),
+                    default = SettingsDefaults.layoutBehavior.transliterationHints,
+                    detail = { mode -> ChoiceDetail(stringResource(translitHintDescRes(mode))) },
+                ) { scope.launch { repository.setTransliterationHints(it) } }
+            }
+        }
+    }
+
     // Numerals are per language: Arabic can type ٠-٩ while English beside it
     // stays 0-9. Two options only — this language's own digits (stored as
     // [NumeralSystem.AUTO], which follows the language) or 0-9. The full list of
@@ -1113,6 +1153,20 @@ internal fun LanguageDetailScreen(
                 scope.launch { repository.setDefaultWordlistSize(chosen) }
             } }
         }
+        // The word list's own switch (issue #51): the same setting the
+        // Custom dictionaries screen spells as "Use only my word lists", read
+        // the other way up, and only where there is a list to switch.
+        if (lang.bundledDictionary || DictionaryStore.isDownloaded(filesDir, langId)) {
+            item {
+                ToggleSetting(
+                    R.string.languages_dictionary_use_title,
+                    stringResource(R.string.languages_dictionary_use_subtitle),
+                    settings.suggestionStrip.shippedDictionaryEnabledFor(langId),
+                    info = stringResource(R.string.languages_dictionary_use_info),
+                    default = SettingsDefaults.suggestionStrip.shippedDictionaryEnabledFor(langId),
+                ) { scope.launch { repository.setShippedDictionaryEnabled(langId, it) } }
+            }
+        }
         item {
             NavRow(
                 R.string.languages_custom_dictionaries_title,
@@ -1141,6 +1195,21 @@ internal fun LanguageDetailScreen(
         }
         if (emojiDict != null) {
             item { EmojiDictRow(emojiDict) }
+        }
+        // The keywords' own switch (issue #51), only once there is a pack —
+        // downloaded or imported — for it to switch.
+        val emojiPackOnDevice = EmojiDictStore.isDownloaded(filesDir, langId) ||
+            EmojiKeywordPacks.packs(filesDir, langId).isNotEmpty()
+        if (emojiPackOnDevice) {
+            item {
+                ToggleSetting(
+                    R.string.languages_emoji_keywords_use_title,
+                    stringResource(R.string.languages_emoji_keywords_use_subtitle),
+                    settings.emoji.keywordsEnabledFor(langId),
+                    info = stringResource(R.string.languages_emoji_keywords_use_info),
+                    default = SettingsDefaults.emoji.keywordsEnabledFor(langId),
+                ) { scope.launch { repository.setEmojiKeywordsEnabled(langId, it) } }
+            }
         }
         item {
             NavRow(
@@ -1565,6 +1634,7 @@ private fun CjkDictPackManager(
                     options = HanVariant.HanRegion.entries.map { it to stringResource(cjkRegionLabelRes(it)) },
                     selected = settings.cjk.hanRegion,
                     default = SettingsDefaults.cjk.hanRegion,
+                    detail = { region -> ChoiceDetail(stringResource(cjkRegionDescRes(region))) },
                 ) { region -> scope.launch { repository.setCjkHanRegion(region) } }
             }
         }
@@ -1687,6 +1757,19 @@ private fun packStatusLabel(
 
 /** Turns a fraction into the whole-number percentage the pack row shows. */
 private const val PERCENT = 100L
+
+/** How much of the joined letter each hint mode draws, for the picker sheet. */
+private fun translitHintDescRes(mode: TransliterationHintMode): Int = when (mode) {
+    TransliterationHintMode.OFF -> R.string.languages_translit_hints_off_desc
+    TransliterationHintMode.ADDED -> R.string.languages_translit_hints_added_desc
+    TransliterationHintMode.CLUSTER -> R.string.languages_translit_hints_cluster_desc
+}
+
+private fun cjkRegionDescRes(region: HanVariant.HanRegion): Int = when (region) {
+    HanVariant.HanRegion.GENERIC -> R.string.languages_cjk_region_generic_subtitle
+    HanVariant.HanRegion.TAIWAN -> R.string.languages_cjk_region_taiwan_subtitle
+    HanVariant.HanRegion.HONG_KONG -> R.string.languages_cjk_region_hong_kong_subtitle
+}
 
 private fun cjkRegionLabelRes(region: HanVariant.HanRegion): Int = when (region) {
     HanVariant.HanRegion.GENERIC -> R.string.languages_cjk_region_generic_title

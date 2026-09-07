@@ -7,6 +7,13 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import android.widget.Toast
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibilityScope
@@ -27,6 +34,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -134,6 +142,7 @@ import com.wasimaster.wmkeyboard.ime.ui.rememberIconSet
 import kotlinx.coroutines.Dispatchers
 import com.wasimaster.wmkeyboard.core.script.LanguageRegistry
 import com.wasimaster.wmkeyboard.core.mlkit.MlKitInit
+import com.wasimaster.wmkeyboard.core.layout.AlternateColumnsRange
 import com.wasimaster.wmkeyboard.core.layout.AssetLayouts
 import com.wasimaster.wmkeyboard.core.layout.PanelKind
 import com.wasimaster.wmkeyboard.core.settings.KeyboardSettings
@@ -151,6 +160,11 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -184,6 +198,13 @@ class MainActivity : FragmentActivity() {
          * Intent extra with a specific settings route string (e.g., "themes").
          */
         const val EXTRA_OPEN_ROUTE = MainActivityContract.EXTRA_OPEN_ROUTE
+        /**
+         * Intent extra naming one row to scroll to and flash, by the resource
+         * name of its title (e.g. "typing_autocorrect_title"). Optional
+         * alongside [EXTRA_OPEN_ROUTE]; on its own it names both the row and,
+         * through the search index, the screen holding it.
+         */
+        const val EXTRA_OPEN_SETTING = MainActivityContract.EXTRA_OPEN_SETTING
     }
 
     private lateinit var repository: SettingsRepository
@@ -286,25 +307,76 @@ class MainActivity : FragmentActivity() {
     }
 
     /**
+     * The settings search index, built on the first link that names a row.
+     *
+     * Six hundred entries read out of resources, so it is not built for the
+     * links that don't need it — which is nearly all of them. When one does,
+     * this is the same index the search screen ranks against, and the same
+     * `route#resource_name` keys, so a link addresses exactly the rows search
+     * can find and nothing else needs a second table.
+     */
+    private val searchIndex: List<SettingsSearchEntry> by lazy { settingsSearchIndex(resources) }
+
+    /**
      * What an intent asks for: a `wmkeyboard://` deep link, or one of the
-     * extras the keyboard uses to jump into a tool's page.
+     * extras the keyboard and other apps use to name a screen directly.
      */
     private fun navFor(intent: Intent?): PendingNav? {
         if (intent == null) return null
         AddonDeepLink.routeFor(intent.data)?.let { return PendingNav(route = it) }
-        SettingsShortcuts.routeFor(intent.data)?.let { return PendingNav(route = it) }
-        intent.getStringExtra(EXTRA_OPEN_ROUTE)?.takeIf { it.isNotEmpty() }
-            ?.let { return PendingNav(route = it) }
+        SettingsDeepLink.parse(intent.data)?.let { target -> return pendingFor(target) }
+        // The extras are the same two addresses in intent form, for a caller
+        // holding an Intent rather than writing a URL — the keyboard's own
+        // "open settings", and any app that names the activity explicitly.
+        // Read through the very same allowlist rather than trusted, because
+        // NavController.navigate throws on a route it does not know, and this
+        // activity has just been resumed by somebody else's intent.
+        val route = intent.getStringExtra(EXTRA_OPEN_ROUTE)?.takeIf { it.isNotEmpty() }
+        val setting = intent.getStringExtra(EXTRA_OPEN_SETTING)?.takeIf { it.isNotEmpty() }
+        if (route != null || setting != null) {
+            val target = SettingsDeepLink.parse(
+                buildString {
+                    append(SettingsDeepLink.SCHEME).append("://").append(SettingsDeepLink.SCREEN_HOST)
+                    if (route != null) append('/').append(route)
+                    if (setting != null) append('?').append(SettingsDeepLink.SETTING_PARAM).append('=').append(setting)
+                },
+            )
+            // A bad route is not silently swapped for the home screen: the
+            // caller asked for something this build does not have, and landing
+            // them somewhere else would read as the link having worked.
+            if (target != null && (route == null || target.route.isNotEmpty())) {
+                return pendingFor(target)
+            }
+        }
         val tool = intent.getStringExtra(EXTRA_OPEN_TOOL)
             ?.let { name -> ToolbarTool.entries.find { it.name == name } }
         return tool?.let { PendingNav(tool = it) }
     }
+
+    /**
+     * Fills in what a link left to the index: the screen holding a row it
+     * named on its own, and the row's title resource, which is what the flash
+     * matches on.
+     */
+    private fun pendingFor(target: SettingsDeepLink.Target): PendingNav? {
+        val entry = SettingsDeepLink.resolve(target) { searchIndex }
+        val route = entry?.route?.takeIf { target.route.isEmpty() } ?: target.route
+        if (route.isEmpty()) return null
+        return PendingNav(route = route, highlight = entry?.titleRes ?: 0)
+    }
 }
 
-/** A navigation an incoming intent asked for; exactly one field is set. */
+/**
+ * A navigation an incoming intent asked for.
+ *
+ * Either a [route] or a [tool], never both. [highlight] rides along with a
+ * route: the string resource of the one row on the arriving screen that should
+ * scroll itself into view and pulse, or 0 for the whole screen.
+ */
 internal data class PendingNav(
     val route: String? = null,
     val tool: ToolbarTool? = null,
+    @StringRes val highlight: Int = 0,
 )
 
 @Composable
@@ -422,7 +494,14 @@ private fun SettingsNavGraph(
     LaunchedEffect(pending) {
         if (pending == null || !settings.onboardingDone) return@LaunchedEffect
         when {
-            !pending.route.isNullOrEmpty() -> navController.navigate(pending.route)
+            !pending.route.isNullOrEmpty() -> {
+                // Armed before the navigation, exactly as a search result arms
+                // it: the destination's rows read the flash during their very
+                // first composition, and a request made after would be a frame
+                // too late for the row to scroll itself into view.
+                if (pending.highlight != 0) SettingsHighlight.request(pending.highlight)
+                navController.navigate(pending.route)
+            }
             pending.tool != null -> {
                 navController.navigate("tools")
                 navController.navigate("tool/${pending.tool.name}")
@@ -485,9 +564,9 @@ private fun SettingsNavGraph(
                     // Arm the flash before navigating: the destination's rows
                     // read it during their first composition.
                     SettingsHighlight.request(result.titleRes)
-                    // The search screen itself is dropped from the back stack,
-                    // so backing out of the setting lands on the home list.
-                    navController.popBackStack()
+                    // The search screen stays on the back stack, so backing
+                    // out of a setting that was not the one lands on the same
+                    // results rather than on the home list (#92).
                     navController.navigate(result.route)
                 },
             )
@@ -529,7 +608,17 @@ private fun SettingsNavGraph(
                     onOpenDictionary = { navController.navigate("dictionary") },
                     onOpenCustomDictionaries = { navController.navigate("customdictionaries") },
                     onOpenBlacklist = { navController.navigate("blacklist") },
+                    onOpenAutopilot = { navController.navigate("typing/autopilot") },
                 )
+            }
+        }
+        composable("typing/autopilot") {
+            SettingsScreen(
+                stringResource(R.string.typing_group_autopilot_title),
+                { navController.popBackStack() },
+                route = "typing/autopilot",
+            ) {
+                TypingAutopilotSettings(repository, settings)
             }
         }
         composable("typing/chips") {
@@ -899,6 +988,42 @@ private fun SettingsNavGraph(
                 KeyLayoutsScreen(repository, settings) { route -> navController.navigate(route) }
             }
         }
+        composable("vocab/packs") {
+            SettingsScreen(stringResource(R.string.vocab_packs_title), { navController.popBackStack() }, route = "vocab/packs") {
+                VocabPacksScreen(repository, settings) { route -> navController.navigate(route) }
+            }
+        }
+        composable("vocab/lists") {
+            SettingsScreen(stringResource(R.string.vocab_lists_title), { navController.popBackStack() }, route = "vocab/lists") {
+                VocabListsScreen(repository, settings) { route -> navController.navigate(route) }
+            }
+        }
+        composable("vocab/list/{packId}") { backStackEntry ->
+            val packId = backStackEntry.arguments?.getString("packId").orEmpty()
+            SettingsScreen(stringResource(R.string.vocab_list_edit_title), { navController.popBackStack() }) {
+                VocabListEditorScreen(packId, repository, settings) { route ->
+                    if (route == "vocab/lists") navController.popBackStack() else navController.navigate(route)
+                }
+            }
+        }
+        composable("vocab/review") {
+            SettingsScreen(stringResource(R.string.vocab_review_title), { navController.popBackStack() }, route = "vocab/review") {
+                VocabReviewScreen(repository, settings) { route -> navController.navigate(route) }
+            }
+        }
+        composable("vocab/browse?pack={pack}") { backStackEntry ->
+            val pack = backStackEntry.arguments?.getString("pack")?.takeIf { it.isNotEmpty() }
+            SettingsScreen(stringResource(R.string.vocab_browse_title), { navController.popBackStack() }, route = "vocab/browse") {
+                VocabBrowseScreen(settings, pack) { route -> navController.navigate(route) }
+            }
+        }
+        composable("vocab/word/{packId}/{word}") { backStackEntry ->
+            val packId = backStackEntry.arguments?.getString("packId").orEmpty()
+            val word = android.net.Uri.decode(backStackEntry.arguments?.getString("word").orEmpty())
+            SettingsScreen(word, { navController.popBackStack() }) {
+                VocabWordScreen(packId, word, settings) { route -> navController.navigate(route) }
+            }
+        }
         composable("sticker_packs") {
             SettingsScreen(
                 stringResource(R.string.home_screen_sticker_packs_title),
@@ -1189,8 +1314,11 @@ private fun SettingsNavGraph(
                     route = toolRoute(tool),
                     icon = { ToolGlyph(tool, paint?.brush) },
                     // The list row's subtitle lands here, under the heading,
-                    // rather than as a loose line at the top of the page.
+                    // rather than as a loose line at the top of the page. It
+                    // is the one place the tool is described, so it wraps
+                    // rather than ending in an ellipsis.
                     subtitle = stringResource(toolDescription(tool)),
+                    subtitleMaxLines = 3,
                     // The heading wears the tool's colour whether or not the
                     // colourful icons are on: it is the only thing naming which
                     // tool this page is.
@@ -1256,6 +1384,15 @@ private fun SettingsNavGraph(
                 route = "datasaver",
             ) {
                 DataSaverSettingsScreen(repository, settings)
+            }
+        }
+        composable(SelectionMacroRoute) {
+            SettingsScreen(
+                stringResource(R.string.selection_macros_title),
+                { navController.popBackStack() },
+                route = SelectionMacroRoute,
+            ) {
+                SelectionMacroSettingsScreen(repository, settings)
             }
         }
         composable("advanced") {
@@ -1521,6 +1658,13 @@ private fun AnimatedVisibilityScope.HomeScreen(
             Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                 UpdateCard()
             }
+            // The word of the day, when the vocabulary tool is on and asked for it.
+            if (ToolbarTool.VOCABULARY in settings.enabledTools && settings.vocabulary.wordOfTheDayCard) {
+                Spacer(Modifier.height(8.dp))
+                Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                    VocabDailyCard(settings, onNavigate)
+                }
+            }
             // One list drives this screen and the search index's root entries,
             // so a row cannot exist on one and not the other.
             for (group in RootGroup.entries) {
@@ -1780,10 +1924,10 @@ internal fun AdvancedSettings(onNavigate: (String) -> Unit) {
         }
         item {
             NavRow(
-                R.string.typing_hw_shortcuts_list_title,
-                stringResource(R.string.typing_hw_shortcuts_list_subtitle),
-                route = "hwshortcuts",
-            ) { onNavigate("hwshortcuts") }
+                R.string.selection_macros_title,
+                stringResource(R.string.selection_macros_subtitle),
+                route = SelectionMacroRoute,
+            ) { onNavigate(SelectionMacroRoute) }
         }
     }
 }
@@ -1829,6 +1973,7 @@ private fun AnimatedVisibilityScope.SettingsScreen(
     centerTitle: Boolean = false,
     subtitle: String? = null,
     subtitleInBar: Boolean = false,
+    subtitleMaxLines: Int = 1,
     content: @Composable () -> Unit,
 ) {
     // A highlight that found no matching row on this screen (the searched
@@ -1850,6 +1995,7 @@ private fun AnimatedVisibilityScope.SettingsScreen(
         centerTitle = centerTitle,
         subtitle = subtitle,
         subtitleInBar = subtitleInBar,
+        subtitleMaxLines = subtitleMaxLines,
         anim = this,
     ) {
         // The one place every settings destination passes through, and it
@@ -1878,6 +2024,8 @@ internal class SettingsGroupScope {
     }
 }
 
+// Only for reading the shared-transition local as the reduced-motion switch.
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun SettingsGroup(
     title: String? = null,
@@ -1895,6 +2043,16 @@ internal fun SettingsGroup(
     foldKey: String? = null,
     /** The section's explanation, behind the heading's "?" — see [SectionHeader]. */
     info: String? = null,
+    /**
+     * What a closed fold holds, named rather than counted: the count alone
+     * says a group has thirteen things in it and nothing about whether the
+     * one being looked for is among them. Read only while the fold is closed,
+     * so a group that is open pays nothing for it — which matters where the
+     * names cost a resource lookup each.
+     *
+     * Ignored without [foldKey]: an unfolded group already shows its rows.
+     */
+    foldSummary: (@Composable () -> String)? = null,
     /** A control on the heading's right — the pencil that puts a list into reorder mode. */
     action: (@Composable () -> Unit)? = null,
     builder: SettingsGroupScope.() -> Unit,
@@ -1919,46 +2077,83 @@ internal fun SettingsGroup(
     // answer than the section around them.
     HighlightableRow(title, highlightKey, coarse = true) {
         if (foldId != null && title != null) {
-            FoldHeader(title, count = scope.items.size, open = open, info = info) {
+            FoldHeader(
+                title,
+                count = scope.items.size,
+                open = open,
+                info = info,
+                summary = if (open) null else foldSummary?.invoke(),
+            ) {
                 folds?.toggle(foldId, !open)
             }
         } else if (title != null) {
-            SectionHeader(title, info = info, action = action)
+            SectionHeader(title, info = info, action = action, modifier = GroupHeadingPadding)
         }
-        if (!open) {
-            Spacer(Modifier.height(8.dp))
-            return@HighlightableRow
-        }
-        Column(
-            modifier = Modifier.padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
-            scope.items.forEachIndexed { index, row ->
-                val top = if (index == 0) 24.dp else 6.dp
-                val bottom = if (index == scope.items.lastIndex) 24.dp else 6.dp
-                Surface(
-                    shape = RoundedCornerShape(
-                        topStart = top, topEnd = top,
-                        bottomStart = bottom, bottomEnd = bottom,
-                    ),
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(modifier = Modifier.padding(vertical = 4.dp)) { row() }
+        val cards: @Composable () -> Unit = {
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                scope.items.forEachIndexed { index, row ->
+                    val top = if (index == 0) 24.dp else 6.dp
+                    val bottom = if (index == scope.items.lastIndex) 24.dp else 6.dp
+                    Surface(
+                        shape = RoundedCornerShape(
+                            topStart = top, topEnd = top,
+                            bottomStart = bottom, bottomEnd = bottom,
+                        ),
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(modifier = Modifier.padding(vertical = 4.dp)) { row() }
+                    }
                 }
             }
         }
-        Spacer(Modifier.height(8.dp))
+        when {
+            // Not a fold at all: the rows are simply there, and wrapping them
+            // in a visibility that is always true costs a layer on every
+            // group on every screen.
+            foldId == null -> cards()
+            // Reduced motion has no still version of a reveal, so the body
+            // is or is not there — the switch [ExpandableCard] already reads,
+            // from the same place.
+            LocalSharedTransition.current == null -> if (open) cards()
+            else -> AnimatedVisibility(
+                visible = open,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut(),
+            ) {
+                cards()
+            }
+        }
+        Spacer(Modifier.height(GroupTail))
     }
 }
 
-/** A fold's heading: the title, how many rows it holds, and a chevron. */
+/**
+ * What a group leaves under its last card. Most of the gap between two groups
+ * lives here rather than above the next heading, so the first group on a screen
+ * sits close under the bar's own air — see `ScreenTopGap` — instead of
+ * doubling it.
+ */
+private val GroupTail = 16.dp
+
+/** A group heading's inset: level with the text in the rows under it. */
+private val GroupHeadingPadding = Modifier.padding(start = 32.dp, end = 16.dp, top = 4.dp, bottom = 8.dp)
+
+/**
+ * A fold's heading: the title, how many rows it holds, and a chevron. With a
+ * [summary] it also names what is inside, which is what makes a fold that
+ * starts closed browsable — see `foldSummary` on [SettingsGroup].
+ */
 @Composable
 private fun FoldHeader(
     title: String,
     count: Int,
     open: Boolean,
     info: String? = null,
+    summary: String? = null,
     onToggle: () -> Unit,
 ) {
     val numberFormat = stringResource(R.string.values_number)
@@ -1967,24 +2162,62 @@ private fun FoldHeader(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onToggle)
-            .padding(start = 32.dp, end = 16.dp, top = 12.dp, bottom = 8.dp),
+            .then(GroupHeadingPadding),
     ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.weight(1f),
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            // Two lines and then an ellipsis: this is a hint at what is in the
+            // fold, not the list itself. The list is one press away.
+            if (summary != null) {
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp, end = 8.dp),
+                )
+            }
+        }
         Text(
             numberFormat.format(count),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(end = 8.dp),
         )
-        if (info != null) InfoButton(title = title, detail = info)
-        ExpandChevron(open)
+        HeadingControls {
+            if (info != null) InfoButton(title = title, detail = info)
+            ExpandChevron(open)
+        }
     }
 }
+
+/**
+ * The lane a heading's controls sit in: as tall as the heading's own line, so
+ * a "?" or a chevron does not make the heading a button's height. The touch
+ * targets keep their full size and simply overhang the line, which is what
+ * lets a heading with a "?" on it be as tall as one without.
+ */
+@Composable
+private fun HeadingControls(content: @Composable RowScope.() -> Unit) {
+    Box(modifier = Modifier.height(HeadingControlLane), contentAlignment = Alignment.Center) {
+        Row(
+            modifier = Modifier.requiredHeight(HeadingControlHitHeight),
+            verticalAlignment = Alignment.CenterVertically,
+            content = content,
+        )
+    }
+}
+
+/** A heading's line: what `titleSmall` comes to at the default font scale. */
+private val HeadingControlLane = 20.dp
+
+/** The tap height a heading's controls keep while overhanging the lane. */
+private val HeadingControlHitHeight = 48.dp
 
 /** How a [StateBanner] reads: a fact, or something the user should fix. */
 internal enum class BannerTone { INFO, WARNING }
@@ -2083,14 +2316,25 @@ internal fun ExpandableCard(
     }
 }
 
-/** The chevron that says "this opens", pointing down closed and up open. */
+/**
+ * The chevron that says "this opens", pointing down closed and up open, and
+ * turning between the two while the body it belongs to opens or closes.
+ */
+// Only for reading the shared-transition local as the reduced-motion switch.
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun ExpandChevron(expanded: Boolean) {
+    val target = if (expanded) 180f else 0f
+    val angle = if (LocalSharedTransition.current == null) {
+        target
+    } else {
+        animateFloatAsState(target, label = "expandChevron").value
+    }
     Icon(
         Icons.Outlined.KeyboardArrowDown,
         contentDescription = null,
         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.rotate(if (expanded) 180f else 0f),
+        modifier = Modifier.rotate(angle),
     )
 }
 
@@ -2201,8 +2445,10 @@ internal fun SectionHeader(
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.weight(1f),
         )
-        if (info != null) InfoButton(title = text, detail = info)
-        action?.invoke()
+        HeadingControls {
+            if (info != null) InfoButton(title = text, detail = info)
+            action?.invoke()
+        }
     }
 }
 
@@ -2263,29 +2509,21 @@ internal fun NavRow(
     @StringRes highlightKey: Int = 0,
     onClick: () -> Unit,
 ) {
+    // A value only sits beside the title while it fits there; a longer one
+    // goes under the title, where it has the width to be read.
+    val beside = value != null && fitsBesideTitle(value, MaterialTheme.typography.labelLarge)
+    val below = value.takeIf { it != null && !beside }
     HighlightableRow(title, highlightKey) {
         WmRow(
             title = title,
-            subtitle = subtitle,
+            subtitle = subtitle.takeIf { below == null },
+            supporting = supportingWith(subtitle, below?.let { { RowValueText(it) } }),
             icon = icon,
             flightTo = route,
             trailing = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (value != null) {
-                        // Capped, or a long value takes the width it asks for
-                        // and the title is left wrapping one word per line.
-                        // ListItem hands the trailing slot whatever it wants
-                        // and gives the headline the remainder, so the limit
-                        // has to be here.
-                        Text(
-                            value,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.End,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.widthIn(max = NAV_ROW_VALUE_MAX_WIDTH),
-                        )
+                    if (beside && value != null) {
+                        RowValueText(value, textAlign = TextAlign.End, maxLines = 1)
                         Spacer(Modifier.width(4.dp))
                     }
                     Icon(
@@ -2300,6 +2538,24 @@ internal fun NavRow(
     }
 }
 
+/** A row's current value, wherever the row ended up putting it. */
+@Composable
+private fun RowValueText(
+    value: String,
+    textAlign: TextAlign? = null,
+    maxLines: Int = 2,
+) {
+    Text(
+        value,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = textAlign,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+        modifier = if (textAlign == null) Modifier else Modifier.widthIn(max = NAV_ROW_VALUE_MAX_WIDTH),
+    )
+}
+
 /**
  * How wide a [NavRow] value may get before it wraps and then ellipsizes.
  *
@@ -2309,6 +2565,50 @@ internal fun NavRow(
  * opens.
  */
 private val NAV_ROW_VALUE_MAX_WIDTH = 132.dp
+
+/** An outlined button's content padding, which its label does not get to use. */
+private val BUTTON_FURNITURE = 48.dp
+
+/**
+ * Whether [text] fits beside a row's title, drawn in [style], within [max].
+ *
+ * `ListItem` hands its trailing slot whatever width it asks for and gives the
+ * headline whatever is left. So a long value or a long button label does not
+ * shrink itself — it shrinks the title, down to one letter a line, and the row
+ * becomes unreadable while the thing that squeezed it looks fine. A row that
+ * knows its own trailing text measures it here and puts it under the title
+ * instead of beside it when it will not fit.
+ */
+@Composable
+private fun fitsBesideTitle(
+    text: String,
+    style: TextStyle,
+    max: Dp = NAV_ROW_VALUE_MAX_WIDTH,
+): Boolean {
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    return remember(text, style, max, density) {
+        measurer.measure(text, style, maxLines = 1).size.width <= with(density) { max.toPx() }
+    }
+}
+
+/**
+ * A row's supporting line, plus [extra] under it when the trailing slot could
+ * not hold it. Null when there is nothing to draw, which leaves the row's own
+ * [subtitle] to it.
+ */
+private fun supportingWith(
+    subtitle: String?,
+    extra: (@Composable () -> Unit)?,
+): (@Composable () -> Unit)? {
+    if (extra == null) return null
+    return {
+        Column {
+            if (subtitle != null) Text(subtitle)
+            extra()
+        }
+    }
+}
 
 /** [ToggleSetting] for a row named by a string resource. */
 @Composable
@@ -2691,11 +2991,14 @@ internal fun StepperSetting(
 }
 
 /**
- * The column counts the alternates popup offers: the automatic wrap that shipped,
- * then 3 to 11. Fewer than three columns is a list rather than a grid, and past
- * eleven the entries are narrower than a fingertip on a phone.
+ * The steps the two column pickers walk: 0 first, then [AlternateColumnsRange].
+ *
+ * What 0 means depends on which picker it is. On the global setting it is the
+ * automatic wrap that shipped. On a key in the layout editor it is "no count of
+ * my own", which defers to that setting. The ladder is the same either way, so
+ * both read it from here.
  */
-internal val AlternatesColumnsRange: List<Int> = listOf(0) + (3..11)
+internal val AlternatesColumnsSteps: List<Int> = listOf(0) + AlternateColumnsRange
 
 /**
  * A settings row whose control is a button rather than a value: clear this,
@@ -2727,17 +3030,24 @@ internal fun ActionRow(
     var asking by remember { mutableStateOf(false) }
     val label = stringResource(title)
     val guarded = rememberLockGuard(lock, onAction)
+    val press = { if (confirm == null) guarded() else asking = true }
+    val button: @Composable () -> Unit = {
+        OutlinedButton(enabled = enabled, onClick = press) { Text(action) }
+    }
+    // "Clear" sits at the end of the row. "Delete the learned words" cannot:
+    // the button would take the row and leave the title a letter a line.
+    val beside = fitsBesideTitle(
+        action,
+        MaterialTheme.typography.labelLarge,
+        NAV_ROW_VALUE_MAX_WIDTH - BUTTON_FURNITURE,
+    )
     HighlightableRow(label, title) {
         WmRow(
             title = label,
-            subtitle = subtitle,
+            subtitle = subtitle.takeIf { beside },
+            supporting = supportingWith(subtitle, if (beside) null else button),
             icon = icon,
-            trailing = {
-                OutlinedButton(
-                    enabled = enabled,
-                    onClick = { if (confirm == null) guarded() else asking = true },
-                ) { Text(action) }
-            },
+            trailing = if (beside) button else null,
         )
     }
     if (!asking) return
@@ -2797,6 +3107,7 @@ internal fun <T> ChoiceSetting(
     selected: T,
     icon: ImageVector? = SettingsRowIcons[title],
     default: T? = null,
+    detail: (@Composable (T) -> ChoiceDetail?)? = null,
     onChange: (T) -> Unit,
 ) = ChoiceSetting(
     title = stringResource(title),
@@ -2807,6 +3118,7 @@ internal fun <T> ChoiceSetting(
     icon = icon,
     highlightKey = title,
     default = default,
+    detail = detail,
     onChange = onChange,
 )
 
@@ -2828,25 +3140,104 @@ internal fun <T> ChoiceSetting(
     icon: ImageVector? = null,
     @StringRes highlightKey: Int = 0,
     default: T? = null,
+    detail: (@Composable (T) -> ChoiceDetail?)? = null,
     onChange: (T) -> Unit,
 ) {
-    HighlightableRow(title, highlightKey) {
-        IconedRow(
-            icon = icon,
-            subtitle = subtitle,
-            header = {
-                Text(title, style = MaterialTheme.typography.bodyLarge)
-                if (info != null) InfoButton(title, info)
-                Spacer(Modifier.weight(1f))
-                // The same `default != null` that draws the control at all is what
-                // makes the let non-empty; there is no fallback option to reset to
-                // on a row that shipped without a default.
-                ResetSetting(title, default != null && selected != default) {
-                    default?.let(onChange)
+    val measurer = rememberTextMeasurer()
+    val tiers = segmentTypeTiers()
+    val density = LocalDensity.current
+    // Measured here rather than left to the control, because the answer picks
+    // the whole row: the segmented form puts the control under the title, and
+    // the sheet form is an ordinary value row. [IconedRow] insets its content
+    // by 16dp on each side, so that is what the segments have to live in.
+    // The control below re-measures the same options against the same width
+    // and reaches the same answer; only "is there one" is needed here.
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val available = maxWidth - 32.dp
+        val fits = remember(options, available, tiers, density) {
+            segmentStyle(options, available, measurer, tiers, density) != null
+        }
+        if (fits) {
+            HighlightableRow(title, highlightKey) {
+                IconedRow(
+                    icon = icon,
+                    subtitle = subtitle,
+                    header = {
+                        Text(title, style = MaterialTheme.typography.bodyLarge)
+                        if (info != null) InfoButton(title, info)
+                        Spacer(Modifier.weight(1f))
+                        // The same `default != null` that draws the control at all is what
+                        // makes the let non-empty; there is no fallback option to reset to
+                        // on a row that shipped without a default.
+                        ResetSetting(title, default != null && selected != default) {
+                            default?.let(onChange)
+                        }
+                    },
+                ) {
+                    ChoiceControl(
+                        options = options,
+                        selected = selected,
+                        modifier = Modifier.padding(top = 8.dp),
+                        title = title,
+                        detail = detail,
+                        onChange = onChange,
+                    )
                 }
-            },
-        ) {
-            ChoiceControl(options, selected, Modifier.padding(top = 8.dp), onChange)
+            }
+            return@BoxWithConstraints
+        }
+        var open by rememberSaveable { mutableStateOf(false) }
+        val current = options.firstOrNull { it.first == selected }?.second.orEmpty()
+        // The row already spends its trailing width on the "?" and the reset,
+        // so an option name goes under the title unless it is short.
+        val beside = fitsBesideTitle(current, MaterialTheme.typography.labelLarge)
+        HighlightableRow(title, highlightKey) {
+            WmRow(
+                title = title,
+                subtitle = subtitle.takeIf { beside },
+                supporting = supportingWith(
+                    subtitle,
+                    if (beside) null else {
+                        {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                ChoiceValueGlyph(choiceIcon(selected, detail))
+                                RowValueText(current)
+                            }
+                        }
+                    },
+                ),
+                icon = icon,
+                trailing = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (info != null) InfoButton(title, info)
+                        ResetSetting(title, default != null && selected != default) {
+                            default?.let(onChange)
+                        }
+                        // The same glyph the sheet puts on this option, small
+                        // enough to sit in a value's lane: the row and the
+                        // sheet then agree at a glance about what is chosen.
+                        if (beside) ChoiceValueGlyph(choiceIcon(selected, detail))
+                        if (beside) RowValueText(current, textAlign = TextAlign.End, maxLines = 1)
+                        Icon(
+                            Icons.Outlined.ArrowDropDown,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                onClick = { open = true },
+            )
+        }
+        if (open) {
+            ChoiceSheet(
+                title = title,
+                subtitle = subtitle,
+                options = options,
+                selected = selected,
+                detail = detail,
+                onPick = onChange,
+                onDismiss = { open = false },
+            )
         }
     }
 }
@@ -2867,92 +3258,298 @@ internal fun <T> ChoiceSetting(
 private val SegmentFurniture = 52.dp
 
 /**
- * Above this many options a chip cloud is a wall, so the control becomes one
- * row showing the current choice that opens a scrolling list.
+ * What a picker says about one option beyond its name: a line explaining what
+ * it does, and something to look at.
+ *
+ * [leading] is a slot for something drawn — a colour swatch, a preview — and
+ * wins over everything else. It stays the last parameter on purpose: the theme
+ * editor passes it as a trailing lambda, and anything declared after it would
+ * take those lambdas instead, quietly.
+ *
+ * [icon] is the ordinary case, a glyph in the row's tile, and is only needed
+ * where the option is not an enum constant: [ChoiceOptionIcons] already
+ * answers for those, so most call sites give neither and still get an icon.
  */
-private const val CHOICE_DIALOG_THRESHOLD = 6
+internal class ChoiceDetail(
+    val description: String? = null,
+    val icon: ImageVector? = null,
+    val leading: (@Composable () -> Unit)? = null,
+)
 
 /**
- * A one-of-N control: segmented buttons when every option's name fits one, a
- * chip row when one of them does not.
+ * The glyph for one option of a one-of-N setting: whatever the call site named
+ * on its [ChoiceDetail], and otherwise whatever [ChoiceOptionIcons] holds for
+ * the value itself.
+ */
+@Composable
+private fun <T> choiceIcon(option: T, detail: (@Composable (T) -> ChoiceDetail?)?): ImageVector? =
+    detail?.invoke(option)?.icon ?: ChoiceOptionIcons[option]
+
+/** The size an option's glyph takes beside a value on the row behind a sheet. */
+private val ChoiceValueGlyphSize = 18.dp
+
+/** The lane an option's glyph occupies on a sheet row, tile or no tile. */
+private val ChoiceSheetGlyphLane = 40.dp
+
+/** That glyph's own size inside the lane. */
+private val ChoiceSheetGlyphSize = 24.dp
+
+/**
+ * One option's glyph on a sheet: the mark itself, in the text colour, with no
+ * tile and no accent behind it. It keeps the width a [WmIconTile] would have
+ * taken so the labels still line up with every other row in the app.
+ */
+@Composable
+private fun ChoiceSheetGlyph(icon: ImageVector) {
+    Box(
+        modifier = Modifier.size(ChoiceSheetGlyphLane),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(ChoiceSheetGlyphSize),
+        )
+    }
+}
+
+/**
+ * The chosen option's glyph, drawn small beside its name on the row that opens
+ * the sheet. Draws nothing for an option that has no glyph, so a row whose
+ * options are languages or layouts looks exactly as it did.
+ */
+@Composable
+private fun ChoiceValueGlyph(icon: ImageVector?) {
+    if (icon == null) return
+    Icon(
+        icon,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(end = 6.dp).size(ChoiceValueGlyphSize),
+    )
+}
+
+/**
+ * The options of a one-of-N setting on a sheet that slides up, one row each.
  *
- * Segmented buttons are the better control — they read as "one of these" and
- * they are all reachable without scrolling — but only while the words survive.
- * Two or three short options ("On"/"Off", "Tabs"/"Mixed") fit anywhere; "After
- * the shortcut key" does not fit a third of a phone, and no amount of layout
- * tuning makes it. Chips size themselves to their own text, so the fallback
- * shows every name in full.
+ * This is what the wrapping chip cloud used to be. A cloud that runs onto two
+ * or three lines costs a card of height on every visit, and it moves under the
+ * finger as the selection changes, because the chips are different widths and
+ * the check mark on the selected one makes it wider still. It also has nowhere
+ * to say what any option means. A row of rows has room for a description and a
+ * swatch, and it costs one line on the screen behind it.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun <T> ChoiceSheet(
+    title: String?,
+    subtitle: String?,
+    options: List<Pair<T, String>>,
+    selected: T,
+    detail: (@Composable (T) -> ChoiceDetail?)?,
+    onPick: (T) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    // Opened at its full height rather than half way. A sheet that stops after
+    // three rows is a list whose fourth option the user has no reason to think
+    // exists: the handle says "there is more here" only to someone who already
+    // suspects it. The column below scrolls, so a long list still fits.
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(
+            modifier = Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 32.dp),
+        ) {
+            if (title != null) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(horizontal = 24.dp),
+                )
+            }
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            for ((option, label) in options) {
+                val extra = detail?.invoke(option)
+                // A drawn slot wins: a colour swatch says more about a colour
+                // than any glyph could. Otherwise the option's own glyph,
+                // which most sheets get without asking.
+                val glyph = extra?.icon ?: ChoiceOptionIcons[option]
+                WmRow(
+                    title = label,
+                    subtitle = extra?.description,
+                    leading = extra?.leading ?: glyph?.let { vector ->
+                        // Bare, not a WmIconTile: a sheet is a list of
+                        // options rather than a list of destinations, and a
+                        // column of accent tiles reads as a menu of places to
+                        // go. The glyph is here to tell the options apart.
+                        { ChoiceSheetGlyph(vector) }
+                    },
+                    trailing = { RadioButton(selected = option == selected, onClick = null) },
+                    onClick = {
+                        onPick(option)
+                        onDismiss()
+                    },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * A one-of-N control: segmented buttons when every option's name fits one, and
+ * the current choice on a button that opens [ChoiceSheet] when they do not.
  *
- * The chips wrap onto a second line rather than scrolling sideways: a settings
- * list has vertical room to spare, and an option parked off the right edge with
- * nothing to say it is there is its own kind of hidden.
+ * Segmented buttons are the better control while the words survive: they read
+ * as "one of these" and they are all reachable without a press. Two or three
+ * short options ("On"/"Off", "Tabs"/"Mixed") fit anywhere; "After the shortcut
+ * key" does not fit a third of a phone, and no amount of layout tuning makes
+ * it.
  *
  * Every one-of-N row in settings goes through here rather than building its own
  * segmented row, because whether the words fit is not something the author can
  * know: it depends on the screen and on the language, and the failure is silent
  * (Material ellipsises and says nothing).
+ *
+ * [label] is the question the control answers, drawn above it. A control that
+ * stands on its own needs one: a segmented row of three words, or worse a lone
+ * button reading "System light or dark", says what the answers are and never
+ * says what was asked. Leave it out only where the words directly above the
+ * control already ask — a [ChoiceSetting] row, or a section heading with
+ * nothing between it and the control.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun <T> ChoiceControl(
     options: List<Pair<T, String>>,
     selected: T,
     modifier: Modifier = Modifier,
+    title: String? = null,
+    label: String? = null,
+    detail: (@Composable (T) -> ChoiceDetail?)? = null,
     onChange: (T) -> Unit,
 ) {
     val measurer = rememberTextMeasurer()
-    val labelStyle = MaterialTheme.typography.labelLarge
-    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        val density = LocalDensity.current
-        val width = maxWidth
-        val fits = remember(options, width, labelStyle, density) {
-            val perSegment = with(density) { (width / options.size).toPx() }
-            val furniture = with(density) { SegmentFurniture.toPx() }
-            options.all { (_, label) ->
-                measurer.measure(label, labelStyle, maxLines = 1).size.width + furniture <=
-                    perSegment
-            }
+    val tiers = segmentTypeTiers()
+    Column(modifier = modifier.fillMaxWidth()) {
+        if (label != null) {
+            // Not the muted colour a subtitle gets: this is the name of the
+            // control under it, not a footnote about it.
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(bottom = 6.dp),
+            )
         }
-        if (fits) {
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                options.forEachIndexed { index, (option, label) ->
-                    SegmentedButton(
-                        selected = selected == option,
-                        onClick = { onChange(option) },
-                        shape = SegmentedButtonDefaults.itemShape(index, options.size),
-                    ) {
-                        Text(label, maxLines = 1)
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val density = LocalDensity.current
+            val width = maxWidth
+            val style = remember(options, width, tiers, density) {
+                segmentStyle(options, width, measurer, tiers, density)
+            }
+            if (style != null) {
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    options.forEachIndexed { index, (option, name) ->
+                        SegmentedButton(
+                            selected = selected == option,
+                            onClick = { onChange(option) },
+                            shape = SegmentedButtonDefaults.itemShape(index, options.size),
+                        ) {
+                            // The size the labels were measured at, which is
+                            // not always the default one.
+                            Text(name, style = style, maxLines = 1)
+                        }
                     }
                 }
+                return@BoxWithConstraints
             }
-            return@BoxWithConstraints
+            // The sheet gets the same question the control is drawn under, so
+            // the compact form does not lose it on the way to the options.
+            ChoiceValueButton(title ?: label, options, selected, detail, onChange)
         }
-        if (options.size > CHOICE_DIALOG_THRESHOLD) {
-            ChoiceDialogButton(options, selected, onChange)
-            return@BoxWithConstraints
+    }
+}
+
+/**
+ * The type size at which every option's name survives its share of [width] as a
+ * segmented button, or null when none of [styles] fits and the sheet has to
+ * take the choice instead. Shared by [ChoiceControl] and [ChoiceSetting], which
+ * has to know before it draws anything: the answer decides whether the row
+ * carries the control underneath it or opens a sheet instead.
+ *
+ * More than one size because the alternative to a slightly smaller label is not
+ * a bigger one, it is losing the segments altogether and putting three short
+ * words behind a press. Three seven-letter names have about 57 dp of label lane
+ * each on a 360 dp screen (see [SegmentFurniture] for where the rest goes), and
+ * that is under `labelLarge` and over `labelMedium`.
+ */
+private fun <T> segmentStyle(
+    options: List<Pair<T, String>>,
+    width: Dp,
+    measurer: TextMeasurer,
+    styles: List<TextStyle>,
+    density: Density,
+): TextStyle? {
+    if (width <= 0.dp || options.isEmpty()) return null
+    val perSegment = with(density) { (width / options.size).toPx() }
+    val furniture = with(density) { SegmentFurniture.toPx() }
+    return styles.firstOrNull { style ->
+        options.all { (_, label) ->
+            measurer.measure(label, style, maxLines = 1).size.width + furniture <= perSegment
         }
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            for ((option, label) in options) {
-                FilterChip(
-                    selected = selected == option,
-                    onClick = { onChange(option) },
-                    label = { Text(label, maxLines = 1) },
-                    leadingIcon = if (selected != option) null else {
-                        {
-                            Icon(
-                                Icons.Outlined.Check,
-                                contentDescription = null,
-                                modifier = Modifier.size(FilterChipDefaults.IconSize),
-                            )
-                        }
-                    },
-                )
-            }
-        }
+    }
+}
+
+/**
+ * The sizes [segmentStyle] tries, largest first. Remembered on the typography
+ * rather than rebuilt, because it is a `remember` key at both call sites.
+ */
+@Composable
+private fun segmentTypeTiers(): List<TextStyle> {
+    val typography = MaterialTheme.typography
+    return remember(typography) { listOf(typography.labelLarge, typography.labelMedium) }
+}
+
+/**
+ * The compact form for a control with no row of its own to put a value on: the
+ * current choice on a full-width button that opens the sheet.
+ */
+@Composable
+private fun <T> ChoiceValueButton(
+    title: String?,
+    options: List<Pair<T, String>>,
+    selected: T,
+    detail: (@Composable (T) -> ChoiceDetail?)?,
+    onChange: (T) -> Unit,
+) {
+    var open by rememberSaveable { mutableStateOf(false) }
+    val current = options.firstOrNull { it.first == selected }?.second.orEmpty()
+    OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
+        ChoiceValueGlyph(choiceIcon(selected, detail))
+        Text(current, maxLines = 1, modifier = Modifier.weight(1f))
+        Icon(Icons.Outlined.ArrowDropDown, contentDescription = null)
+    }
+    if (open) {
+        ChoiceSheet(
+            title = title,
+            subtitle = null,
+            options = options,
+            selected = selected,
+            detail = detail,
+            onPick = onChange,
+            onDismiss = { open = false },
+        )
     }
 }
 
@@ -3013,49 +3610,4 @@ internal fun <T> MultiChoiceSetting(
             }
         }
     }
-}
-
-/**
- * The long-list form of [ChoiceControl]: the current choice on a button, the
- * rest in a dialog that scrolls. Picking one closes it.
- */
-@Composable
-private fun <T> ChoiceDialogButton(
-    options: List<Pair<T, String>>,
-    selected: T,
-    onChange: (T) -> Unit,
-) {
-    var open by remember { mutableStateOf(false) }
-    val current = options.firstOrNull { it.first == selected }?.second.orEmpty()
-    OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
-        Text(current, maxLines = 1, modifier = Modifier.weight(1f))
-        Icon(Icons.Outlined.ArrowDropDown, contentDescription = null)
-    }
-    if (!open) return
-    AlertDialog(
-        onDismissRequest = { open = false },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                for ((option, label) in options) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                onChange(option)
-                                open = false
-                            }
-                            .padding(vertical = 8.dp),
-                    ) {
-                        RadioButton(selected = option == selected, onClick = null)
-                        Spacer(Modifier.width(12.dp))
-                        Text(label, style = MaterialTheme.typography.bodyLarge)
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { open = false }) { Text(stringResource(CommonR.string.common_cancel)) }
-        },
-    )
 }

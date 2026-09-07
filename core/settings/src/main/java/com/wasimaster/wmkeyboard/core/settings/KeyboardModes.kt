@@ -7,14 +7,54 @@ import kotlinx.serialization.json.Json
 /**
  * The rows stacked above the keys, in top-to-bottom order. [TOPBAR] is the
  * suggestion/toolbar strip and is always present; the emoji and symbol rows
- * only render when their settings turn them on, but keep their slot in the
- * order either way.
+ * only render when their settings turn them on, [FANCY] (the Fancy Text
+ * style strip) only while the fancy layout is active, [TOOLS] (the tools
+ * on a row of their own) only under an own-row `ToolbarPlacement`, and
+ * [DICTIONARY] (the dictionary bar, issue #51) when `RowSettings` turns it
+ * on — but every row keeps its slot in the order either way.
+ *
+ * [MACROS] (the selection macros, off by default) is the one row that follows
+ * neither a setting alone nor the layout: it appears only while there is a
+ * selection to act on, and only under the own-row placement.
+ *
+ * Stored by name. The reader drops a name it does not know and
+ * [sanitizeBarOrder] fills the gap, so a build that predates a constant
+ * still decodes an order written by a newer one.
  */
-enum class BarRow { TOPBAR, EMOJI, SYMBOL }
+enum class BarRow { TOPBAR, EMOJI, SYMBOL, FANCY, TOOLS, DICTIONARY, MACROS }
 
-/** Ensures every row appears exactly once, preserving the stored order. */
-fun sanitizeBarOrder(rows: List<BarRow>): List<BarRow> =
-    rows.distinct() + BarRow.entries.filter { it !in rows }
+/**
+ * The shipped stacking: emoji on top because it is reached for most, the
+ * tools row directly over the strip whose chevron opens it, the style strip
+ * last, next to the keys whose letters it changes.
+ *
+ * The macro row goes directly above the strip, under the tools: it is the row
+ * that comes and goes with a selection, so it belongs where it pushes the
+ * fewest fixed rows around when it arrives.
+ */
+val DefaultBarOrder: List<BarRow> = listOf(
+    BarRow.EMOJI, BarRow.TOOLS, BarRow.MACROS, BarRow.TOPBAR, BarRow.SYMBOL,
+    BarRow.DICTIONARY, BarRow.FANCY,
+)
+
+/**
+ * Ensures every row appears exactly once, preserving the stored order.
+ *
+ * A row the stored order does not know goes where [DefaultBarOrder] puts it
+ * relative to the rows that *are* there: just above the first present row
+ * that follows it in the default, or at the bottom when none does. So an
+ * order saved before the tools row existed gets it over the strip, where
+ * the row already drew, rather than under the keys' nose.
+ */
+fun sanitizeBarOrder(rows: List<BarRow>): List<BarRow> {
+    val out = rows.distinct().toMutableList()
+    for (missing in DefaultBarOrder.filter { it !in out }) {
+        val successors = DefaultBarOrder.drop(DefaultBarOrder.indexOf(missing) + 1)
+        val anchor = out.indexOfFirst { it in successors }
+        if (anchor < 0) out.add(missing) else out.add(anchor, missing)
+    }
+    return out
+}
 
 /**
  * Kind of input field a keyboard mode can bind to, derived from
@@ -346,7 +386,7 @@ val DefaultKeyboardModes: List<KeyboardMode> = listOf(
         toolboxOrder = listOf(
             // Polish the draft, then pull material into it, then the
             // reference and history tools.
-            ToolbarTool.GRAMMAR, ToolbarTool.DICTIONARY,
+            ToolbarTool.GRAMMAR, ToolbarTool.DICTIONARY, ToolbarTool.VOCABULARY,
             ToolbarTool.OCR, ToolbarTool.DOC_SCAN, ToolbarTool.CALENDAR,
             ToolbarTool.CLIPBOARD, ToolbarTool.SNIPPETS, ToolbarTool.TRANSLATE,
             ToolbarTool.UNDO, ToolbarTool.REDO,

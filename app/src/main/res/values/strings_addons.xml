@@ -38,7 +38,6 @@
     <!-- Button that opens the add-repository dialog, and the title of that dialog. -->
     <string name="addon_repo_add_action">Add repository</string>
     <string name="addon_repo_refresh_action">Refresh</string>
-    <string name="addon_repo_refreshing_progress">Refreshing…</string>
     <string name="addon_repo_options_desc">Repository options</string>
     <string name="addon_repo_homepage_action">Open the homepage</string>
     <!-- Row subtitle: the app has not read this repository one time yet. -->
@@ -154,6 +153,10 @@
         <item quantity="other">…and %1$d more</item>
     </plurals>
     <!-- How many emoji this pack gives a name to. %1$d is the count. -->
+    <plurals name="addon_preview_vocab_count">
+        <item quantity="one">%d word in this pack</item>
+        <item quantity="other">%d words in this pack</item>
+    </plurals>
     <plurals name="addon_preview_emoji_count">
         <item quantity="one">%1$d emoji has a name</item>
         <item quantity="other">%1$d emoji have names</item>

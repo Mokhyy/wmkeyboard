@@ -97,6 +97,7 @@ internal fun sectionLabelRes(section: ConfigBackup.Section): Int = when (section
     ConfigBackup.Section.ADDONS -> R.string.backup_section_addons_label
     ConfigBackup.Section.EMOJI -> R.string.backup_section_emoji_label
     ConfigBackup.Section.STATISTICS -> R.string.backup_section_statistics_label
+    ConfigBackup.Section.VOCAB -> R.string.backup_section_vocab_label
 }
 internal fun sectionLabel(context: Context, section: ConfigBackup.Section): String =
     context.getString(sectionLabelRes(section))
@@ -119,6 +120,7 @@ internal fun sectionLabelLowercase(context: Context, section: ConfigBackup.Secti
             ConfigBackup.Section.ADDONS -> R.string.backup_section_addons_label_lowercase
             ConfigBackup.Section.EMOJI -> R.string.backup_section_emoji_label_lowercase
             ConfigBackup.Section.STATISTICS -> R.string.backup_section_statistics_label_lowercase
+            ConfigBackup.Section.VOCAB -> R.string.backup_section_vocab_label_lowercase
         },
     )
 @PluralsRes
@@ -134,6 +136,7 @@ private fun sectionCountPlural(section: ConfigBackup.Section): Int = when (secti
     ConfigBackup.Section.ADDONS -> R.plurals.backup_section_addons_count
     ConfigBackup.Section.EMOJI -> R.plurals.backup_section_emoji_count
     ConfigBackup.Section.STATISTICS -> R.plurals.backup_section_statistics_count
+    ConfigBackup.Section.VOCAB -> R.plurals.backup_section_vocab_count
 }
 /** "3 themes", "1 snippet": the count line shown per section on import. */
 internal fun sectionSummary(context: Context, section: ConfigBackup.Section, count: Int): String =
@@ -295,8 +298,24 @@ private fun DestinationRow(
         options = options,
         selected = selected,
         default = SettingsDefaults.autoBackup.destination,
+        detail = { dest -> ChoiceDetail(stringResource(destinationDescRes(dest))) },
         onChange = onChange,
     )
+}
+
+/**
+ * What each destination needs from the user, one line, for the picker sheet.
+ * The list is brand names, and a brand name says nothing about whether the
+ * choice wants a sign-in, a URL or a pair of keys.
+ */
+private fun destinationDescRes(destination: BackupDestination): Int = when (destination) {
+    BackupDestination.FOLDER -> R.string.backup_auto_dest_folder_desc
+    BackupDestination.WEBDAV -> R.string.backup_auto_dest_webdav_desc
+    BackupDestination.DRIVE -> R.string.backup_auto_dest_drive_desc
+    BackupDestination.S3 -> R.string.backup_auto_dest_s3_desc
+    BackupDestination.FTP -> R.string.backup_auto_dest_ftp_desc
+    BackupDestination.DROPBOX -> R.string.backup_auto_dest_dropbox_desc
+    BackupDestination.ONEDRIVE -> R.string.backup_auto_dest_onedrive_desc
 }
 /** Server, user and password for a WebDAV collection. */
 @Composable
@@ -1307,6 +1326,15 @@ internal fun BackupContentsSettings(repository: SettingsRepository, settings: Ke
                 default = ConfigBackup.Section.STATISTICS.id in
                     AutoBackupSettings.DEFAULT_SECTIONS,
             ) { setSection(ConfigBackup.Section.STATISTICS, it) }
+        }
+        item {
+            ToggleSetting(
+                R.string.backup_section_vocab_label,
+                stringResource(R.string.backup_include_vocab_subtitle),
+                ConfigBackup.Section.VOCAB in sections,
+                default = ConfigBackup.Section.VOCAB.id in
+                    AutoBackupSettings.DEFAULT_SECTIONS,
+            ) { setSection(ConfigBackup.Section.VOCAB, it) }
         }
     }
     Spacer(Modifier.height(16.dp))

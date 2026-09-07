@@ -104,6 +104,9 @@ import com.wasimaster.wmkeyboard.core.snippets.espanso.EspansoWriter
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.TextFields
+import androidx.compose.material.icons.outlined.Block
 
 // ---- text expander ----
 
@@ -384,6 +387,17 @@ internal fun SnippetSettings(
                 ),
                 selected = settings.suggestionStrip.snippetMultiExpand,
                 default = SettingsDefaults.suggestionStrip.snippetMultiExpand,
+                detail = { mode ->
+                    ChoiceDetail(
+                        stringResource(
+                            if (mode == MultiExpandMode.INSERT_FIRST) {
+                                R.string.expander_multi_expand_insert_desc
+                            } else {
+                                R.string.expander_multi_expand_chips_desc
+                            },
+                        ),
+                    )
+                },
             ) { scope.launch { repository.setSnippetMultiExpand(it) } }
         }
     }
@@ -1270,6 +1284,12 @@ private fun SnippetEditorForm(
                                 0L to stringResource(R.string.rows_snippet_folder_none_label),
                             ) + folders.map { it.id to it.name },
                             selected = folderId,
+                            detail = { id ->
+                                ChoiceDetail(
+                                    icon = if (id == 0L) Icons.Outlined.Block
+                                    else Icons.Outlined.Folder,
+                                )
+                            },
                             onChange = { folderId = it },
                         )
                     }
@@ -1299,6 +1319,17 @@ private fun SnippetEditorForm(
                                 stringResource(R.string.rows_snippet_mode_pattern_label),
                         ),
                         selected = mode,
+                        label = stringResource(R.string.rows_snippet_mode_label),
+                        detail = { triggerMode ->
+                            val word = triggerMode == SnippetTriggerMode.WORD
+                            ChoiceDetail(
+                                stringResource(
+                                    if (word) R.string.rows_snippet_mode_word_desc
+                                    else R.string.rows_snippet_mode_pattern_desc,
+                                ),
+                                if (word) Icons.Outlined.TextFields else Icons.Outlined.Code,
+                            )
+                        },
                         onChange = { mode = it },
                     )
                     Spacer(Modifier.height(8.dp))
@@ -1352,6 +1383,7 @@ private fun SnippetEditorForm(
                                         stringResource(R.string.rows_snippet_case_all_label),
                                 ),
                                 selected = uppercaseStyle,
+                                label = stringResource(R.string.rows_snippet_case_style_label),
                                 onChange = { uppercaseStyle = it },
                             )
                         }
@@ -1405,6 +1437,7 @@ private fun SnippetEditorForm(
                         // Resetting a snippet's own answer means going back to
                         // following the app's.
                         default = MultiExpand.DEFAULT,
+                        detail = { choice -> ChoiceDetail(stringResource(snippetMultiExpandDescRes(choice))) },
                     ) { multiExpand = it }
                 }
             }
@@ -2001,4 +2034,11 @@ private fun TextFieldValue.insert(piece: String): TextFieldValue {
         text = text.substring(0, at) + piece + text.substring(at),
         selection = TextRange(at + piece.length),
     )
+}
+
+/** What one snippet does with several expansions, one line, for the sheet. */
+private fun snippetMultiExpandDescRes(choice: MultiExpand): Int = when (choice) {
+    MultiExpand.DEFAULT -> R.string.rows_snippet_multi_expand_default_desc
+    MultiExpand.CHIPS_ONLY -> R.string.expander_multi_expand_chips_desc
+    MultiExpand.INSERT_FIRST -> R.string.expander_multi_expand_insert_desc
 }

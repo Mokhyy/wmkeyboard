@@ -501,6 +501,30 @@ fun KeyAction.holdIsSpokenFor(): Boolean = when (this) {
 }
 
 /**
+ * Whether pressing this key only changes what the keyboard draws and leaves the
+ * text exactly as it was.
+ *
+ * The keyboard holds a few one-shot facts about the character right behind the
+ * caret — chiefly "that space is one we typed, so a mark may take it back". A
+ * key that types nothing must not spend one, and the `?123` key is why this
+ * exists: a colon and a slash live on the symbols page, so reaching either one
+ * meant a layer switch, and that switch used to count as typing on past the
+ * space. `hello ` then `:` gave `hello :` while the same colon reached by press
+ * and hold gave `hello:` (issue #34).
+ *
+ * The panel keys are deliberately absent. Emoji, a tool and the system keyboard
+ * picker all lead somewhere that can commit text of its own, so the safe
+ * reading of one of those is that the word is finished.
+ */
+fun KeyAction.commitsNoText(): Boolean = when (this) {
+    KeyAction.Symbols, KeyAction.Letters, KeyAction.Numpad, KeyAction.Fn,
+    KeyAction.Shift, KeyAction.CapsLock, KeyAction.LanguageSwitch, KeyAction.None,
+    -> true
+    is KeyAction.Layout -> true
+    else -> false
+}
+
+/**
  * The glyph an edit key falls back to when nothing draws its icon.
  *
  * Untranslated for the reason [fallbackLabel] gives; the four selection
@@ -556,6 +580,14 @@ enum class PanelFieldKind(val panel: PanelKind) {
 
     /** Whether the editor may offer this kind; [UNKNOWN] is a decode artefact. */
     val isReal: Boolean get() = this != UNKNOWN
+
+    /**
+     * Whether this component is the panel's body — the grid, the history, the
+     * pointing surface — and so takes the height the key rows leave. The strips
+     * (tabs, search, the fragment chips) are a row tall, like a row of keys.
+     */
+    val fills: Boolean
+        get() = this == EMOJI_GRID || this == CLIPBOARD_LIST || this == TRACKPAD
 }
 
 /**
@@ -571,6 +603,29 @@ enum class ModifierKey { CTRL, ALT, META }
 
 /** Clipboard/undo/redo shortcut a letter key can perform on long press (A/C/V/X/Z/Y). */
 enum class ClipboardKeyAction { SELECT_ALL, COPY, PASTE, CUT, UNDO, REDO }
+
+/**
+ * The alternates-popup entry one of those shortcuts becomes.
+ *
+ * The settings-bound shortcuts are entries in the letter's popup rather than a
+ * replacement for it: holding `c` still offers ç, and copy sits after it. Only a
+ * [Key.clipboardAction] written into a layout by hand still takes the hold
+ * outright.
+ *
+ * Four of the six already exist as text-editing operations, so they arrive as a
+ * [KeyAction.Edit] and the popup draws each operation's own icon and speaks its
+ * own name with nothing further to write. Undo and redo are not
+ * [TextEditAction]s — the editing panel never had them — and travel as their
+ * toolbar tools instead, which is the route a key bound to one by hand takes.
+ */
+fun clipboardAlternate(action: ClipboardKeyAction): KeyAlternate = when (action) {
+    ClipboardKeyAction.SELECT_ALL -> KeyAlternate(KeyAction.Edit(TextEditAction.SELECT_ALL))
+    ClipboardKeyAction.COPY -> KeyAlternate(KeyAction.Edit(TextEditAction.COPY))
+    ClipboardKeyAction.PASTE -> KeyAlternate(KeyAction.Edit(TextEditAction.PASTE))
+    ClipboardKeyAction.CUT -> KeyAlternate(KeyAction.Edit(TextEditAction.CUT))
+    ClipboardKeyAction.UNDO -> KeyAlternate(KeyAction.Tool(ToolbarTool.UNDO))
+    ClipboardKeyAction.REDO -> KeyAlternate(KeyAction.Tool(ToolbarTool.REDO))
+}
 
 /**
  * What a key means to the runtime beyond the character it types.

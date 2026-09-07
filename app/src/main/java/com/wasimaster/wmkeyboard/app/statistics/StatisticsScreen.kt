@@ -63,6 +63,10 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import androidx.compose.material.icons.outlined.Abc
+import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.TextFields
+import com.wasimaster.wmkeyboard.app.ChoiceDetail
 
 /**
  * How much you type: all-time totals, a day/week/month history with charts,
@@ -220,6 +224,7 @@ private fun HistoryCard(entries: List<TypingStats.DayEntry>) {
                         StatsPeriod.MONTH to stringResource(R.string.statistics_period_month_label),
                     ),
                     selected = period,
+                    label = stringResource(R.string.statistics_period_label),
                 ) { period = it }
                 ChoiceControl(
                     options = listOf(
@@ -229,6 +234,16 @@ private fun HistoryCard(entries: List<TypingStats.DayEntry>) {
                     ),
                     selected = metric,
                     modifier = Modifier.padding(top = 8.dp),
+                    label = stringResource(R.string.statistics_chart_metric_label),
+                    detail = { m ->
+                        ChoiceDetail(
+                            icon = when (m) {
+                                Metric.WORDS -> Icons.Outlined.TextFields
+                                Metric.CHARS -> Icons.Outlined.Abc
+                                Metric.SPEED -> Icons.Outlined.Speed
+                            },
+                        )
+                    },
                 ) { metric = it }
                 if (metric == Metric.SPEED) {
                     SpeedLine(values, modifier = Modifier.padding(top = 16.dp))

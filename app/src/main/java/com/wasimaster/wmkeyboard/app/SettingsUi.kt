@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -46,6 +47,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.pullToRefresh
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
@@ -65,6 +69,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.animation.core.animate
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -201,6 +208,7 @@ internal val SettingsRouteColors: Map<String, Color> = mapOf(
     "typing" to Color(0xFF42A5F5),
     "typing/corrections" to Color(0xFF42A5F5),
     "typing/suggestions" to Color(0xFF42A5F5),
+    "typing/autopilot" to Color(0xFF42A5F5),
     "typing/chips" to Color(0xFF42A5F5),
     "typing/codes" to Color(0xFF42A5F5),
     "typing/gestures" to Color(0xFF42A5F5),
@@ -238,6 +246,10 @@ internal val SettingsRouteColors: Map<String, Color> = mapOf(
     "expander" to Color(0xFF26A69A),
     "tools" to Color(0xFFFF7043),
     "sticker_packs" to Color(0xFFF06292),
+    "vocab/packs" to Color(0xFF8E24AA),
+    "vocab/lists" to Color(0xFF8E24AA),
+    "vocab/review" to Color(0xFF8E24AA),
+    "vocab/browse" to Color(0xFF8E24AA),
     // The editor is opened from a pack, so it keeps the pack screens' pink.
     "sticker_editor" to Color(0xFFF06292),
     "plugins" to Color(0xFF06B6D4),
@@ -248,6 +260,7 @@ internal val SettingsRouteColors: Map<String, Color> = mapOf(
     "permissions" to Color(0xFFEF5350),
     "applock" to Color(0xFFEF5350),
     "datasaver" to Color(0xFF00897B),
+    "selection_macros" to Color(0xFF5E6BC0),
     "advanced" to Color(0xFF8D6E63),
     "backup" to Color(0xFF78909C),
     "backup/auto" to Color(0xFF78909C),
@@ -328,7 +341,21 @@ internal val LocalAdvancedFolds = compositionLocalOf<AdvancedFolds?> { null }
 internal class ScreenSlots {
     var fab: (@Composable () -> Unit)? by mutableStateOf(null)
     var pinned: (@Composable () -> Unit)? by mutableStateOf(null)
+    var refresh: ScreenRefresh? by mutableStateOf(null)
+
+    /**
+     * How the body scrolls itself back to its top, for the path strip's last
+     * pill. The body owns its scroll state; the strip is in the bar above it.
+     * Null for a body that has no single scroll to speak of.
+     */
+    var toTop: (suspend () -> Unit)? by mutableStateOf(null)
 }
+
+/**
+ * A screen's own refresh, as the frame needs it: whether one is running, and
+ * how to start another.
+ */
+internal class ScreenRefresh(val refreshing: Boolean, val onRefresh: () -> Unit)
 
 internal val LocalScreenSlots = compositionLocalOf<ScreenSlots?> { null }
 
@@ -338,6 +365,24 @@ internal fun RegisterFab(content: @Composable () -> Unit) {
     val slots = LocalScreenSlots.current ?: return
     SideEffect { slots.fab = content }
     DisposableEffect(slots) { onDispose { slots.fab = null } }
+}
+
+/**
+ * Hangs the screen's refresh on the frame's pull gesture for as long as the
+ * caller is composed. A screen that registers one should not also draw a
+ * refresh button: the gesture is the affordance, and two of them is two ways
+ * to do one thing.
+ *
+ * [refreshing] drives the spinner, so it has to be the screen's real "a fetch
+ * is running" state and not a flag flipped by the pull. A screen whose refresh
+ * finishes instantly can pass `false` throughout: the indicator then springs
+ * back as the finger lifts, which is the honest answer.
+ */
+@Composable
+internal fun RegisterPullRefresh(refreshing: Boolean, onRefresh: () -> Unit) {
+    val slots = LocalScreenSlots.current ?: return
+    SideEffect { slots.refresh = ScreenRefresh(refreshing, onRefresh) }
+    DisposableEffect(slots) { onDispose { slots.refresh = null } }
 }
 
 /** The one-icon FAB every list screen's "add" is: [label] is its content description. */
@@ -953,6 +998,13 @@ private val ExpandedTitleCenterFromBottom = 40.dp
  */
 private val SubtitleBand = 24.dp
 
+/**
+ * The most lines a subtitle may wrap to. Three lines of the body face still fit
+ * the box the heading lays its parts out in ([CollapsedBarHeight]), which is
+ * what keeps the arithmetic above one measurement rather than a layout pass.
+ */
+private const val SubtitleLineLimit = 3
+
 /** Width the collapsed pose keeps clear for the navigation icon and actions. */
 private val CollapsedFurnitureWidth = 112.dp
 
@@ -1040,7 +1092,11 @@ private fun BoxScope.HeadingFader(
     Box(
         modifier = Modifier
             .align(pose.alignment)
-            .height(CollapsedBarHeight)
+            // The bar's own height, and taller when the content is: a subtitle
+            // that wrapped must not be measured against a box one line deep,
+            // or it would come back clipped to the height that made it wrap.
+            // The caller works [drop] out against the same rule.
+            .heightIn(min = CollapsedBarHeight)
             .then(
                 if (maxWidth == Dp.Unspecified) Modifier
                 else Modifier.widthIn(max = maxWidth.coerceAtLeast(0.dp)),
@@ -1185,6 +1241,11 @@ private fun BoxScope.HeadingIcon(
  * pose: the app's own name, centred in the bar both ways rather than hung off
  * its left edge. [subtitle] and [badge] belong to the heading rather than to
  * the bar, so like the icon they are gone by the time the bar has collapsed.
+ *
+ * [subtitleMaxLines] lets a subtitle wrap rather than ellipsise: the bar grows
+ * a line at a time under the title to hold it, up to [SubtitleLineLimit]. A
+ * subtitle that rides into the collapsed strip stays one line regardless,
+ * because the strip has room for one.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1204,18 +1265,34 @@ internal fun WmCollapsingTopBar(
     subtitleIcon: ImageVector? = null,
     subtitleIconTint: Color? = null,
     subtitleInBar: Boolean = false,
+    subtitleMaxLines: Int = 1,
     badge: (@Composable () -> Unit)? = null,
     badgeInBar: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     val density = LocalDensity.current
     val collapsedPx = with(density) { CollapsedBarHeight.toPx() }
+    // A subtitle that stays through the collapse has to fit the strip, so it
+    // is one line whatever the caller asked for.
+    val subtitleLines = if (subtitleInBar) 1 else subtitleMaxLines.coerceIn(1, SubtitleLineLimit)
+    // How tall the subtitle actually came out, and how much of that is its
+    // first line, both measured as it draws. The band below the title grows by
+    // the difference, so a description that needs two lines gets a bar two
+    // lines deep instead of an ellipsis. Measured rather than guessed from the
+    // line count because the font scale decides what a line is worth.
+    var subtitleHeightPx by remember(subtitle, subtitleLines) { mutableIntStateOf(0) }
+    var subtitleFirstLinePx by remember(subtitle, subtitleLines) { mutableIntStateOf(0) }
+    val subtitleExtraPx = (subtitleHeightPx - subtitleFirstLinePx).coerceAtLeast(0)
+    val subtitleExtra = with(density) { subtitleExtraPx.toDp() }
+    // The box the subtitle is laid out in is the bar's own height until the
+    // text is taller than that, which only a large font scale reaches.
+    val subtitleBoxPx = maxOf(collapsedPx, subtitleHeightPx.toFloat())
     // The subtitle's band is added below the title and taken off its distance
     // from the bottom, so the title itself does not move. A badge sits above
     // instead, so its band is pure extra height: the bar grows downward from a
     // fixed top, which is what makes room over the heading.
     val barHeight = ExpandedBarHeight +
-        (if (subtitle != null) SubtitleBand else 0.dp) +
+        (if (subtitle != null) SubtitleBand + subtitleExtra else 0.dp) +
         (if (badge != null) BadgeBand else 0.dp)
     val expandedPx = with(density) { barHeight.toPx() }
     // Material owns the scroll maths but never learns how far this bar may
@@ -1255,15 +1332,19 @@ internal fun WmCollapsingTopBar(
         with(density) {
             (
                 ExpandedTitleCenterFromBottom +
-                    (if (subtitle != null) SubtitleBand else 0.dp) +
+                    (if (subtitle != null) SubtitleBand + subtitleExtra else 0.dp) +
                     (if (badge != null) BadgeBand else 0.dp)
                 ).toPx()
         } -
         collapsedPx / 2f
     // Far enough below the title's centre line to clear its descenders: half a
-    // line of the title, then the subtitle's own half-line and a gap.
+    // line of the title, then the subtitle's own half-line and a gap. The
+    // subtitle is centred in its box, so the lines it grew by push it down by
+    // half of their height to keep its first line where one line sat — less
+    // half of whatever the box itself grew by, which moves the centre already.
     val titleHalfPx = with(density) { (expandedSp * 1.25f / 2f).dp.toPx() }
-    val subtitleDropPx = titleHalfPx + with(density) { 13.dp.toPx() }
+    val subtitleDropPx = titleHalfPx + with(density) { 13.dp.toPx() } +
+        subtitleExtraPx / 2f - (subtitleBoxPx - collapsedPx) / 2f
     val badgeRisePx = with(density) { (HeaderBadgeSize / 2 + 10.dp).toPx() } + titleHalfPx
     // The centred pose sits in the middle of whatever height the bar currently
     // has — and it is the whole stack that is centred, badge through subtitle,
@@ -1422,8 +1503,15 @@ internal fun WmCollapsingTopBar(
                         else Modifier.wmSharedBounds(landingKey("subtitle")),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
+                        maxLines = subtitleLines,
                         overflow = TextOverflow.Ellipsis,
+                        onTextLayout = { result ->
+                            val firstLine = (result.getLineBottom(0) - result.getLineTop(0))
+                                .roundToInt()
+                            if (firstLine != subtitleFirstLinePx) subtitleFirstLinePx = firstLine
+                            val height = result.size.height
+                            if (height != subtitleHeightPx) subtitleHeightPx = height
+                        },
                     )
                 }
             }
@@ -1455,6 +1543,7 @@ internal fun WmScreen(
     subtitleIcon: ImageVector? = null,
     subtitleIconTint: Color? = null,
     subtitleInBar: Boolean = false,
+    subtitleMaxLines: Int = 1,
     badge: (@Composable () -> Unit)? = null,
     badgeInBar: Boolean = false,
     crumbTitle: String? = null,
@@ -1486,6 +1575,7 @@ internal fun WmScreen(
         subtitleIcon = subtitleIcon,
         subtitleIconTint = subtitleIconTint,
         subtitleInBar = subtitleInBar,
+        subtitleMaxLines = subtitleMaxLines,
         badge = badge,
         badgeInBar = badgeInBar,
         crumbTitle = crumbTitle,
@@ -1496,6 +1586,8 @@ internal fun WmScreen(
     ) { padding ->
         val scrollLock = rememberFlightScrollLock()
         val scrollState = rememberScrollState()
+        val slots = LocalScreenSlots.current
+        SideEffect { slots?.toTop = { scrollState.animateScrollTo(0) } }
         // A screen coming back off the back stack restores its scroll offset,
         // and ScrollState clamps that offset to whatever is actually there —
         // so deferring rows on the way back would throw the user's place away.
@@ -1523,6 +1615,10 @@ internal fun WmScreen(
                     .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.Top,
             ) {
+                // The same air under the bar whatever comes first. A group
+                // heading brings a little of its own; a bare card brings none,
+                // and used to sit hard against the strip.
+                Spacer(Modifier.height(ScreenTopGap))
                 content()
                 // Room for a FAB to float over the last row rather than on it:
                 // the button, its margin, and a little air.
@@ -1535,6 +1631,9 @@ internal fun WmScreen(
 
 /** Height a scrolling body leaves free under a floating action button. */
 private val FAB_TAIL = 88.dp
+
+/** Air between the bar (or the path strip under it) and a screen's first row. */
+private val ScreenTopGap = 12.dp
 
 /**
  * [WmScreen] for a destination whose body is a lazy grid.
@@ -1591,6 +1690,7 @@ private fun WmScreenFrame(
     subtitleIcon: ImageVector? = null,
     subtitleIconTint: Color? = null,
     subtitleInBar: Boolean = false,
+    subtitleMaxLines: Int = 1,
     badge: (@Composable () -> Unit)? = null,
     badgeInBar: Boolean = false,
     crumbTitle: String? = null,
@@ -1610,8 +1710,21 @@ private fun WmScreenFrame(
     // is drawn outside the graph, and then there is no strip.
     val trail = LocalSettingsCrumbTrail.current
     val entry = currentCrumbEntry()
-    RegisterSettingsCrumb(crumbTitle ?: title)
+    RegisterSettingsCrumb(crumbTitle ?: title, route)
     val slots = remember { ScreenSlots() }
+    val scope = rememberCoroutineScope()
+    // The path strip's last pill: the body scrolls to its top, and the bar
+    // opens back up. The scroll alone would leave the bar collapsed when the
+    // body is shorter than the distance the bar folds over, so the bar is
+    // opened by hand after it.
+    val toTop: () -> Unit = {
+        scope.launch {
+            slots.toTop?.invoke()
+            animate(scrollBehavior.state.heightOffset, 0f) { value, _ ->
+                scrollBehavior.state.heightOffset = value
+            }
+        }
+    }
     // The destination's own animation scope, published for everything the
     // screen draws — the heading above, and any row below that flies somewhere.
     CompositionLocalProvider(
@@ -1639,6 +1752,7 @@ private fun WmScreenFrame(
                         subtitleIcon = subtitleIcon,
                         subtitleIconTint = subtitleIconTint,
                         subtitleInBar = subtitleInBar,
+                        subtitleMaxLines = subtitleMaxLines,
                         badge = badge,
                         badgeInBar = badgeInBar,
                         actions = actions,
@@ -1646,12 +1760,18 @@ private fun WmScreenFrame(
                     // Below the bar rather than inside it: the bar measures
                     // itself to the collapse, and a second line in there would
                     // have to be written into that arithmetic. The strip draws
-                    // nothing until the third level down, so most screens pay
-                    // an empty layout node for it and no height.
+                    // nothing on the home list, which pays an empty layout
+                    // node for it and no height.
                     if (trail != null && entry != null) {
                         SettingsBreadcrumbBar(
                             trail = trail,
                             entryId = entry.id,
+                            currentTitle = crumbTitle ?: title,
+                            currentRoute = route,
+                            onCurrent = toTop,
+                            // The heading's own colour, so the pill and the
+                            // tile above it are visibly the same section.
+                            accent = accent ?: routeAccent(route.orEmpty()),
                             tint = barTints(route, barTint).collapsed,
                         )
                     }
@@ -1663,7 +1783,32 @@ private fun WmScreenFrame(
                 }
             },
             floatingActionButton = { (fab ?: slots.fab)?.invoke() },
-            content = content,
+            content = { padding ->
+                // Always wrapped, whether or not the screen has a refresh: the
+                // slot is filled by the content composing, so branching on it
+                // here would rebuild the whole screen one frame in.
+                val refresh = slots.refresh
+                val pullState = rememberPullToRefreshState()
+                Box(
+                    modifier = Modifier.pullToRefresh(
+                        isRefreshing = refresh?.refreshing == true,
+                        state = pullState,
+                        enabled = refresh != null,
+                        onRefresh = { slots.refresh?.onRefresh?.invoke() },
+                    ),
+                ) {
+                    content(padding)
+                    // Under the bar rather than at the top of the window, or a
+                    // collapsing title lands on top of the spinner.
+                    PullToRefreshDefaults.Indicator(
+                        state = pullState,
+                        isRefreshing = refresh?.refreshing == true,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = padding.calculateTopPadding()),
+                    )
+                }
+            },
         )
     }
 }

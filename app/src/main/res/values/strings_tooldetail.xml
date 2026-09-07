@@ -11,6 +11,7 @@
     <string name="tooldetail_enabled_subtitle">Show this tool on the toolbar and in the toolbox</string>
     <!-- Replaces the line above while the tool has no API key, when the switch cannot be pressed. -->
     <string name="tooldetail_enabled_needs_key_subtitle">Add the API key below to turn this tool on</string>
+    <string name="tooldetail_enabled_needs_layout_subtitle">Make a secondary layout under Key layouts below to turn this tool on</string>
     <string name="tooldetail_icon_colour_title">Icon colour</string>
     <!-- The two ends of the icon gradient, shown instead of the row above
          while "Gradient tool colors" is on. -->
@@ -198,6 +199,11 @@
     <string name="tooldetail_power_now_info">This drops the features below until you turn it off again. It stays on after a restart and at any battery level. A full battery does not turn it off.\n\nNothing is lost. The features come back exactly as you had them, because power saving never rewrites your settings. It only hides them while it is on.</string>
     <string name="tooldetail_power_trigger_title">Turn on by itself</string>
     <string name="tooldetail_power_trigger_subtitle">As well as the switch above</string>
+    <!-- One line under each option in the power saving trigger picker. -->
+    <string name="tooldetail_power_trigger_off_desc">Only the switch above turns power saving on</string>
+    <string name="tooldetail_power_trigger_system_desc">Follows the system switch, so the keyboard saves power when you asked your device to</string>
+    <string name="tooldetail_power_trigger_low_desc">Uses your own percentage below</string>
+    <string name="tooldetail_power_trigger_either_desc">Whichever of the two happens first</string>
     <string name="tooldetail_power_trigger_info">\"Android battery saver\" follows the system switch, so the keyboard saves power exactly when you already asked your device to. \"Battery is low\" uses your own percentage below instead.</string>
     <string name="tooldetail_power_battery_title">Low battery is</string>
     <string name="tooldetail_power_battery_subtitle">Power saving starts at this level or below it</string>
@@ -264,9 +270,9 @@
 
     <!-- Custom layout tool. -->
     <string name="tooldetail_custom_layout_layout_title">Layout to show</string>
-    <string name="tooldetail_custom_layout_layout_subtitle">The secondary layout the tool puts on screen</string>
-    <string name="tooldetail_custom_layout_layout_info">The tool shows this layout over the letters, and takes it off again on the next press. A key on any layout can open the other secondary layouts.</string>
-    <string name="tooldetail_custom_layout_first">First secondary layout</string>
+    <string name="tooldetail_custom_layout_layout_subtitle">The secondary layout the tool puts on screen, or a list to select from</string>
+    <string name="tooldetail_custom_layout_layout_info">With no layout selected here, the tool opens a list of all your secondary layouts, or the only one you have. Select a layout and the tool shows that one directly. A press while a secondary layout is on screen always takes it off again. A key on any layout can also open a secondary layout.</string>
+    <string name="tooldetail_custom_layout_first">Ask each time</string>
     <string name="tooldetail_custom_layout_keymaps_nav_title">Key layouts</string>
     <string name="tooldetail_custom_layout_keymaps_nav_subtitle">Make and edit secondary layouts</string>
     <string name="tooldetail_custom_layout_info">A secondary layout is a grid of your own, such as a symbols page or a macro pad. It is not a language. It keeps the dictionary of the layout you type with.</string>
@@ -287,7 +293,7 @@
     <string name="tooldetail_handwriting_pause_subtitle">How long after the last stroke the keyboard waits before it recognizes the word</string>
     <string name="tooldetail_handwriting_pause_info">A shorter pause feels faster, but it can cut multi-stroke letters and Bengali conjuncts in half. A longer pause gives you more time between strokes. Gboard uses about half a second.</string>
     <string name="tooldetail_handwriting_models_header">Recognition models</string>
-    <string name="tooldetail_handwriting_models_info">One model for each language that you type in. Recognition runs fully on your device with Google ML Kit. Each language needs a one-time download of about 20 MB. After that, handwriting works offline.</string>
+    <string name="tooldetail_handwriting_models_info">One model for each language that you type in. Recognition runs fully on your device with Google ML Kit. Each language needs a one-time download, and its size is shown on its own row — they range from about 8 MB to about 26 MB. After that, handwriting works offline.</string>
     <string name="tooldetail_handwriting_languages_title">Languages and layouts</string>
     <string name="tooldetail_handwriting_languages_subtitle">Add a language to get its handwriting model here</string>
 
@@ -318,25 +324,39 @@
     <string name="tooldetail_media_sending_group">Sending</string>
     <string name="tooldetail_media_sticker_send_title">Send stickers as</string>
     <string name="tooldetail_media_sticker_send_subtitle">What the sticker tool gives to the chat app</string>
+    <!-- One line under each option in the "Send stickers as" picker. -->
+    <string name="tooldetail_media_sticker_send_sticker_desc">Stickers arrive as real stickers in WhatsApp. Other apps get a plain image</string>
+    <string name="tooldetail_media_sticker_send_image_desc">Always a plain image, which every app accepts</string>
     <string name="tooldetail_media_sticker_send_info">Android has no sticker mark. The only signal is the MIME type of the file, and the receiving app decides. Sticker: the keyboard offers the WhatsApp sticker type first, so stickers arrive as real stickers there. Apps that do not support it get a normal image. Image: the keyboard always sends a plain image.</string>
     <string name="tooldetail_media_gif_send_title">Send GIFs as</string>
     <string name="tooldetail_media_gif_send_subtitle">Images by default, because most chat apps animate them</string>
+    <!-- One line under each option in the "Send GIFs as" picker. -->
+    <string name="tooldetail_media_gif_send_image_desc">Always a plain image, which every app animates</string>
+    <string name="tooldetail_media_gif_send_sticker_desc">Only for GIFs that arrive in WebP form. The rest still go out as images</string>
     <string name="tooldetail_media_gif_send_info">Sticker mode works only for GIFs that the source gives in WebP form. Android ships no encoder for animated WebP, so the keyboard cannot turn a real animated GIF into a sticker. Those GIFs always go out as images.</string>
     <!-- The two ways to hand a picture to the chat app. -->
     <string name="tooldetail_media_send_sticker_option">Sticker</string>
     <string name="tooldetail_media_send_image_option">Image</string>
     <string name="tooldetail_media_sources_header">Multiple sources</string>
     <!-- One chip for each source. -->
+    <!-- Descriptions of the two ways the panel arranges its sources. -->
+    <string name="tooldetail_media_source_tabs_desc">One chip for each source on the panel</string>
+    <string name="tooldetail_media_source_mixed_desc">One grid, with the results from every source mixed evenly</string>
     <string name="tooldetail_media_source_tabs">Tabs</string>
     <!-- One grid with the results of every source together. -->
     <string name="tooldetail_media_source_mixed">Mixed</string>
-    <string name="tooldetail_media_sources_info">Tabs: one chip for each source on the panel. Mixed: one grid with the results from every source mixed evenly.</string>
     <string name="tooldetail_media_filter_header">Content filter</string>
     <!-- Strength of the content filter. "Med" is short for medium and must stay short. -->
     <string name="tooldetail_media_filter_low">Low</string>
-    <string name="tooldetail_media_filter_medium">Med</string>
+    <string name="tooldetail_media_filter_medium">Medium</string>
     <string name="tooldetail_media_filter_high">High</string>
-    <string name="tooldetail_media_filter_info">High hides the most and Off hides nothing. This maps to the rating of Klipy and GIPHY, where High is G and Off is R.</string>
+    <!-- Descriptions of the four filter levels. G, PG, PG-13 and R are the
+         rating letters of Klipy and GIPHY. Keep them as they are. -->
+    <string name="tooldetail_media_filter_off_desc">Every result. The R rating</string>
+    <string name="tooldetail_media_filter_low_desc">Hides only the strongest results. The PG-13 rating</string>
+    <string name="tooldetail_media_filter_medium_desc">Suitable for most chats. The PG rating</string>
+    <string name="tooldetail_media_filter_high_desc">Hides the most. The G rating</string>
+    <string name="tooldetail_media_filter_info">Klipy and GIPHY give each result a rating. Each service applies your level to its own results.</string>
     <string name="tooldetail_media_limit_group">Results</string>
     <string name="tooldetail_media_limit_title">Results for each search</string>
     <string name="tooldetail_media_limit_subtitle">How many items one search or the trending view loads. Your own sticker packs always show fully.</string>
@@ -466,11 +486,20 @@
     <string name="tooldetail_qr_gen_size_subtitle">Side length of the PNG that the keyboard inserts</string>
     <string name="tooldetail_qr_gen_send_title">Send as</string>
     <string name="tooldetail_qr_gen_send_subtitle">QR codes go out as images by default</string>
+    <!-- One line under each option in the QR code "Send as" picker. -->
+    <string name="tooldetail_qr_gen_send_image_desc">Always a plain image, which every app accepts</string>
+    <string name="tooldetail_qr_gen_send_sticker_desc">Offers the WhatsApp sticker type, where the app supports it</string>
     <string name="tooldetail_qr_gen_send_info">Some chat apps draw a plain incoming image with no bubble. That can look like a sticker, even though it was sent as an image. Sticker mode offers the WhatsApp sticker type instead, where the app supports it.</string>
     <string name="tooldetail_qr_gen_gallery_title">Save to the gallery</string>
     <string name="tooldetail_qr_gen_gallery_subtitle">Also keep generated codes in Pictures/WM Keyboard</string>
     <string name="tooldetail_qr_gen_ecc_header">Error correction</string>
-    <string name="tooldetail_qr_gen_ecc_info">Higher levels survive more dirt and damage but hold less text. The keyboard generates the code on your device and follows what the text field contains.</string>
+    <!-- Descriptions of the four error correction levels. The percentage is
+         how much of a damaged code the scanner can still read. -->
+    <string name="tooldetail_qr_gen_ecc_l_desc">Repairs about 7% of a damaged code. Holds the most text</string>
+    <string name="tooldetail_qr_gen_ecc_m_desc">Repairs about 15%. Good for a code on a screen</string>
+    <string name="tooldetail_qr_gen_ecc_q_desc">Repairs about 25%. Good for a code that you print</string>
+    <string name="tooldetail_qr_gen_ecc_h_desc">Repairs about 30%. Holds the least text</string>
+    <string name="tooldetail_qr_gen_ecc_info">The keyboard generates the code on your device and follows what the text field contains.</string>
 
     <!-- Password generator tool. -->
     <string name="tooldetail_password_group">Password</string>
@@ -518,6 +547,11 @@
 
     <string name="tooldetail_camera_resolution_title">Photo size</string>
     <string name="tooldetail_camera_resolution_subtitle">Longest edge of the photos you take</string>
+    <!-- One line under each option in the photo size picker. -->
+    <string name="tooldetail_camera_resolution_small_desc">The smallest file, and the fastest to send</string>
+    <string name="tooldetail_camera_resolution_medium_desc">A good size for a photo in a chat</string>
+    <string name="tooldetail_camera_resolution_large_desc">Enough detail to read a page of text</string>
+    <string name="tooldetail_camera_resolution_max_desc">The most detail, and the biggest file</string>
     <string name="tooldetail_camera_resolution_info">Larger photos hold more detail, which matters for a picture of a document somebody has to read. They also take longer to capture and to send, and use more data. The camera picks the closest size its sensor offers.</string>
 
     <string name="tooldetail_qr_max_chars_title">Longest text</string>
@@ -556,4 +590,111 @@
     <string name="tooldetail_mediactl_access_granted">Granted. The media tool can read and steer what is playing</string>
     <string name="tooldetail_mediactl_access_missing">Needed before the keyboard can see what is playing. Tap to grant</string>
     <string name="tooldetail_mediactl_info">Android only lets an app read other apps\' playback through a notification listener. The listener WM Keyboard registers reads no notifications at all. It exists so the media tool can find the session it steers.</string>
+
+    <!-- Vocabulary tool page. -->
+    <string name="tooldetail_vocab_manage_group">Your vocabulary</string>
+    <string name="tooldetail_vocab_packs_title">Vocabulary packs</string>
+    <string name="tooldetail_vocab_packs_none_subtitle">Download a word list to start</string>
+    <plurals name="tooldetail_vocab_packs_subtitle">
+        <item quantity="one">%d pack on</item>
+        <item quantity="other">%d packs on</item>
+    </plurals>
+    <string name="tooldetail_vocab_lists_title">My lists</string>
+    <string name="tooldetail_vocab_lists_subtitle">Lists you make yourself</string>
+    <string name="tooldetail_vocab_review_title">Review</string>
+    <string name="tooldetail_vocab_review_subtitle">Flashcards for what is due today</string>
+    <plurals name="tooldetail_vocab_due_value">
+        <item quantity="one">%d due</item>
+        <item quantity="other">%d due</item>
+    </plurals>
+    <string name="tooldetail_vocab_browse_title">Browse words</string>
+    <string name="tooldetail_vocab_browse_subtitle">Every word in your packs</string>
+    <string name="tooldetail_vocab_nudges_group">Nudges</string>
+    <string name="tooldetail_vocab_nudges_info">When you type a plain word that a pack has a stronger alternative for, a chip on the suggestion strip offers it: “hate → abhor”. Tap it for the word’s card, hold it to swap the word.</string>
+    <string name="tooldetail_vocab_nudges_title">Offer stronger words</string>
+    <string name="tooldetail_vocab_nudges_subtitle">A chip when a plainer word could be one from your packs</string>
+    <string name="tooldetail_vocab_nudge_self_title">Also for the words themselves</string>
+    <string name="tooldetail_vocab_nudge_self_subtitle">Typing a pack word offers its card</string>
+    <string name="tooldetail_vocab_tap_title">Tapping the chip</string>
+    <string name="tooldetail_vocab_tap_subtitle">Holding it does the other</string>
+    <string name="tooldetail_vocab_tap_open_label">Opens the word card</string>
+    <string name="tooldetail_vocab_tap_replace_label">Swaps in the stronger word</string>
+    <string name="tooldetail_vocab_scope_title">Which words nudge</string>
+    <string name="tooldetail_vocab_scope_unlearnt_label">Words you have not learnt</string>
+    <string name="tooldetail_vocab_scope_all_label">Every word</string>
+    <string name="tooldetail_vocab_scope_learnt_label">Only words you have learnt</string>
+    <string name="tooldetail_vocab_level_title">Sensitivity</string>
+    <string name="tooldetail_vocab_level_subtitle">How much plainer the typed word has to be</string>
+    <string name="tooldetail_vocab_level_low_label">Low</string>
+    <string name="tooldetail_vocab_level_medium_label">Medium</string>
+    <string name="tooldetail_vocab_level_high_label">High</string>
+    <string name="tooldetail_vocab_cooldown_title">Repeat a nudge</string>
+    <string name="tooldetail_vocab_cooldown_every_label">Every time</string>
+    <string name="tooldetail_vocab_cooldown_field_label">Once per text field</string>
+    <string name="tooldetail_vocab_cooldown_day_label">Once a day</string>
+    <string name="tooldetail_vocab_card_group">Card sections</string>
+    <string name="tooldetail_vocab_card_info">Where each part of a word card is shown: in the keyboard panel and the app, in the app only, or nowhere.</string>
+    <string name="tooldetail_vocab_visibility_off_label">Off</string>
+    <string name="tooldetail_vocab_visibility_settings_label">In the app only</string>
+    <string name="tooldetail_vocab_visibility_keyboard_label">Keyboard and app</string>
+    <string name="tooldetail_vocab_related_group">Related words</string>
+    <string name="tooldetail_vocab_related_title">Tapping a synonym or antonym</string>
+    <string name="tooldetail_vocab_related_subtitle">Holding one always types it</string>
+    <string name="tooldetail_vocab_related_open_label">Opens its card, or types it</string>
+    <string name="tooldetail_vocab_related_insert_label">Types it</string>
+    <string name="tooldetail_vocab_related_lookup_label">Looks it up in the Dictionary tool</string>
+    <string name="tooldetail_vocab_translations_title">Translation languages</string>
+    <string name="tooldetail_vocab_translations_auto_subtitle">Your keyboard languages</string>
+    <string name="tooldetail_vocab_translations_dialog_body">Translations come from Wiktionary and are downloaded per pack and language on the packs screen.</string>
+    <string name="tooldetail_vocab_audio_group">Speaker</string>
+    <string name="tooldetail_vocab_audio_info">Wiktionary’s recordings are fetched over the network; on mobile data they follow Data saver. Speech synthesis works offline and is the fallback.</string>
+    <string name="tooldetail_vocab_audio_source_title">Voice</string>
+    <string name="tooldetail_vocab_audio_auto_label">Recording when there is one, else synthesised</string>
+    <string name="tooldetail_vocab_audio_wiktionary_label">Wiktionary recording</string>
+    <string name="tooldetail_vocab_audio_tts_label">Speech synthesis</string>
+    <string name="tooldetail_vocab_accent_title">Accent</string>
+    <string name="tooldetail_vocab_accent_subtitle">The pronunciation shown and spoken</string>
+    <string name="tooldetail_vocab_accent_us_label">American</string>
+    <string name="tooldetail_vocab_accent_uk_label">British</string>
+    <string name="tooldetail_vocab_tts_rate_title">Speech speed</string>
+    <string name="tooldetail_vocab_tts_pitch_title">Speech pitch</string>
+    <!-- A multiplier on the synthesiser's default, like "1.2×". -->
+    <string name="tooldetail_vocab_speed_value">%1$.1f×</string>
+    <string name="tooldetail_vocab_audio_test_title">Play a sample</string>
+    <string name="tooldetail_vocab_flashcards_group">Flashcards</string>
+    <string name="tooldetail_vocab_flashcards_info">Review in the keyboard panel or on the Review screen. Both use the same schedule.</string>
+    <string name="tooldetail_vocab_scheduler_title">Scheduling</string>
+    <string name="tooldetail_vocab_scheduler_leitner_label">Leitner boxes</string>
+    <string name="tooldetail_vocab_scheduler_leitner_desc">Five boxes with gaps of 1, 3, 7, 14 and 30 days. A right answer moves a card up a box, a wrong one back to the first.</string>
+    <string name="tooldetail_vocab_scheduler_sm2_label">SM-2</string>
+    <string name="tooldetail_vocab_scheduler_sm2_desc">The SuperMemo rule Anki uses: each card has an ease that good answers raise, and gaps that grow with it.</string>
+    <string name="tooldetail_vocab_goal_title">New words a day</string>
+    <string name="tooldetail_vocab_goal_subtitle">Added to a review session on top of what is due</string>
+    <string name="tooldetail_vocab_wotd_group">Word of the day</string>
+    <string name="tooldetail_vocab_wotd_card_title">Card on the home screen</string>
+    <string name="tooldetail_vocab_wotd_card_subtitle">One word a day, drawn from your packs</string>
+    <string name="tooldetail_vocab_wotd_chip_title">Chip on the keyboard</string>
+    <string name="tooldetail_vocab_wotd_chip_subtitle">Once a day, the first time the keyboard opens</string>
+    <string name="tooldetail_vocab_field_ipa_title">Pronunciation (IPA)</string>
+    <string name="tooldetail_vocab_field_respelling_title">Respelling</string>
+    <string name="tooldetail_vocab_field_examples_title">Example sentences</string>
+    <string name="tooldetail_vocab_field_quotations_title">In print</string>
+    <string name="tooldetail_vocab_field_synonyms_title">Synonyms</string>
+    <string name="tooldetail_vocab_field_antonyms_title">Antonyms</string>
+    <string name="tooldetail_vocab_field_family_title">Word family</string>
+    <string name="tooldetail_vocab_field_hypernyms_title">Broader and narrower words</string>
+    <string name="tooldetail_vocab_field_tags_title">Register tags</string>
+    <string name="tooldetail_vocab_field_topics_title">Topics</string>
+    <string name="tooldetail_vocab_field_etymology_title">Etymology</string>
+    <string name="tooldetail_vocab_field_origin_title">Origin chain</string>
+    <string name="tooldetail_vocab_field_root_title">Root</string>
+    <string name="tooldetail_vocab_field_attested_title">First used</string>
+    <string name="tooldetail_vocab_field_mnemonic_title">Mnemonic</string>
+    <string name="tooldetail_vocab_field_translations_title">Translations</string>
+    <string name="tooldetail_vocab_field_sources_title">Word lists</string>
+    <string name="tooldetail_vocab_field_hyphenation_title">Hyphenation</string>
+    <string name="tooldetail_vocab_field_rhymes_title">Rhymes</string>
+    <string name="tooldetail_vocab_field_forms_title">Forms</string>
+    <string name="tooldetail_vocab_field_wikipedia_title">Wikipedia</string>
+
 </resources>

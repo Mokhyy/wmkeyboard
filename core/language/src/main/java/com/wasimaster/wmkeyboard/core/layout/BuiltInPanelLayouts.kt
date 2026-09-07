@@ -48,8 +48,8 @@ object BuiltInPanelLayouts {
 
     /**
      * Search pill and category tabs across the top, the grid, then the bottom
-     * row. The top two rows flex 0.9 : 3 over whatever the fixed bottom row
-     * leaves, which puts the tab strip at about a key's height.
+     * row. The strip row is fixed at 0.7 of a key (the tabs are 32 dp icons),
+     * the bottom row at a full key, and the grid takes everything between.
      */
     val EMOJI: PanelLayoutSpec = PanelLayoutSpec(
         panel = PanelKind.EMOJI,
@@ -59,7 +59,7 @@ object BuiltInPanelLayouts {
                 listOf(field(PanelFieldKind.EMOJI_GRID, 10f)),
                 bottomRow,
             ),
-            rowHeights = listOf(0.9f, 3f, 1f),
+            rowHeights = listOf(0.7f, 3f, 1f),
         ),
     )
 
@@ -78,9 +78,12 @@ object BuiltInPanelLayouts {
                 add(listOf(field(PanelFieldKind.CLIPBOARD_LIST, 10f)))
                 if (bottomRow) add(this@BuiltInPanelLayouts.bottomRow)
             },
+            // The search pill is a key tall; the fragment strip is a caption
+            // over a row of two-line chips, about a key and a half, and it
+            // collapses to nothing while no clip has a fragment in it.
             rowHeights = buildList {
                 add(0.8f)
-                add(0.7f)
+                add(1.6f)
                 add(3f)
                 if (bottomRow) add(1f)
             },
@@ -138,11 +141,41 @@ object BuiltInPanelLayouts {
         ),
     )
 
+    /**
+     * The Numpad tool's pad as it was drawn before it became a layout: a
+     * dialer's 1 2 3 on top, the common numeric punctuation down the right,
+     * backspace and enter where the thumb finds them. Four rows of four on a
+     * grid of four, so each key is a quarter of the width.
+     */
+    val NUMPAD: PanelLayoutSpec = numpad(calculator = false)
+
+    /**
+     * The shipped pad in either digit order: [calculator] puts 7 8 9 on top
+     * the way a desk keypad does, which is what the Numpad tool's
+     * "Calculator-style layout" setting has always flipped. The setting only
+     * reaches the shipped pad; a pad the user laid out is drawn as laid out.
+     */
+    fun numpad(calculator: Boolean): PanelLayoutSpec {
+        val digits = if (calculator) listOf("7", "8", "9", "4", "5", "6", "1", "2", "3") else listOf("1", "2", "3", "4", "5", "6", "7", "8", "9")
+        return PanelLayoutSpec(
+            panel = PanelKind.NUMPAD,
+            grid = LayerSpec(
+                rows = listOf(
+                    listOf(Key(digits[0]), Key(digits[1]), Key(digits[2]), Key("⌫", action = KeyAction.Delete)),
+                    listOf(Key(digits[3]), Key(digits[4]), Key(digits[5]), Key("+", longPress = listOf("*", "/", "%", "="))),
+                    listOf(Key(digits[6]), Key(digits[7]), Key(digits[8]), Key("-", longPress = listOf("(", ")", "^"))),
+                    listOf(Key(".", longPress = listOf(":")), Key("0"), Key(",", longPress = listOf(";")), Key("⏎", action = KeyAction.Enter)),
+                ),
+            ),
+        )
+    }
+
     val byKind: Map<PanelKind, PanelLayoutSpec> = mapOf(
         PanelKind.EMOJI to EMOJI,
         PanelKind.CLIPBOARD to CLIPBOARD,
         PanelKind.TEXT_EDIT to TEXT_EDIT,
         PanelKind.TRACKPAD to TRACKPAD,
+        PanelKind.NUMPAD to NUMPAD,
     )
 
     fun default(kind: PanelKind): PanelLayoutSpec = byKind.getValue(kind)

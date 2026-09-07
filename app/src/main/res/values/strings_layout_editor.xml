@@ -231,6 +231,13 @@
     <!-- Small badge on the first alternate, which the keyboard also draws in the corner of the key. -->
     <string name="layout_editor_alternate_hint_badge">hint</string>
 
+    <!-- Per-key column count for the press and hold popup. The first step is not a
+         number: it hands the key back to the Alternate key columns setting. -->
+    <string name="layout_editor_alternate_columns_title">Columns in the popup</string>
+    <string name="layout_editor_alternate_columns_subtitle">How many alternates this key puts on a row</string>
+    <string name="layout_editor_alternate_columns_default">From settings</string>
+    <string name="layout_editor_alternate_columns_info">This is the column count for this key alone. Keys differ: a key with a dozen alternates reads better as a grid, and a key with three or four reads better as a single row.\n\nFrom settings leaves the key to the \"Alternate key columns\" setting under Key press, which is Automatic unless you changed it. A number from 3 to 11 gives this key that many columns whatever the setting says.</string>
+
     <!-- Popup entries that run something instead of typing a character. -->
     <string name="layout_editor_action_alternates_label">Actions for press and hold</string>
     <string name="layout_editor_action_alternates_hint">Extra entries in the same popup that do something instead of typing: Tab, voice typing, the editing pad. Tap one to change it.</string>
@@ -245,11 +252,19 @@
     <string name="layout_editor_hint_auto">From settings</string>
     <string name="layout_editor_hint_always">Always</string>
     <string name="layout_editor_hint_never">Never</string>
+    <!-- One line under each option in the corner hint picker. -->
+    <string name="layout_editor_hint_auto_desc">This key follows the one switch in Settings</string>
+    <string name="layout_editor_hint_always_desc">This key always draws its corner hint</string>
+    <string name="layout_editor_hint_never_desc">This key never draws its corner hint</string>
 
     <string name="layout_editor_role_title">Field adaptation</string>
     <string name="layout_editor_role_subtitle">Email and web fields put @ and / in these two slots</string>
     <string name="layout_editor_role_comma">Comma slot</string>
     <string name="layout_editor_role_period">Full stop slot</string>
+    <!-- One line under each option in the field adaptation picker. -->
+    <string name="layout_editor_role_none_desc">The key keeps its character in every field</string>
+    <string name="layout_editor_role_comma_desc">An email field puts @ here, and a web field puts /</string>
+    <string name="layout_editor_role_period_desc">An email field and a web field add .com and the other endings to the long press</string>
 
     <string name="layout_editor_delete_key_action">Delete the key</string>
     <string name="layout_editor_move_left_desc">Move left</string>
@@ -396,6 +411,8 @@
     <!-- Keep a layer open across a close and reopen of the keyboard (issue #60). -->
     <string name="layout_editor_persist_title">Keep this layer open</string>
     <string name="layout_editor_persist_subtitle">The layer stays on screen when the keyboard closes or the field changes. Make sure you have a way to exit this layout.</string>
+    <string name="panel_layout_persist_subtitle">The panel stays open when the keyboard closes or the field changes. Make sure you have a way to exit this panel.</string>
+    <string name="panel_layout_persist_info">Normally a panel closes each time the keyboard opens on a new field. With this on, the panel stays until you press a key or a tool that goes somewhere else, or the Back button. The keyboard cannot close it by itself.</string>
     <string name="layout_editor_persist_info">Normally the keyboard goes back to the letters each time it opens. With this on, the layer stays until you press a key or a tool that goes somewhere else. The keyboard cannot take you off it by itself, so the layer needs an ABC key, a symbols key, or the Custom layout tool on the toolbar.</string>
 
     <string name="layout_editor_name_title">Name</string>
@@ -408,6 +425,9 @@
     <string name="layout_editor_layer_theme_title">Theme for the <xliff:g id="layer" example="Symbols">%1$s</xliff:g> layer</string>
     <string name="layout_editor_layer_theme_inherit_subtitle">Inherit the theme of the layout</string>
     <string name="layout_editor_layer_theme_picker_title">Theme for this layer</string>
+    <string name="layout_editor_panel_theme_title">Theme for this panel</string>
+    <string name="layout_editor_panel_theme_inherit_subtitle">Inherit the theme of the layout</string>
+    <string name="layout_editor_panel_theme_picker_title">Theme for this panel</string>
     <string name="layout_editor_theme_override_body">While this layout is on screen, the keyboard uses this theme. It replaces the theme you set elsewhere, and an automatic light and dark pair, for as long as the layout shows. A layer with a theme of its own uses that one instead. Your own choice does not change.</string>
     <string name="layout_editor_name_label">Layout name</string>
 
@@ -433,17 +453,39 @@
     <string name="layout_editor_composer_cangjie">Cangjie (倉頡)</string>
     <string name="layout_editor_composer_cangjie_quick">Quick (速成)</string>
     <string name="layout_editor_composer_jyutping">Jyutping (粵拼)</string>
+    <!-- One line under each option in the typing method picker. Each one says
+         what you press, with an example where an example is short enough. -->
+    <string name="layout_editor_composer_inherit_desc">The language above decides the method</string>
+    <string name="layout_editor_composer_none_desc">A key types its own character. Nothing joins</string>
+    <string name="layout_editor_composer_dead_key_desc">Press an accent key, then a letter, and the two join</string>
+    <string name="layout_editor_composer_transliterate_desc">Type roman letters and the keyboard writes the script</string>
+    <string name="layout_editor_composer_indic_desc">A consonant and a vowel sign join into one cluster</string>
+    <string name="layout_editor_composer_hangul_desc">Jamo join into a syllable block while you type</string>
+    <string name="layout_editor_composer_telex_desc">Type aa for â, and as for á</string>
+    <string name="layout_editor_composer_vni_desc">Type a6 for â, and a1 for á</string>
+    <string name="layout_editor_composer_romaji_desc">Type ka for か</string>
+    <string name="layout_editor_composer_pinyin_desc">Type the sound in roman letters, then select the character</string>
+    <string name="layout_editor_composer_stroke_desc">Type the strokes of the character in order</string>
+    <string name="layout_editor_composer_t9_pinyin_desc">Pinyin on nine keys, with several letters on each key</string>
+    <string name="layout_editor_composer_zhuyin_desc">Type the bopomofo symbols, then select the character</string>
+    <string name="layout_editor_composer_cangjie_desc">Type the shape codes of the character</string>
+    <string name="layout_editor_composer_cangjie_quick_desc">The first Cangjie code and the last one only</string>
+    <string name="layout_editor_composer_jyutping_desc">Type Cantonese sounds in roman letters</string>
 
     <string name="layout_editor_actual_size_title">Preview at your key height</string>
     <string name="layout_editor_actual_size_subtitle">Draw the grid at the height you actually type at</string>
-    <string name="layout_editor_actual_size_info">The preview normally keeps the keys within a comfortable range so the whole grid fits on this screen. Turn this on to see your real proportions, which matters if you type at a tall key height. The grid may then run off the screen and need scrolling.</string>
+    <string name="layout_editor_actual_size_info">The preview normally keeps the keys within a comfortable range so the whole grid fits on this screen. Turn this on to see your real proportions, which matters if you type at a tall key height. The preview stays at the top either way. A grid that is then taller than the space it has scrolls inside that space.</string>
 
     <!-- Panel layouts (issue #63): the emoji, clipboard and text editing panels
          laid out as grids in the same editor as the key layouts. A "component"
          is a live part of a panel (the emoji grid, the clipboard history, a
          search box) placed as a cell in the grid. -->
     <string name="panel_layouts_title">Panel layouts</string>
-    <string name="panel_layouts_subtitle">Arrange the emoji, clipboard and text editing panels like key layouts</string>
+    <string name="panel_layouts_subtitle">The panels every layout uses unless it has a panel grid of its own. Each layout\'s editor has a tab for every panel.</string>
+    <!-- %1$s is the panel name, for example "Text editing". -->
+    <string name="layout_editor_panel_inherited_caption">This layout uses the shared <xliff:g id="panel" example="Text editing">%1$s</xliff:g> panel. Changing anything here makes a copy for this layout only. The shared panel is under Key layouts, Panel layouts.</string>
+    <string name="layout_editor_reset_panel_title">Use the shared panel</string>
+    <string name="layout_editor_reset_panel_subtitle">Drops this layout\'s own <xliff:g id="panel" example="Text editing">%1$s</xliff:g> grid. The shared panel comes back.</string>
     <string name="panel_layout_row_title">Panel layout</string>
     <string name="panel_layout_row_subtitle">Arrange the keys and the parts of this panel</string>
     <string name="panel_layout_json_title">Panel layout as JSON</string>
@@ -461,6 +503,7 @@
     <string name="panel_name_clipboard">Clipboard panel</string>
     <string name="panel_name_text_edit">Text editing panel</string>
     <string name="panel_name_trackpad">Trackpad panel</string>
+    <string name="panel_name_numpad">Numpad</string>
     <string name="field_name_emoji_tabs">Emoji categories</string>
     <string name="field_name_emoji_search">Emoji search</string>
     <string name="field_name_emoji_grid">Emoji grid</string>

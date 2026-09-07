@@ -29,7 +29,10 @@ import com.wasimaster.wmkeyboard.common.R as CommonR
 import androidx.compose.ui.unit.dp
 import com.wasimaster.wmkeyboard.core.settings.BottomRowHeightRange
 import com.wasimaster.wmkeyboard.core.settings.SidePadScaleRange
+import com.wasimaster.wmkeyboard.core.addons.AddonType
 import com.wasimaster.wmkeyboard.core.icons.IconPackStore
+import com.wasimaster.wmkeyboard.core.layout.AssetLayouts
+import com.wasimaster.wmkeyboard.core.layout.BuiltInLayouts
 import com.wasimaster.wmkeyboard.ime.ui.KeyboardFonts
 import com.wasimaster.wmkeyboard.core.settings.KeyboardAlignment
 import com.wasimaster.wmkeyboard.core.script.NumeralCommitScope
@@ -47,6 +50,11 @@ import com.wasimaster.wmkeyboard.core.settings.ToolboxPageSizeRange
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material.icons.outlined.ViewColumn
+import androidx.compose.material.icons.outlined.ViewWeek
+import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
  * Restores the toolbar's default pins ([DefaultToolbarTools]) from Settings —
@@ -309,6 +317,7 @@ internal fun AppearanceToolbarSettings(
                             stringResource(R.string.appearance_toolbar_placement_always_label),
                     ),
                     selected = settings.toolbarBehavior.placement,
+                    detail = { placement -> ChoiceDetail(stringResource(toolbarPlacementDescRes(placement))) },
                     onChange = { scope.launch { repository.setToolbarPlacement(it) } },
                     default = SettingsDefaults.toolbarBehavior.placement,
                 )
@@ -354,6 +363,7 @@ internal fun AppearanceToolbarSettings(
                 options = ToolbarFit.entries.map { it to stringResource(it.labelRes) },
                 selected = fit,
                 default = DefaultToolbarFit,
+                detail = { option -> ChoiceDetail(stringResource(option.descRes), option.icon) },
             ) { chosen ->
                 scope.launch {
                     repository.setToolbarGreedy(chosen == ToolbarFit.SPREAD)
@@ -635,6 +645,74 @@ internal fun LayoutSettings(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         )
     }
+    // The grids themselves, first: which layout the keyboard draws is a bigger
+    // question than how tall its keys are, and every row below this one is an
+    // adjustment to whatever is chosen here. The whole group came off the
+    // Languages screen, where it read as a language thing only because it sat
+    // next to the switches that turn a language on.
+    //
+    // Only the user's own grids. An override of a shipped layout — built-in or
+    // JSON asset — is an edit of that layout, not a layout of their own, and
+    // listing it here would show the same name twice. Secondary layouts are
+    // left out too: they cannot be switched on, and are reached from a key or
+    // the Custom layout tool.
+    val customs = settings.customLayouts
+        .filter {
+            !it.secondary &&
+                BuiltInLayouts.byId(it.id) == null &&
+                AssetLayouts.byId(it.id) == null
+        }
+        .sortedBy { it.name.lowercase() }
+    // Turning a layout on is gated on it validating; switching one off never is,
+    // or a layout broken while enabled would be impossible to put away.
+    val enableGate = rememberLayoutEnableGate(settings)
+    SettingsGroup(stringResource(R.string.langemoji_lang_your_layouts_title)) {
+        for (layout in customs) {
+            item {
+                // An installed layout arrives switched off and this switch is
+                // what finishes the install, so its addon's Use button lands
+                // here — on the layout's own row, not on the group.
+                HighlightableItem(layout.id) {
+                    ToggleSetting(
+                        layout.name,
+                        stringResource(
+                            R.string.langemoji_lang_custom_layout_subtitle,
+                            baseModeTitle(layout),
+                        ),
+                        layout.id in settings.enabledLayoutIds,
+                        default = layout.id in SettingsDefaults.enabledLayoutIds,
+                    ) { enable ->
+                        fun write() {
+                            scope.launch {
+                                val next =
+                                    if (enable) settings.enabledLayoutIds + layout.id
+                                    else settings.enabledLayoutIds - layout.id
+                                if (next.isNotEmpty()) {
+                                    repository.setEnabledLayoutIds(next.distinct())
+                                }
+                            }
+                        }
+                        if (enable) enableGate(layout.id) { write() } else write()
+                    }
+                }
+            }
+        }
+        item {
+            NavRow(
+                R.string.langemoji_lang_keymaps_title,
+                subtitle = if (customs.isEmpty()) {
+                    stringResource(R.string.langemoji_lang_keymaps_empty_subtitle)
+                } else {
+                    stringResource(R.string.langemoji_lang_keymaps_subtitle)
+                },
+                route = "keymaps",
+            ) {
+                onNavigate("keymaps")
+            }
+        }
+        // "Make one" and "get one" are the same question answered two ways.
+        item { AddonStoreRow(AddonType.Layout, onNavigate) }
+    }
     SettingsGroup(stringResource(R.string.layout_number_row_title)) {
         item {
             ToggleSetting(
@@ -734,6 +812,7 @@ internal fun LayoutSettings(
                 options = NumeralCommitScope.entries.map { it to stringResource(it.labelRes) },
                 selected = settings.layoutBehavior.numeralCommitScope,
                 default = SettingsDefaults.layoutBehavior.numeralCommitScope,
+                detail = { numeralScope -> ChoiceDetail(stringResource(numeralScopeDescRes(numeralScope))) },
             ) { scope.launch { repository.setNumeralCommitScope(it) } }
         }
     }
@@ -1266,10 +1345,42 @@ private fun layoutOneHandedSideLabelRes(side: OneHandedSide): Int = when (side) 
  * (greedy, scrollable), one decision on screen: scrolling overrode spreading
  * whenever both were on, so the pair only ever meant one of these three.
  */
-private enum class ToolbarFit(@StringRes val labelRes: Int) {
-    FIXED(R.string.appearance_toolbar_fit_fixed_label),
-    SPREAD(R.string.appearance_toolbar_fit_spread_label),
-    SCROLL(R.string.appearance_toolbar_fit_scroll_label),
+// Private to this file, so [ChoiceOptionIcons] cannot name it: the glyph rides
+// on the constant instead, beside the labelRes and descRes already there.
+private enum class ToolbarFit(
+    @StringRes val labelRes: Int,
+    @StringRes val descRes: Int,
+    val icon: ImageVector,
+) {
+    FIXED(
+        R.string.appearance_toolbar_fit_fixed_label,
+        R.string.appearance_toolbar_fit_fixed_desc,
+        Icons.Outlined.ViewColumn,
+    ),
+    SPREAD(
+        R.string.appearance_toolbar_fit_spread_label,
+        R.string.appearance_toolbar_fit_spread_desc,
+        Icons.Outlined.ViewWeek,
+    ),
+    SCROLL(
+        R.string.appearance_toolbar_fit_scroll_label,
+        R.string.appearance_toolbar_fit_scroll_desc,
+        Icons.Outlined.SwapHoriz,
+    ),
+}
+
+/** Where the native digits are typed under each answer, for the picker sheet. */
+@StringRes
+private fun numeralScopeDescRes(scope: NumeralCommitScope): Int = when (scope) {
+    NumeralCommitScope.TEXT_ONLY -> R.string.layout_numeral_scope_text_desc
+    NumeralCommitScope.EVERYWHERE -> R.string.layout_numeral_scope_everywhere_desc
+    NumeralCommitScope.DISPLAY_ONLY -> R.string.layout_numeral_scope_display_desc
+}
+
+private fun toolbarPlacementDescRes(placement: ToolbarPlacement): Int = when (placement) {
+    ToolbarPlacement.STRIP -> R.string.appearance_toolbar_placement_strip_desc
+    ToolbarPlacement.ON_DEMAND_ROW -> R.string.appearance_toolbar_placement_button_desc
+    ToolbarPlacement.ALWAYS_ROW -> R.string.appearance_toolbar_placement_always_desc
 }
 
 private val DefaultToolbarFit = when {
