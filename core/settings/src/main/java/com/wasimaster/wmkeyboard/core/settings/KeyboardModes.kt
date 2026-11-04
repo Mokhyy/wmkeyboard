@@ -1,27 +1,37 @@
 package com.wasimaster.wmkeyboard.core.settings
 
+import android.text.InputType
+import android.view.inputmethod.EditorInfo
 import com.wasimaster.wmkeyboard.core.tools.BuiltInSymbolSets
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonArray
 
 /**
- * The rows stacked above the keys, in top-to-bottom order. [TOPBAR] is the
- * suggestion/toolbar strip and is always present; the emoji and symbol rows
- * only render when their settings turn them on, [FANCY] (the Fancy Text
- * style strip) only while the fancy layout is active, [TOOLS] (the tools
- * on a row of their own) only under an own-row `ToolbarPlacement`, and
- * [DICTIONARY] (the dictionary bar, issue #51) when `RowSettings` turns it
- * on — but every row keeps its slot in the order either way.
+ * The rows stacked around the keys, in top-to-bottom order, with [KEYBOARD]
+ * standing for the keys themselves: rows before it draw above the keys, rows
+ * after it draw below (issue #83). [TOPBAR] is the suggestion/toolbar strip;
+ * the emoji and symbol rows only render when their settings turn them on,
+ * [FANCY] (the Fancy Text style strip) only while the fancy layout is active,
+ * [TOOLS] (the tools on a row of their own) only under an own-row
+ * `ToolbarPlacement`, and [DICTIONARY] (the dictionary bar, issue #51) when
+ * `RowSettings` turns it on — but every row keeps its slot in the order
+ * either way.
  *
  * [MACROS] (the selection macros, off by default) is the one row that follows
  * neither a setting alone nor the layout: it appears only while there is a
  * selection to act on, and only under the own-row placement.
  *
+ * [STICKERS] (your own stickers offered while typing, #329) follows state the
+ * same way: it opens when the text before the cursor asks for a sticker, and
+ * has a slot only while that feature is switched on.
+ *
  * Stored by name. The reader drops a name it does not know and
  * [sanitizeBarOrder] fills the gap, so a build that predates a constant
  * still decodes an order written by a newer one.
  */
-enum class BarRow { TOPBAR, EMOJI, SYMBOL, FANCY, TOOLS, DICTIONARY, MACROS }
+enum class BarRow { TOPBAR, EMOJI, SYMBOL, FANCY, TOOLS, DICTIONARY, MACROS, STICKERS, RECENT, KEYBOARD }
 
 /**
  * The shipped stacking: emoji on top because it is reached for most, the
@@ -31,10 +41,24 @@ enum class BarRow { TOPBAR, EMOJI, SYMBOL, FANCY, TOOLS, DICTIONARY, MACROS }
  * The macro row goes directly above the strip, under the tools: it is the row
  * that comes and goes with a selection, so it belongs where it pushes the
  * fewest fixed rows around when it arrives.
+ *
+ * The sticker tray goes above everything: it is an offer that comes and goes
+ * with what is typed, and on top it pushes no fixed row around under the
+ * finger that is about to tap it. An order stored before it existed gets it
+ * on top too, since [sanitizeBarOrder] slots a missing row above the first
+ * row that follows it in this list.
+ *
+ * The recent words (#894) go directly above the strip, where they drew before
+ * they were a row of their own; [sanitizeBarOrder] puts them there for an
+ * order stored before they were.
+ *
+ * The keys come last, so every row sits above them — which is also where
+ * [sanitizeBarOrder] puts the keys for an order stored before they were an
+ * entry, keeping that user's keyboard exactly as it was.
  */
 val DefaultBarOrder: List<BarRow> = listOf(
-    BarRow.EMOJI, BarRow.TOOLS, BarRow.MACROS, BarRow.TOPBAR, BarRow.SYMBOL,
-    BarRow.DICTIONARY, BarRow.FANCY,
+    BarRow.STICKERS, BarRow.EMOJI, BarRow.TOOLS, BarRow.MACROS, BarRow.RECENT, BarRow.TOPBAR, BarRow.SYMBOL,
+    BarRow.DICTIONARY, BarRow.FANCY, BarRow.KEYBOARD,
 )
 
 /**
@@ -57,6 +81,22 @@ fun sanitizeBarOrder(rows: List<BarRow>): List<BarRow> {
 }
 
 /**
+ * The rows that draw above the keys: everything before [BarRow.KEYBOARD].
+ * An order with no keyboard entry (never after [sanitizeBarOrder], but the
+ * split must not depend on it) puts every row above, as it always did.
+ */
+fun barRowsAboveKeys(order: List<BarRow>): List<BarRow> {
+    val keys = order.indexOf(BarRow.KEYBOARD)
+    return if (keys < 0) order else order.subList(0, keys)
+}
+
+/** The rows that draw below the keys: everything after [BarRow.KEYBOARD]. */
+fun barRowsBelowKeys(order: List<BarRow>): List<BarRow> {
+    val keys = order.indexOf(BarRow.KEYBOARD)
+    return if (keys < 0) emptyList() else order.subList(keys + 1, order.size)
+}
+
+/**
  * Kind of input field a keyboard mode can bind to, derived from
  * EditorInfo.inputType (named ModeField to stay distinct from the IME's
  * layout-level FieldKind). A field can match several bindings at once — a
@@ -72,8 +112,121 @@ fun sanitizeBarOrder(rows: List<BarRow>): List<BarRow> {
  * is hosted by the system UI, so the package the IME sees is the shell's,
  * never the app whose notification it is — which is why this is a field
  * kind and why it matches without an app binding (see [matchesField]).
+ *
+ * The last three describe the *shape* of a text box rather than what goes in
+ * it, and a field reports one of them on top of its kind (see
+ * [textShapeFields]). They exist for apps whose fields all look alike to the
+ * inputType classes above — a file manager's rename box, text editor and code
+ * editor are all plain text (issue #186), but only the editors are
+ * [MULTILINE], and only the code editor asks for [NO_SUGGESTIONS].
+ * [SINGLE_LINE] is every one-line text box: a rename dialog, a title, a search
+ * field. Password boxes are excluded from all three for the reason [TEXT]
+ * excludes them.
  */
-enum class ModeField { PASSWORD, EMAIL, URL, NUMBER, PHONE, TEXT, NOTIFICATION_REPLY }
+enum class ModeField {
+    PASSWORD, EMAIL, URL, NUMBER, PHONE, TEXT, NOTIFICATION_REPLY,
+    MULTILINE, SINGLE_LINE, NO_SUGGESTIONS,
+    SEND_KEY, SEARCH_KEY, GO_KEY, DONE_KEY,
+}
+
+/**
+ * A kind of app a mode can bind to rather than listing packages (#1025). These
+ * lists are the fallback: the service also asks Android, so a browser or a social
+ * app installed later falls into its group ([ModeContext.appGroups]).
+ */
+enum class AppGroup(val packages: Set<String>) {
+    BROWSER(
+        setOf(
+            "com.android.chrome", "org.mozilla.firefox", "com.brave.browser", "com.microsoft.emmx",
+            "com.opera.browser", "com.sec.android.app.sbrowser", "com.duckduckgo.mobile.android",
+        ),
+    ),
+    TERMINAL(
+        setOf("com.termux", "org.connectbot", "com.sonelli.juicessh", "com.server.auditor.ssh.client", "jackpal.androidterm"),
+    ),
+    MESSENGER(
+        setOf(
+            "com.facebook.orca", "org.telegram.messenger", "com.whatsapp", "org.thoughtcrime.securesms",
+            "com.discord", "com.viber.voip", "jp.naver.line.android", "com.kakao.talk", "com.tencent.mm",
+            "com.beeper.android",
+        ),
+    ),
+    MAIL(
+        setOf(
+            "com.google.android.gm", "com.microsoft.office.outlook", "com.yahoo.mobile.client.android.mail",
+            "ch.protonmail.android", "com.fsck.k9",
+        ),
+    ),
+}
+
+/** Which way up the screen has to be for a mode (#1025). */
+enum class ModeOrientation { PORTRAIT, LANDSCAPE }
+
+/**
+ * How wide the screen has to be for a mode (#1025). This is how a foldable shows:
+ * open it reads as a tablet, shut as a phone. Android tells a keyboard nothing
+ * about a split-screen or freeform window it could use here.
+ */
+enum class ModeScreenSize { PHONE, TABLET }
+
+/** The state a mode's device, time and field conditions read, when a field is matched. */
+data class ModeContext(
+    val landscape: Boolean = false,
+    val hardwareKeyboard: Boolean = false,
+    val minuteOfDay: Int = 0,
+    /** The groups the current app is in, by Android's say as well as [AppGroup.packages]. */
+    val appGroups: Set<AppGroup> = emptySet(),
+    val tablet: Boolean = false,
+    val oneHanded: Boolean = false,
+    /** The Bluetooth audio outputs connected, by name; empty when no mode asks. */
+    val bluetoothNames: List<String> = emptyList(),
+    val fieldName: String? = null,
+    val fieldId: Int = 0,
+    /** The base language codes of the field's hintLocales. */
+    val fieldLanguages: Set<String> = emptySet(),
+    /** What is before the caret; null when no mode asks, which reads as empty. */
+    val fieldText: String? = null,
+)
+
+/**
+ * What the field says its Enter key does (#1025), which tells a chat composer
+ * from a search box when both are plain text. Apps fill this in unevenly, so it
+ * is a binding to pick by hand and none of the shipped modes uses it. Nothing
+ * for a password box, for the reason [ModeField.TEXT] excludes it, or for a
+ * field that keeps Enter as a plain line break.
+ */
+fun imeActionFields(imeOptions: Int, secure: Boolean): Set<ModeField> {
+    if (secure || imeOptions and EditorInfo.IME_FLAG_NO_ENTER_ACTION != 0) return emptySet()
+    return when (imeOptions and EditorInfo.IME_MASK_ACTION) {
+        EditorInfo.IME_ACTION_SEND -> setOf(ModeField.SEND_KEY)
+        EditorInfo.IME_ACTION_SEARCH -> setOf(ModeField.SEARCH_KEY)
+        EditorInfo.IME_ACTION_GO -> setOf(ModeField.GO_KEY)
+        EditorInfo.IME_ACTION_DONE -> setOf(ModeField.DONE_KEY)
+        else -> emptySet()
+    }
+}
+
+/**
+ * The shape bindings a text field reports: [ModeField.MULTILINE] or
+ * [ModeField.SINGLE_LINE] from the multi-line flag, plus
+ * [ModeField.NO_SUGGESTIONS] when the field asked the IME to keep its
+ * suggestions to itself. Empty for anything that is not a text-class field
+ * (a keypad has no shape worth binding to) and for password boxes.
+ */
+fun textShapeFields(inputType: Int, secure: Boolean): Set<ModeField> {
+    if (secure) return emptySet()
+    if (inputType and InputType.TYPE_MASK_CLASS != InputType.TYPE_CLASS_TEXT) return emptySet()
+    return buildSet {
+        if (inputType and InputType.TYPE_TEXT_FLAG_MULTI_LINE != 0) {
+            add(ModeField.MULTILINE)
+        } else {
+            add(ModeField.SINGLE_LINE)
+        }
+        if (inputType and InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS != 0) {
+            add(ModeField.NO_SUGGESTIONS)
+        }
+    }
+}
 
 /**
  * One keyboard mode: a named bundle of overrides applied while the mode is
@@ -85,7 +238,7 @@ enum class ModeField { PASSWORD, EMAIL, URL, NUMBER, PHONE, TEXT, NOTIFICATION_R
  * Binding both apps and field kinds means *both* have to match (see
  * [matchesField]): the "Chat" mode is bound to the messaging apps **and**
  * [ModeField.TEXT], so it switches on for the message composer but not for
- * the app's contact search.
+ * the app's contact search. [hints] is a third condition of the same kind.
  */
 @Serializable
 data class KeyboardMode(
@@ -149,6 +302,91 @@ data class KeyboardMode(
     /** Suggestions while active; null inherits. */
     val suggestions: Boolean? = null,
     /**
+     * Every space the keyboard types by itself while active; null inherits.
+     *
+     * One switch over the three settings that put a space in without a press:
+     * after punctuation, after a suggestion picked from the strip, and after a
+     * glided word — and over the space *before* a glided word, which has no
+     * switch of its own (#184). They are one question to the person typing — "does this
+     * field want spaces I did not ask for?" — and the answer is per field, not
+     * per source of the space. Off means every space in the field is one the
+     * user typed, which is what a filename, a renamed extension or a terminal
+     * line needs (issue #124).
+     *
+     * On turns all three on, including the space after punctuation, which is
+     * off globally by default: a mode saying "space things for me" that left
+     * that one alone would be saying it only two thirds of the time.
+     */
+    val autoSpace: Boolean? = null,
+    /**
+     * Glide typing while active; null inherits.
+     *
+     * With every other typing switch off, a mode still could not stop a tap
+     * that drifts from starting a swipe (#738), so a field meant for codes,
+     * handles or slang never typed exactly the keys pecked (#753).
+     */
+    val glide: Boolean? = null,
+    /**
+     * Two-thumb typing while active; null inherits. Off stops All thumbs up
+     * from ending a tapped word with a space nobody pressed (#734, #753).
+     */
+    val twoThumb: Boolean? = null,
+    /**
+     * Every key goes straight into the field while active, committed, with no
+     * word held back to complete or correct; null inherits (#1024). What an SSH
+     * client or a code editor with a real text field wants, and what a TYPE_NULL
+     * terminal already gets. A first cut: the strip has no word to read here, so
+     * it offers no completions.
+     */
+    val commitAsTyped: Boolean? = null,
+    /**
+     * Incognito while active (#1025): no learning and whatever else incognito
+     * pauses, for a mode bound to a work app or a shared device's browser. It can
+     * only add: a mode that could switch off the incognito the user turned on by
+     * hand would start learning from them unasked.
+     */
+    val incognito: Boolean = false,
+    /** Key-press sound while active; null inherits (#1025). */
+    val keySound: Boolean? = null,
+    /** Key-press vibration while active; null inherits (#1025). */
+    val keyHaptics: Boolean? = null,
+    /**
+     * Enter types a line break while active, whatever action the field declares
+     * (#1025): a code editor or a notes app that labels its Enter key Done. The
+     * field's action stays on the key's hold.
+     */
+    val enterNewline: Boolean = false,
+    /** The number row while active; null inherits (#1025). */
+    val numberRow: Boolean? = null,
+    /**
+     * The keys' height while active, a percentage of the set height; null inherits
+     * (#1025). A screen shape with a size of its own keeps that size.
+     */
+    val keyHeightPercent: Int? = null,
+    /** One-handed mode while active, on either side or off; null inherits (#1025). */
+    val oneHandedOverride: OneHandedMode? = null,
+    /**
+     * False stops snippet triggers while active, every kind (#1025): a mode for a
+     * terminal where a trigger is a real word. The Snippets tool still inserts them.
+     */
+    val snippets: Boolean? = null,
+    /** The bubble over a pressed key while active; null inherits (#1025). */
+    val keyPreview: Boolean? = null,
+    /** How long a hold takes while active, in milliseconds; null inherits (#1025). */
+    val longPressDelayMs: Int? = null,
+    /** The chip offering what was just copied while active; null inherits (#1025). */
+    val clipboardChip: Boolean? = null,
+    /** The swipes set on the keys while active; null inherits (#1025). */
+    val keySwipes: Boolean? = null,
+    /**
+     * Which of the enabled languages count while active, by code; empty inherits
+     * (#1025). None of them being enabled inherits too: a mode can narrow the
+     * list and never empty it or add to it.
+     */
+    val languages: List<String> = emptyList(),
+    /** The languages dictation hears while active, by code; empty inherits (#1025). */
+    val voiceLanguages: List<String> = emptyList(),
+    /**
      * Layout worn while this mode is active; null inherits whichever layout the
      * user last switched to.
      *
@@ -164,8 +402,72 @@ data class KeyboardMode(
     val layoutId: String? = null,
     /** Package names this mode activates for automatically. */
     val apps: List<String> = emptyList(),
+    /** Kinds of app this mode activates for, on the same terms as [apps] (#1025). */
+    val appGroups: List<AppGroup> = emptyList(),
+    /** Only this way up; null either way (#1025). */
+    val orientation: ModeOrientation? = null,
+    /** Only with a hardware keyboard attached, or only without; null either way (#1025). */
+    val hardwareKeyboard: Boolean? = null,
+    /**
+     * Only between these two times, minutes after midnight, read when a field is
+     * focused; [timeTo] before [timeFrom] runs across midnight. Null is any time (#1025).
+     */
+    val timeFrom: Int? = null,
+    val timeTo: Int? = null,
+    /** Only on this size of screen; null either way (#1025). */
+    val screenSize: ModeScreenSize? = null,
+    /** Only with one-handed mode on, or only with it off; null either way (#1025). */
+    val oneHanded: Boolean? = null,
+    /** Only with Bluetooth audio connected, or only without; null either way (#1025). */
+    val bluetoothAudio: Boolean? = null,
+    /**
+     * Only with a Bluetooth audio device connected whose name holds one of these,
+     * case ignored (#1025): the car and not the earbuds.
+     */
+    val bluetoothNames: List<String> = emptyList(),
+    /**
+     * Only in a field whose `fieldName` holds one of these, case ignored, or whose
+     * `fieldId` is one of them as a number (#1025). Apps fill both in unevenly.
+     */
+    val fieldNames: List<String> = emptyList(),
+    /** Only in a field whose hintLocales include one of these language codes (#1025). */
+    val fieldLanguages: List<String> = emptyList(),
+    /** Only while the field is empty up to the caret, or only while it is not; null either way (#1025). */
+    val fieldEmpty: Boolean? = null,
+    /** Only while the field's text starts with one of these (#1025): `/`, `$` or `>`. */
+    val textStarts: List<String> = emptyList(),
+    /**
+     * Package names this mode never activates for on its own, whatever else
+     * matches (#1025): a mode for every text box except one app's. A manual pick
+     * still wins.
+     */
+    val excludedApps: List<String> = emptyList(),
+    /**
+     * Which mode wins when several match (#1025): the highest, before any of the
+     * specificity rules in [resolveKeyboardMode]. Shipped modes leave it at 0.
+     */
+    val priority: Int = 0,
     /** Input-field kinds this mode activates for automatically. */
     val fieldKinds: List<ModeField> = emptyList(),
+    /**
+     * Placeholder texts this mode activates for: the field's hint (the grey
+     * text an empty box shows) has to contain one of them, case ignored. The
+     * hint is the one thing an app writes on a field that names what the
+     * field is *for* — a file manager's rename box says "Enter name" or
+     * "Extension" where its inputType says only "text" (issue #186). It is
+     * also the app's own wording in the app's own language, so a binding
+     * written for one locale is silent in another; that is the trade.
+     */
+    val hints: List<String> = emptyList(),
+    /**
+     * Whether the keyboard may use this mode at all. Off, the mode never
+     * activates on its own and the Modes tool does not offer it, but every
+     * binding and override it holds is kept, so it can be switched back on as
+     * it was. Deleting was the only way to silence a mode before, and a mode
+     * is a screenful of setup nobody wants to rebuild for a week without it
+     * (issue #152). Stored modes from before the switch decode as on.
+     */
+    val enabled: Boolean = true,
 ) {
     /**
      * Whether this mode prescribes a tool arrangement of its own. When it
@@ -174,6 +476,18 @@ data class KeyboardMode(
      * the very next composition and look like it never happened.
      */
     val ownsToolOrder: Boolean get() = toolbarTools != null || toolboxOrder != null
+
+    /** Whether this mode has to look at Bluetooth audio, which is a call into the system. */
+    val readsBluetooth: Boolean get() = bluetoothAudio != null || bluetoothNames.isNotEmpty()
+
+    /** Whether the text in the field decides this mode, so it can change as that does. */
+    val readsFieldText: Boolean get() = fieldEmpty != null || textStarts.isNotEmpty()
+
+    /** Whether the device's state, the time or more of the field decides this mode. */
+    val hasDeviceCondition: Boolean
+        get() = orientation != null || hardwareKeyboard != null || (timeFrom != null && timeTo != null) ||
+            screenSize != null || oneHanded != null || readsBluetooth || fieldNames.isNotEmpty() ||
+            fieldLanguages.isNotEmpty() || readsFieldText
 }
 
 private val modeJson = Json {
@@ -188,9 +502,24 @@ object KeyboardModeCodec {
         // See [LayoutCodec.decodeList] — blank is normal, not an error worth
         // an exception on every settings emission.
         if (json.isBlank()) return emptyList()
-        return runCatching { modeJson.decodeFromString<List<KeyboardMode>>(json) }
-            .getOrDefault(emptyList())
-            .map(::migrateMode)
+        // One mode at a time. Decoding the list whole meant a single mode the
+        // build could not read (a downgrade, a hand-edited backup) dropped
+        // every mode, and the next edit wrote that empty list back for good.
+        val elements = runCatching { modeJson.parseToJsonElement(json).jsonArray }
+            .getOrNull() ?: return DefaultKeyboardModes
+        val modes = elements.mapNotNull { element ->
+            runCatching { modeJson.decodeFromJsonElement<KeyboardMode>(element) }.getOrNull()
+        }
+        // Something was stored and none of it survived: the shipped modes
+        // beat an empty screen the user never asked for.
+        if (modes.isEmpty() && elements.isNotEmpty()) return DefaultKeyboardModes
+        return modes.map(::migrateMode)
+    }
+
+    /** Built-in modes missing from [modes], in their shipped order. */
+    fun missingDefaults(modes: List<KeyboardMode>): List<KeyboardMode> {
+        val have = modes.map { it.id }.toSet()
+        return DefaultKeyboardModes.filter { it.id !in have }
     }
 
     /** App list the browser mode used to ship with (now field-bound only). */
@@ -487,42 +816,96 @@ fun topUpModeFields(
  * off the contact search. Setting only one of the two matches on that one
  * alone; setting neither makes the mode manual-only.
  *
+ * [hints] is a third condition on the same terms: when set, the field's
+ * hint text has to contain one of them (case ignored), on its own or on top
+ * of the other two.
+ *
  * [ModeField.NOTIFICATION_REPLY] is the one exception to the AND: the
  * inline reply box lives in the system UI, whose package is never the app
  * the user is replying to, so a mode bound to that field matches it with
- * the app bindings ignored.
+ * the app bindings ignored. A hint binding still has to hold there.
+ *
+ * [KeyboardMode.appGroups] count as [apps], and the device and time conditions
+ * ([matchesDevice]) are one more AND, which can also make a mode bound to nothing
+ * else: a night mode needs no app.
  */
-private fun KeyboardMode.matchesField(packageName: String?, fields: Set<ModeField>): Boolean {
+private fun KeyboardMode.matchesField(
+    packageName: String?,
+    fields: Set<ModeField>,
+    hint: String?,
+    context: ModeContext,
+): Boolean {
+    if (packageName != null && packageName in excludedApps) return false
+    if (!matchesDevice(context)) return false
+    val hintMatch = hints.isEmpty() || matchesHint(hint)
     if (ModeField.NOTIFICATION_REPLY in fields &&
         ModeField.NOTIFICATION_REPLY in fieldKinds
     ) {
-        return true
+        return hintMatch
     }
-    val appMatch = packageName != null && packageName in apps
+    val appBound = apps.isNotEmpty() || appGroups.isNotEmpty()
+    val appMatch = (packageName != null && packageName in apps) || appGroups.any { it in context.appGroups }
     val fieldMatch = fieldKinds.any { it in fields }
-    return when {
-        apps.isEmpty() && fieldKinds.isEmpty() -> false
-        apps.isEmpty() -> fieldMatch
+    val bound = when {
+        !appBound && fieldKinds.isEmpty() -> hints.isNotEmpty() || hasDeviceCondition
+        !appBound -> fieldMatch
         fieldKinds.isEmpty() -> appMatch
         else -> appMatch && fieldMatch
     }
+    return bound && hintMatch
+}
+
+/** Whether the screen, the hardware keyboard and the clock are as this mode asks. */
+private fun KeyboardMode.matchesDevice(context: ModeContext): Boolean {
+    if (orientation != null && (orientation == ModeOrientation.LANDSCAPE) != context.landscape) return false
+    if (hardwareKeyboard != null && hardwareKeyboard != context.hardwareKeyboard) return false
+    if (screenSize != null && (screenSize == ModeScreenSize.TABLET) != context.tablet) return false
+    if (oneHanded != null && oneHanded != context.oneHanded) return false
+    if (bluetoothAudio != null && bluetoothAudio != context.bluetoothNames.isNotEmpty()) return false
+    if (bluetoothNames.isNotEmpty() && context.bluetoothNames.none { device -> bluetoothNames.any { device.contains(it.trim(), ignoreCase = true) } }) {
+        return false
+    }
+    if (fieldNames.isNotEmpty() && fieldNames.none { name ->
+            context.fieldName?.contains(name.trim(), ignoreCase = true) == true || name.trim() == context.fieldId.toString()
+        }
+    ) {
+        return false
+    }
+    if (fieldLanguages.isNotEmpty() && fieldLanguages.none { it.trim().lowercase() in context.fieldLanguages }) return false
+    val text = context.fieldText.orEmpty()
+    if (fieldEmpty != null && fieldEmpty != text.isEmpty()) return false
+    if (textStarts.isNotEmpty() && textStarts.none { it.isNotEmpty() && text.startsWith(it) }) return false
+    val from = timeFrom ?: return true
+    val to = timeTo ?: return true
+    val now = context.minuteOfDay
+    return if (from <= to) now in from until to else now >= from || now < to
+}
+
+/** Whether [hint] contains one of this mode's [KeyboardMode.hints], case ignored. */
+private fun KeyboardMode.matchesHint(hint: String?): Boolean {
+    if (hint.isNullOrBlank()) return false
+    return hints.any { it.isNotBlank() && hint.contains(it.trim(), ignoreCase = true) }
 }
 
 /**
- * The settings with the modes feature taken out of the picture, applied on the
- * way out of the repository exactly as `underPowerSaving` and
- * `restrictedToDirectBoot` are: a view, never a write (issue #41).
+ * The settings with the modes the keyboard must not use taken out of the
+ * picture, applied on the way out of the repository exactly as
+ * `underPowerSaving` and `restrictedToDirectBoot` are: a view, never a write
+ * (issue #41).
  *
- * Emptying [KeyboardSettings.keyboardModes] is the whole gate. Every reader of
+ * Trimming [KeyboardSettings.keyboardModes] is the whole gate. Every reader of
  * modes — [resolveKeyboardMode], the tool's panel, the per-mode theme lookup —
- * goes through that list, so none of them needs to learn the switch exists. The
- * tool goes with them: a Modes button that opens an empty panel is worse than
- * no button. The user's modes stay stored, so switching the feature back on
- * brings every one of them back.
+ * goes through that list, so none of them needs to learn that either switch
+ * exists. With the feature off the list is emptied and the tool goes with it:
+ * a Modes button that opens an empty panel is worse than no button. With the
+ * feature on, a mode switched off by itself ([KeyboardMode.enabled], #152) is
+ * simply not in the list. The user's modes stay stored either way, so
+ * switching back on brings every one of them back.
  */
 fun KeyboardSettings.withoutModes(): KeyboardSettings =
     if (modesEnabled) {
-        this
+        if (keyboardModes.all { it.enabled }) this
+        else copy(keyboardModes = keyboardModes.filter { it.enabled })
     } else {
         copy(
             keyboardModes = emptyList(),
@@ -532,20 +915,62 @@ fun KeyboardSettings.withoutModes(): KeyboardSettings =
     }
 
 /**
+ * The modes that draw [row] differently from the global setting while they are
+ * active, in list order — what the settings app warns about next to the row's
+ * own switch. Switching the symbol row off globally does nothing in a field the
+ * Email mode takes over, since the mode turns it back on; without the warning
+ * that reads as a switch that does not work.
+ *
+ * Only the rows a mode can override are answered: the emoji row and the symbol
+ * row. Every other row returns empty. A mode that sets the row to the value the
+ * global setting already has is no override worth naming, and modes the
+ * keyboard is not using ([withoutModes]) never activate, so neither is listed.
+ */
+fun KeyboardSettings.modesOverridingRow(row: BarRow): List<KeyboardMode> {
+    val modes = withoutModes().keyboardModes
+    return when (row) {
+        BarRow.EMOJI -> modes.filter { it.emojiBarMode != null && it.emojiBarMode != emojiBarMode }
+        BarRow.SYMBOL -> modes.filter {
+            it.symbolRowEnabled != null && it.symbolRowEnabled != symbolRowEnabled
+        }
+        else -> emptyList()
+    }
+}
+
+/**
+ * Manual pick meaning "no mode at all": the Modes tool's None row. Unlike a
+ * null pick (automatic), it also silences the modes whose app and field
+ * bindings match, until the pick is cleared like any other.
+ */
+const val NoKeyboardModeId = "__no_mode__"
+
+/**
  * Picks the active mode: a manual pick from the Modes tool wins, then the
- * most specific automatic match. A mode that names field kinds beats one
- * that only names apps, so a password box inside a code editor still gets
- * the password mode; ties break on the order of [modes].
+ * most specific automatic match. A mode that names hint texts beats one that
+ * names field kinds, which beats one that only names apps — so a password
+ * box inside a code editor still gets the password mode, and the "Extension"
+ * box of a rename dialog gets the mode written for it rather than the one
+ * for every single-line field. Ties break on the order of [modes]. A mode's
+ * [KeyboardMode.priority] comes before all of that.
+ *
+ * @param hint the focused field's placeholder text, null when it has none.
  */
 fun resolveKeyboardMode(
     modes: List<KeyboardMode>,
     packageName: String?,
     fieldKinds: Set<ModeField>,
     manualModeId: String?,
+    hint: String? = null,
+    context: ModeContext = ModeContext(),
 ): KeyboardMode? {
+    if (manualModeId == NoKeyboardModeId) return null
     manualModeId?.let { id -> modes.firstOrNull { it.id == id }?.let { return it } }
-    val matching = modes.filter { it.matchesField(packageName, fieldKinds) }
-    return matching.firstOrNull { it.fieldKinds.isNotEmpty() } ?: matching.firstOrNull()
+    val matched = modes.filter { it.matchesField(packageName, fieldKinds, hint, context) }
+    val highest = matched.maxOfOrNull { it.priority }
+    val matching = matched.filter { it.priority == highest }
+    return matching.firstOrNull { it.hints.isNotEmpty() }
+        ?: matching.firstOrNull { it.fieldKinds.isNotEmpty() }
+        ?: matching.firstOrNull()
 }
 
 /**
@@ -562,6 +987,12 @@ private fun KeyboardMode.pinnedOver(base: List<ToolbarTool>): List<ToolbarTool> 
 fun KeyboardSettings.applyMode(mode: KeyboardMode?): KeyboardSettings {
     if (mode == null) return this
     val pinned = mode.pinnedOver(toolbarTools)
+    // Only the pins the *mode* names. `pinned` falls back to the user's own
+    // toolbar when the mode says nothing about tools, and force-enabling that
+    // list would switch every tool they had turned off back on for as long as
+    // any mode was active — a tool stays pinned when it is disabled, so Voice
+    // came back in every chat app the moment the chat mode matched.
+    val modePinned = mode.toolbarTools?.filter(::isSupportedTool).orEmpty()
     return copy(
         emojiBarMode = mode.emojiBarMode ?: emojiBarMode,
         keyboardThemeId = mode.themeId ?: keyboardThemeId,
@@ -573,16 +1004,51 @@ fun KeyboardSettings.applyMode(mode: KeyboardMode?): KeyboardSettings {
         toolbarTools = pinned,
         // A tool the mode pins has to be visible, even when the user left it
         // switched off globally — otherwise the mode silently pins nothing.
-        enabledTools = enabledTools + (pinned - enabledTools.toSet()),
+        enabledTools = enabledTools + (modePinned - enabledTools.toSet()),
         toolboxOrder = mode.toolboxOrder
             ?.let { front -> front + (toolboxOrder - front.toSet()) }
             ?: toolboxOrder,
         symbolRowEnabled = mode.symbolRowEnabled ?: symbolRowEnabled,
         symbolRowSetIds = mode.symbolSetIds ?: symbolRowSetIds,
         symbolRowActiveSetId = mode.symbolSetIds?.firstOrNull() ?: symbolRowActiveSetId,
-        autocorrect = mode.autocorrect ?: autocorrect,
-        autoCapitalize = mode.autoCapitalize ?: autoCapitalize,
+        correction = mode.autocorrect
+            ?.let { correction.copy(enabled = it) } ?: correction,
+        // Several overrides land in the same group, so they are applied in turn
+        // rather than each from the base — writing both as `?: autoText` would
+        // let whichever came second drop the other's copy on the floor.
+        autoText = autoText
+            .let { t -> mode.autoCapitalize?.let { t.copy(capitalize = it) } ?: t }
+            .let { t -> mode.autoSpace?.let { t.copy(spaceAfterPunctuation = it) } ?: t }
+            .let { t -> mode.commitAsTyped?.let { t.copy(commitAsTyped = it) } ?: t },
         suggestions = mode.suggestions ?: suggestions,
+        incognito = incognito || mode.incognito,
+        sound = mode.keySound?.let { sound.copy(enabled = it) } ?: sound,
+        haptics = mode.keyHaptics?.let { haptics.copy(enabled = it) } ?: haptics,
+        layoutBehavior = if (mode.enterNewline) layoutBehavior.copy(enterAlwaysNewline = true) else layoutBehavior,
+        numberRow = mode.numberRow ?: numberRow,
+        oneHandedMode = mode.oneHandedOverride ?: oneHandedMode,
+        keyHeightDp = mode.keyHeightPercent?.let { keyHeightDp * it / 100 } ?: keyHeightDp,
+        popup = mode.keyPreview?.let { popup.copy(enabled = it) } ?: popup,
+        longPressDelayMs = mode.longPressDelayMs ?: longPressDelayMs,
+        clipboard = mode.clipboardChip?.let { clipboard.copy(suggestRecent = it) } ?: clipboard,
+        enabledLanguages = enabledLanguages
+            .filter { language -> language.id in mode.languages || language.id.substringBefore('_').substringBefore('-') in mode.languages }
+            .ifEmpty { enabledLanguages },
+        whisper = if (mode.voiceLanguages.isEmpty()) whisper else whisper.copy(languages = mode.voiceLanguages),
+        // The other spaces the keyboard types by itself, under the same
+        // switch: the strip's, and both of the glide's. The space in front of a
+        // glided word has no switch of its own — the global glide toggle names
+        // only the trailing one — but "every space is one you typed" has to
+        // mean it too, or two swiped words under an Off mode still came out
+        // spaced (#184).
+        suggestionStrip = mode.autoSpace
+            ?.let { suggestionStrip.copy(autoSpaceAfterSuggestion = it) } ?: suggestionStrip,
+        // Applied in turn with the two-thumb switch, as autoText's pair is.
+        gesture = gesture
+            .let { g -> mode.autoSpace?.let { g.copy(autoSpaceAfterGlide = it, autoSpaceBeforeGlide = it) } ?: g }
+            .let { g -> mode.twoThumb?.let { g.copy(twoThumbGlide = it) } ?: g }
+            .let { g -> mode.keySwipes?.let { g.copy(keySwipesOn = it) } ?: g },
+        gestureTyping = mode.glide ?: gestureTyping,
         // Only honoured while the layout is actually available. A mode naming a
         // layout the user has since switched off would otherwise pin the
         // keyboard to something that cannot be drawn.

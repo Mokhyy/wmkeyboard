@@ -2,24 +2,28 @@ package com.wasimaster.wmkeyboard.app
 
 import androidx.annotation.StringRes
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.TextSnippet
-import androidx.compose.material.icons.outlined.Accessibility
-import androidx.compose.material.icons.outlined.AspectRatio
-import androidx.compose.material.icons.outlined.ContentPaste
-import androidx.compose.material.icons.outlined.EmojiEmotions
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Keyboard
-import androidx.compose.material.icons.outlined.Language
-import androidx.compose.material.icons.outlined.Mic
-import androidx.compose.material.icons.outlined.Palette
-import androidx.compose.material.icons.outlined.Save
-import androidx.compose.material.icons.outlined.Security
-import androidx.compose.material.icons.outlined.TouchApp
-import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material.icons.outlined.ViewAgenda
-import androidx.compose.material.icons.outlined.Widgets
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.TextSnippet
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Accessibility
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.AspectRatio
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.AutoAwesome
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.ContentPaste
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.EmojiEmotions
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Extension
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Info
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Keyboard
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Language
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Mic
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Palette
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Save
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Security
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.TouchApp
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Tune
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.ViewAgenda
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Widgets
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.wasimaster.wmkeyboard.R
+import com.wasimaster.wmkeyboard.core.settings.Extension
+import com.wasimaster.wmkeyboard.core.settings.allowsRoute
 
 /** The headings the settings root is divided under, in order. */
 internal enum class RootGroup(@StringRes val title: Int) {
@@ -39,6 +43,12 @@ internal class RootEntry(
     @StringRes val subtitle: Int,
     @StringRes val keywords: Int,
     val group: RootGroup,
+    /**
+     * How far down the settings depth the row sits. Above its depth the row
+     * leaves its group for the closed "More" fold at the end of Home; see
+     * [SettingLevel].
+     */
+    val level: SettingLevel = SettingLevel.BASIC,
 )
 
 /**
@@ -46,7 +56,16 @@ internal class RootEntry(
  * anyone looks for on a new keyboard. Key layouts is not here — it is a row
  * inside Languages, and one door is enough. What a first-week user never
  * needs (modes, add-ons, data saver, the physical keyboard) sits behind
- * Advanced, still one press away.
+ * Advanced, still one press away. AI has a row of its own (#759) although
+ * its two tools are on the Tools list too: the provider, the chat and the
+ * history serve more than one tool, and nobody looks for them under Tools.
+ *
+ * At the Simple depth the list is the eleven rows other keyboards have an
+ * answer to, plus Extensions, Accessibility and About; the rest wait in a
+ * closed More fold at the end, named on it. A row a switched-off extension
+ * owns (Voice typing, Clipboard, Text expansion, AI) is not drawn at all; see
+ * [visibleRootEntries]. Privacy stays: a keyboard that reads what
+ * you type owes everyone that door.
  */
 internal val RootEntries: List<RootEntry> = listOf(
     RootEntry(
@@ -78,6 +97,7 @@ internal val RootEntries: List<RootEntry> = listOf(
         "rows", Icons.Outlined.ViewAgenda,
         R.string.home_rows_title, R.string.home_rows_subtitle,
         R.string.search_kw_rows, RootGroup.KEYBOARD,
+        level = SettingLevel.STANDARD,
     ),
     RootEntry(
         "emoji", Icons.Outlined.EmojiEmotions,
@@ -98,11 +118,25 @@ internal val RootEntries: List<RootEntry> = listOf(
         "expander", Icons.AutoMirrored.Outlined.TextSnippet,
         R.string.home_expander_title, R.string.home_expander_subtitle,
         R.string.search_kw_expander, RootGroup.FEATURES,
+        level = SettingLevel.STANDARD,
+    ),
+    RootEntry(
+        "ai", Icons.Outlined.AutoAwesome,
+        R.string.home_ai_title, R.string.home_ai_subtitle,
+        R.string.search_kw_ai, RootGroup.FEATURES,
+        level = SettingLevel.STANDARD,
     ),
     RootEntry(
         "tools", Icons.Outlined.Widgets,
         R.string.home_tools_title, R.string.home_tools_subtitle,
         R.string.search_kw_tools, RootGroup.FEATURES,
+    ),
+    // Whole features on or off (SETTINGS_REDESIGN.md §3). Shown at every
+    // depth: the person who wants less of the app is the one it is for.
+    RootEntry(
+        "extensions", Icons.Outlined.Extension,
+        R.string.extensions_title, R.string.extensions_subtitle,
+        R.string.search_kw_extensions, RootGroup.FEATURES,
     ),
     RootEntry(
         "accessibility", Icons.Outlined.Accessibility,
@@ -118,11 +152,13 @@ internal val RootEntries: List<RootEntry> = listOf(
         "backup", Icons.Outlined.Save,
         R.string.home_backup_title, R.string.home_backup_subtitle,
         R.string.search_kw_backup, RootGroup.DATA,
+        level = SettingLevel.STANDARD,
     ),
     RootEntry(
         "advanced", Icons.Outlined.Tune,
         R.string.home_advanced_title, R.string.home_advanced_subtitle,
         R.string.search_kw_advanced, RootGroup.DATA,
+        level = SettingLevel.STANDARD,
     ),
     RootEntry(
         "about", Icons.Outlined.Info,
@@ -130,3 +166,12 @@ internal val RootEntries: List<RootEntry> = listOf(
         R.string.search_kw_about, RootGroup.ABOUT,
     ),
 )
+
+/**
+ * The root rows left once the switched-off extensions have taken theirs: a
+ * bundle that owns a Home row owns it by route, so the row goes with the
+ * bundle and comes back with it. The search index's root entries are built
+ * from the same filter.
+ */
+internal fun visibleRootEntries(extensions: Set<Extension>): List<RootEntry> =
+    RootEntries.filter { extensions.allowsRoute(it.route) }

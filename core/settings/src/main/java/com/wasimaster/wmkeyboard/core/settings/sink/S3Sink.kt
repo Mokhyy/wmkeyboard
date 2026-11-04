@@ -1,5 +1,9 @@
 package com.wasimaster.wmkeyboard.core.settings.sink
 
+import com.wasimaster.wmkeyboard.core.net.BackupTraffic
+import com.wasimaster.wmkeyboard.core.net.InternetGate
+import com.wasimaster.wmkeyboard.core.net.NetLogInterceptor
+import com.wasimaster.wmkeyboard.core.netlog.NetSource
 import com.wasimaster.wmkeyboard.core.settings.S3Config
 import com.wasimaster.wmkeyboard.core.util.runCancellable
 import java.io.ByteArrayOutputStream
@@ -34,6 +38,8 @@ class S3Sink(private val config: S3Config) : BackupSink {
 
     private val client: OkHttpClient by lazy {
         OkHttpClient.Builder()
+            .addInterceptor(InternetGate)
+            .addNetworkInterceptor(NetLogInterceptor(NetSource.BACKUP, NetLogInterceptor.PATH) { BackupTraffic.unattended })
             .connectTimeout(CONNECT_TIMEOUT_S, TimeUnit.SECONDS)
             .readTimeout(READ_TIMEOUT_S, TimeUnit.SECONDS)
             .writeTimeout(WRITE_TIMEOUT_S, TimeUnit.SECONDS)
@@ -173,7 +179,7 @@ class S3Sink(private val config: S3Config) : BackupSink {
                 val page = S3Listing.parse(xml)
                 for (item in page.keys) {
                     val name = item.key.substringAfterLast('/')
-                    if (!AutoBackupNaming.isOurs(name)) continue
+                    if (!AutoBackupNaming.isListed(name)) continue
                     out += SinkEntry(
                         id = item.key,
                         name = name,

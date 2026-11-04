@@ -13,19 +13,25 @@ from wmkit import (AMBER, BODY, CYAN, LIME, MAGENTA, SS, VIOLET, WHITE,
                    blob, canvas, chip, font, gradient_text, grain, phone,
                    rrect, save, text, vignette)
 
-CAPS = Path("/mnt/user-data/uploads/WMKeyboard/play/screencaps")
-LOGO = Path("/mnt/user-data/uploads/WMKeyboard/docs/src/assets/logo-mark.png")
+# Staged copies first (Claude's cloud workspace), then the repo itself, so the
+# same file runs in both places without edits. Same pattern as gen_tablet.py.
+HERE = Path(__file__).resolve().parent
+CAPS = next(p for p in (Path("/mnt/user-data/uploads/WMKeyboard/play/screencaps"),
+                        HERE.parent / "screencaps") if p.is_dir())
+LOGO = next(p for p in (Path("/mnt/user-data/uploads/WMKeyboard/docs/src/assets/logo-mark.png"),
+                        HERE.parents[1] / "docs/src/assets/logo-mark.png") if p.is_file())
 OUT = Path(__file__).parent / "out"
 OUT.mkdir(exist_ok=True)
 
 ENGLISH = Image.open(CAPS / "kb-english-dark.png")
 BENGALI = Image.open(CAPS / "kb-bengali-typing.png")
+GLIDE = Image.open(CAPS / "kb-glide.png")
 TH_PHOTO = Image.open(CAPS / "theme-photo.png")
 TH_LIGHT = Image.open(CAPS / "theme-light.png")
 
 # Measured first row of the keyboard panel per capture (nothing gets cut).
-KB_TOP = {id(ENGLISH): 1216, id(BENGALI): 1216, id(TH_PHOTO): 1194,
-          id(TH_LIGHT): 1216}
+KB_TOP = {id(ENGLISH): 1216, id(BENGALI): 1216, id(GLIDE): 1216,
+          id(TH_PHOTO): 1194, id(TH_LIGHT): 1216}
 STATUS_BAR = 140  # cropped off every full-phone composite
 
 
@@ -148,7 +154,7 @@ def hero():
     ]
     right = [
         ("Material You theming", None, 880),
-        ("Clipboard with OTP codes", CYAN, 1030),
+        ("Clipboard history & pins", CYAN, 1030),
         ("Per-app modes", VIOLET, 1180),
         ("Long-press accents", None, 1330),
         ("Word-swipe delete", None, 1480),
@@ -176,7 +182,7 @@ def hero():
     chip_row(img, W // 2, ob[3] + 40,
              [("One-handed", None), ("Split", None), ("Floating", None),
               ("Offline first", CYAN)], f_b)
-    text(img, (W // 2, ob[3] + 140), "No accounts. No trackers. Works offline.",
+    text(img, (W // 2, ob[3] + 140), "No accounts. No ads. Learning stays on your phone.",
          font("Inter", 32, 520), fill=BODY, anchor="ma")
 
     vignette(img)
@@ -184,8 +190,65 @@ def hero():
     return save(img, OUT / "01-hero.png")
 
 
+# ================================================================= GLIDE ==
+def glide():
+    """Global default for Slide #2: Gesture typing & fluid flow."""
+    W, H = 1080, 2400
+    img = canvas(W, H)
+    blob(img, 900, 220, 400, VIOLET, 60)
+    blob(img, 120, 800, 420, CYAN, 45)
+    blob(img, 980, 1500, 380, MAGENTA, 35)
+
+    brand_row(img, W // 2, 96)
+    d = ImageDraw.Draw(img, "RGBA")
+
+    headline_two_tone(img, W // 2, 206, "Type at the speed of ", "glide", "", size=78)
+    text(img, (W // 2, 330), "Fluid gesture typing, fully offline.",
+         font("Inter", 34, 480), fill=BODY, anchor="ma")
+
+    f_mono = font("SpaceGrotesk", 58, 500)
+    sample = "swipe across keys"
+    tw = K.measure(d, sample, f_mono)[0] // SS
+    pw_, ph_ = tw + 130, 136
+    px_, py_ = (W - pw_) // 2, 440
+    rrect(img, (px_, py_, px_ + pw_, py_ + ph_), 34, fill=(255, 255, 255, 14),
+          outline=(255, 255, 255, 34), width=1)
+    text(img, (W // 2 - 15, py_ + ph_ // 2), sample, f_mono,
+         fill=(210, 218, 233), anchor="mm")
+    cx = W // 2 - 15 + tw // 2 + 12
+    d.rounded_rectangle([cx * SS, (py_ + 34) * SS, (cx + 4) * SS,
+                         (py_ + ph_ - 34) * SS], 2 * SS, fill=CYAN + (255,))
+
+    gradient_text(img, (W // 2, 608), "↓", font("Inter", 58, 700),
+                  VIOLET, CYAN, anchor="ma", glow=4)
+
+    f_acc = font("Manrope", 84, 800)
+    gradient_text(img, (W // 2, 706), "Fast. Fluid. Private.", f_acc, VIOLET, CYAN,
+                  anchor="ma", glow=10)
+
+    text(img, (W // 2, 976), "Shared trie-lattice decoder for tap and glide.",
+         font("Inter", 34, 480), fill=BODY, anchor="ma")
+    text(img, (W // 2, 1028), "Built-in English list, 330+ languages to download.",
+         font("Inter", 34, 480), fill=BODY, anchor="ma")
+
+    f_c = font("Inter", 30, 540)
+    chip_row(img, W // 2, 1130,
+             [("Glide in 330+ languages", CYAN), ("Spacebar trackpad", None),
+              ("Word-swipe delete", VIOLET)], f_c)
+
+    pw = 720
+    px = (W - pw) // 2
+    py = 1290
+    phone(img, GLIDE, px, py, pw, crop_top=STATUS_BAR)
+
+    vignette(img)
+    grain(img)
+    return save(img, OUT / "02-glide.png")
+
+
 # =============================================================== BENGALI ==
 def bengali():
+    """Regional Slide #2 for Bangladesh (and Bengali-speaking regions)."""
     W, H = 1080, 2400
     img = canvas(W, H)
     blob(img, 900, 220, 400, VIOLET, 60)
@@ -237,7 +300,187 @@ def bengali():
 
     vignette(img)
     grain(img)
+    reg_out = OUT / "regional"
+    reg_out.mkdir(exist_ok=True)
+    save(img, reg_out / "02-bengali.png")
     return save(img, OUT / "02-bengali.png")
+
+
+# ================================================================= HINDI ==
+def hindi():
+    """Regional Slide #2 for India (Hindi / Indic transliteration)."""
+    W, H = 1080, 2400
+    img = canvas(W, H)
+    blob(img, 900, 220, 400, VIOLET, 60)
+    blob(img, 120, 800, 420, CYAN, 45)
+    blob(img, 980, 1500, 380, MAGENTA, 35)
+
+    brand_row(img, W // 2, 96)
+    d = ImageDraw.Draw(img, "RGBA")
+
+    headline_two_tone(img, W // 2, 206, "Type it how it ", "sounds", "", size=80)
+    text(img, (W // 2, 330), "Hindi phonetic, fully offline.",
+         font("Inter", 34, 480), fill=BODY, anchor="ma")
+
+    f_mono = font("SpaceGrotesk", 62, 500)
+    latin = "namaste"
+    tw = K.measure(d, latin, f_mono)[0] // SS
+    pw_, ph_ = tw + 130, 140
+    px_, py_ = (W - pw_) // 2, 440
+    rrect(img, (px_, py_, px_ + pw_, py_ + ph_), 34, fill=(255, 255, 255, 14),
+          outline=(255, 255, 255, 34), width=1)
+    text(img, (W // 2 - 15, py_ + ph_ // 2), latin, f_mono,
+         fill=(210, 218, 233), anchor="mm")
+    cx = W // 2 - 15 + tw // 2 + 12
+    d.rounded_rectangle([cx * SS, (py_ + 36) * SS, (cx + 4) * SS,
+                         (py_ + ph_ - 36) * SS], 2 * SS, fill=CYAN + (255,))
+
+    gradient_text(img, (W // 2, 616), "↓", font("Inter", 58, 700),
+                  VIOLET, CYAN, anchor="ma", glow=4)
+
+    f_hi = font("NotoSansDevanagari", 132, 700)
+    gradient_text(img, (W // 2, 712), "नमस्ते", f_hi, VIOLET, CYAN,
+                  anchor="ma", glow=10)
+
+    text(img, (W // 2, 986), "A map of how people actually romanise Hindi.",
+         font("Inter", 34, 480), fill=BODY, anchor="ma")
+    text(img, (W // 2, 1038), "Lenient spelling reaches the word you meant.",
+         font("Inter", 34, 480), fill=BODY, anchor="ma")
+
+    f_c = font("Inter", 30, 540)
+    chip_row(img, W // 2, 1130,
+             [("Hindi and English together", CYAN), ("InScript layouts", None),
+              ("Tamil, Telugu & 12 more", VIOLET)], f_c)
+
+    pw = 720
+    px = (W - pw) // 2
+    py = 1290
+    phone(img, ENGLISH, px, py, pw, crop_top=STATUS_BAR)
+
+    vignette(img)
+    grain(img)
+    reg_out = OUT / "regional"
+    reg_out.mkdir(exist_ok=True)
+    save(img, reg_out / "02-hindi.png")
+    return save(img, OUT / "02-hindi.png")
+
+
+# ================================================================== URDU ==
+def urdu():
+    """Regional Slide #2 for Pakistan (Urdu transliteration)."""
+    W, H = 1080, 2400
+    img = canvas(W, H)
+    blob(img, 900, 220, 400, VIOLET, 60)
+    blob(img, 120, 800, 420, CYAN, 45)
+    blob(img, 980, 1500, 380, MAGENTA, 35)
+
+    brand_row(img, W // 2, 96)
+    d = ImageDraw.Draw(img, "RGBA")
+
+    headline_two_tone(img, W // 2, 206, "Type it how it ", "sounds", "", size=80)
+    text(img, (W // 2, 330), "Urdu phonetic, fully offline.",
+         font("Inter", 34, 480), fill=BODY, anchor="ma")
+
+    f_mono = font("SpaceGrotesk", 62, 500)
+    latin = "aap kaise ho"
+    tw = K.measure(d, latin, f_mono)[0] // SS
+    pw_, ph_ = tw + 130, 140
+    px_, py_ = (W - pw_) // 2, 440
+    rrect(img, (px_, py_, px_ + pw_, py_ + ph_), 34, fill=(255, 255, 255, 14),
+          outline=(255, 255, 255, 34), width=1)
+    text(img, (W // 2 - 15, py_ + ph_ // 2), latin, f_mono,
+         fill=(210, 218, 233), anchor="mm")
+    cx = W // 2 - 15 + tw // 2 + 12
+    d.rounded_rectangle([cx * SS, (py_ + 36) * SS, (cx + 4) * SS,
+                         (py_ + ph_ - 36) * SS], 2 * SS, fill=CYAN + (255,))
+
+    gradient_text(img, (W // 2, 616), "↓", font("Inter", 58, 700),
+                  VIOLET, CYAN, anchor="ma", glow=4)
+
+    f_ar = font("NotoSansArabic", 128, 700)
+    gradient_text(img, (W // 2, 712), "آپ کیسے ہو", f_ar, VIOLET, CYAN,
+                  anchor="ma", glow=10)
+
+    text(img, (W // 2, 986), "Folds to the consonant skeleton",
+         font("Inter", 34, 480), fill=BODY, anchor="ma")
+    text(img, (W // 2, 1038), "the script itself spells with.",
+         font("Inter", 34, 480), fill=BODY, anchor="ma")
+
+    f_c = font("Inter", 30, 540)
+    chip_row(img, W // 2, 1130,
+             [("Urdu and English together", CYAN), ("Phonetic & InScript", None),
+              ("Zero cloud delay", VIOLET)], f_c)
+
+    pw = 720
+    px = (W - pw) // 2
+    py = 1290
+    phone(img, ENGLISH, px, py, pw, crop_top=STATUS_BAR)
+
+    vignette(img)
+    grain(img)
+    reg_out = OUT / "regional"
+    reg_out.mkdir(exist_ok=True)
+    save(img, reg_out / "02-urdu.png")
+    return save(img, OUT / "02-urdu.png")
+
+
+# ================================================================ ARABIC ==
+def arabic():
+    """Regional Slide #2 for Arab World (Arabizi & Arabic transliteration)."""
+    W, H = 1080, 2400
+    img = canvas(W, H)
+    blob(img, 900, 220, 400, VIOLET, 60)
+    blob(img, 120, 800, 420, CYAN, 45)
+    blob(img, 980, 1500, 380, MAGENTA, 35)
+
+    brand_row(img, W // 2, 96)
+    d = ImageDraw.Draw(img, "RGBA")
+
+    headline_two_tone(img, W // 2, 206, "Type it how it ", "sounds", "", size=80)
+    text(img, (W // 2, 330), "Arabizi & phonetic Arabic, fully offline.",
+         font("Inter", 34, 480), fill=BODY, anchor="ma")
+
+    f_mono = font("SpaceGrotesk", 62, 500)
+    latin = "3arabi"
+    tw = K.measure(d, latin, f_mono)[0] // SS
+    pw_, ph_ = tw + 130, 140
+    px_, py_ = (W - pw_) // 2, 440
+    rrect(img, (px_, py_, px_ + pw_, py_ + ph_), 34, fill=(255, 255, 255, 14),
+          outline=(255, 255, 255, 34), width=1)
+    text(img, (W // 2 - 15, py_ + ph_ // 2), latin, f_mono,
+         fill=(210, 218, 233), anchor="mm")
+    cx = W // 2 - 15 + tw // 2 + 12
+    d.rounded_rectangle([cx * SS, (py_ + 36) * SS, (cx + 4) * SS,
+                         (py_ + ph_ - 36) * SS], 2 * SS, fill=CYAN + (255,))
+
+    gradient_text(img, (W // 2, 616), "↓", font("Inter", 58, 700),
+                  VIOLET, CYAN, anchor="ma", glow=4)
+
+    f_ar = font("NotoSansArabic", 140, 700)
+    gradient_text(img, (W // 2, 712), "عربي", f_ar, VIOLET, CYAN,
+                  anchor="ma", glow=10)
+
+    text(img, (W // 2, 986), "Type with Arabizi digits (3, 7, 2) or Latin letters.",
+         font("Inter", 34, 480), fill=BODY, anchor="ma")
+    text(img, (W // 2, 1038), "The keyboard converts it into Arabic instantly.",
+         font("Inter", 34, 480), fill=BODY, anchor="ma")
+
+    f_c = font("Inter", 30, 540)
+    chip_row(img, W // 2, 1130,
+             [("Arabizi 3, 7, 2 support", CYAN), ("Arabic & English together", None),
+              ("Smart harakat", VIOLET)], f_c)
+
+    pw = 720
+    px = (W - pw) // 2
+    py = 1290
+    phone(img, ENGLISH, px, py, pw, crop_top=STATUS_BAR)
+
+    vignette(img)
+    grain(img)
+    reg_out = OUT / "regional"
+    reg_out.mkdir(exist_ok=True)
+    save(img, reg_out / "02-arabic.png")
+    return save(img, OUT / "02-arabic.png")
 
 
 # ========================================================== FEATURE GRAPHIC ==
@@ -274,13 +517,13 @@ def feature_graphic():
     img.paste(rgba.convert("RGB"))
 
     text(img, (130, 370), "WM Keyboard", font("Manrope", 122, 800))
-    gradient_text(img, (132, 546), "Private. Offline. Yours.",
+    gradient_text(img, (132, 546), "Private. Offline-first. Yours.",
                   font("Manrope", 60, 640), VIOLET, CYAN)
 
     f_c = font("Inter", 38, 540)
     x = 132
     d = ImageDraw.Draw(img, "RGBA")
-    for s, a in [("No trackers", LIME), ("Works offline", CYAN),
+    for s, a in [("No ads", LIME), ("On-device AI", CYAN),
                  ("Bangla-first", MAGENTA)]:
         w, _ = chip(img, x, 668, s, accent=a, fnt=f_c, dot=True,
                     pad_x=28, pad_y=17)
@@ -337,7 +580,7 @@ def chip_wall():
     headline_two_tone(img, W // 2, 244, "It does ", "that", ", too.", size=86)
     text(img, (W // 2, 382), "A sample of what ships inside, all real.",
          font("Inter", 34, 480), fill=BODY, anchor="ma")
-    text(img, (W // 2, 434), "Network features are strictly opt-in.",
+    text(img, (W // 2, 434), "Every network feature is documented.",
          font("Inter", 34, 480), fill=BODY, anchor="ma")
 
     d = ImageDraw.Draw(img, "RGBA")
@@ -372,7 +615,7 @@ def chip_wall():
     grad_line = K.h_gradient(((W - 200) * SS, 2 * SS), VIOLET, CYAN)
     img.paste(grad_line, (100 * SS, y * SS))
     text(img, (W // 2, y + 40),
-         "No trackers. No accounts. Everything stays on your phone.",
+         "No ads. No accounts. Learning stays on your phone.",
          font("Inter", 32, 560), fill=(225, 230, 242), anchor="ma")
 
     vignette(img)
@@ -381,6 +624,20 @@ def chip_wall():
     return save(img, OUT / "08-chip-wall.png")
 
 
+SLIDE_02_REGIONAL = {
+    "bengali": bengali,  # Bangladesh (and Bengali speakers in India)
+    "hindi": hindi,      # India
+    "urdu": urdu,        # Pakistan
+    "arabic": arabic,    # Arab world / Middle East
+}
+
 if __name__ == "__main__":
-    for fn in (hero, bengali, feature_graphic, chip_wall):
+    # Primary Play Store set (Global default):
+    print("=== Generating Global Play Store Slides ===")
+    for fn in (hero, glide, feature_graphic, chip_wall):
         print("wrote", fn())
+
+    # Regional variants for Slide #2:
+    print("\n=== Generating Regional Slide #2 Variants ===")
+    for name, fn in SLIDE_02_REGIONAL.items():
+        print(f"wrote regional ({name}):", fn())

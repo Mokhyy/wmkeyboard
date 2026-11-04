@@ -26,7 +26,13 @@ class SettingsSearchIndexTest {
     private val valuesDir = File("src/main/res/values")
 
     /** The two files search is built from: the index, and the matcher. */
-    private val searchFiles = listOf("SettingsSearch.kt", "SettingsSearchMatch.kt")
+    private val searchFiles = listOf(
+        "SettingsSearch.kt",
+        "SettingsSearchMatch.kt",
+        // The hidden keywords are named here rather than at the rows they
+        // belong to, so this is where the index's `search_…` strings are used.
+        "SettingsSearchKeywords.kt",
+    )
 
     /**
      * The search words the root list carries. The index takes its top-level
@@ -63,11 +69,13 @@ class SettingsSearchIndexTest {
     }
 
     /**
-     * Every `R.string.…` the index names. `CommonR.string.…` is skipped: those
-     * belong to :core:common and are not in this module's resource files.
+     * Every `R.string.…` the index names. `CommonR.string.…` and `ImeR.string.…`
+     * are skipped: those belong to :core:common and :feature:ime and are not in
+     * this module's resource files. The tools are named by the keyboard itself,
+     * so the keyword table reaches for them through `ImeR`.
      */
     private val indexedKeys: List<String> by lazy {
-        Regex("""(?<!Common)R\.(?:string|array)\.([a-z0-9_]+)""")
+        Regex("""(?<!Common)(?<!Ime)R\.(?:string|array)\.([a-z0-9_]+)""")
             .findAll(searchSource)
             .map { it.groupValues[1] }
             .distinct()
@@ -120,6 +128,10 @@ class SettingsSearchIndexTest {
         // user picked or from a sticker they tapped, so the index describes it
         // and lands on the pack list instead.
         "import_sticker_editor_subtitle",
+        // The grammar issue-type rows draw a count ("3 of 10 kinds shown"),
+        // which is nothing to search for. The index says what the row does
+        // instead, once for all four of them.
+        "tooldetail_grammar_category_search_subtitle",
     )
 
     private fun isIndexOwned(key: String) = key in indexOwnedKeys || key.startsWith("search_")
@@ -204,7 +216,7 @@ class SettingsSearchIndexTest {
         weight: EntryWeight = EntryWeight.NORMAL,
         tool: ToolbarTool? = null,
         keywords: String = "",
-    ) = SettingsSearchEntry(title, subtitle, screen, route, weight, tool, keywords = keywords)
+    ) = SettingsSearchEntry(title, subtitle, listOf(screen), route, weight, tool, keywords = keywords)
 
     /**
      * A stand-in for the real index: one entry for every ranking rule the tests
@@ -237,7 +249,7 @@ class SettingsSearchIndexTest {
             "backup",
             weight = EntryWeight.MIRROR,
         ),
-        row("Klipy API key", "Free from partner.klipy.com", "Tools › GIF", "tool/GIF", tool = ToolbarTool.GIF),
+        row("KLIPY API key", "Free from partner.klipy.com", "Tools › GIF", "tool/GIF", tool = ToolbarTool.GIF),
         row(
             "Include API keys",
             "Translate, GIF, search and AI keys",
@@ -246,6 +258,21 @@ class SettingsSearchIndexTest {
             weight = EntryWeight.MIRROR,
         ),
     )
+
+    @Test
+    fun `a mode's typing overrides are indexed on the mode list with an icon`() {
+        // #797: the editor drew these two overrides, but search and the row
+        // icons never heard of them. mode() routes to the mode list, since a
+        // result cannot know which mode the user means.
+        val icons = File(appDir, "SettingsRowIcons.kt").readText()
+        for (key in listOf("modes_glide_title", "modes_two_thumb_title")) {
+            assertTrue(
+                "$key is not a mode() entry in the index",
+                Regex("""mode\(R\.string\.$key\b""").containsMatchIn(indexSource),
+            )
+            assertTrue("$key has no row icon", "put(R.string.$key)" in icons)
+        }
+    }
 
     @Test
     fun `search ranks an exact title above a subtitle mention`() {
@@ -393,5 +420,63 @@ class SettingsSearchIndexTest {
     fun `one word out of four is not an answer`() {
         val results = searchSettings("offensive zzzza zzzzb zzzzc", fixture)
         assertEquals(emptyList<SettingsSearchEntry>(), results)
+    }
+
+    // ---- the path a result is opened at (#111) ----
+
+    /** The two screens a seeded path is looked up against. */
+    private val destinations = listOf(
+        SettingsSearchEntry("Typing", "", listOf("Settings"), "typing", EntryWeight.SECTION),
+        SettingsSearchEntry(
+            "Suggestions", "", listOf("Typing"), "typing/suggestions", EntryWeight.SECTION,
+        ),
+    )
+
+    private fun seed(entry: SettingsSearchEntry) =
+        settingsCrumbSeed(entry, destinations + entry, homeTitle = "Settings")
+
+    @Test
+    fun `a result's path becomes the steps above the screen it opens`() {
+        val dictionary = SettingsSearchEntry(
+            "Personal dictionary", "", listOf("Typing", "Suggestions"), "dictionary",
+            EntryWeight.SECTION,
+        )
+
+        val steps = seed(dictionary)
+
+        assertEquals(listOf("Typing", "Suggestions"), steps.map { it.title })
+        assertEquals(listOf("typing", "typing/suggestions"), steps.map { it.route })
+        assertTrue(steps.all { it.seeded })
+    }
+
+    @Test
+    fun `a row's own screen is not seeded twice`() {
+        // The path of a row ends with the screen it sits on, and that screen
+        // is the one being opened: it puts itself on the trail.
+        val row = SettingsSearchEntry(
+            "Number of suggestions", "", listOf("Typing", "Suggestions"), "typing/suggestions",
+        )
+
+        assertEquals(listOf("Typing"), seed(row).map { it.title })
+    }
+
+    @Test
+    fun `the settings home is never seeded`() {
+        // It is the first real step of every trail already.
+        val typing = SettingsSearchEntry("Typing", "", listOf("Settings"), "typing", EntryWeight.SECTION)
+
+        assertEquals(emptyList<String>(), seed(typing).map { it.title })
+    }
+
+    @Test
+    fun `a step no screen is named after is seeded without a route`() {
+        // Drawn as a plain label: it says where the screen sits, and there is
+        // nowhere for a press to go.
+        val vibrate = SettingsSearchEntry(
+            "Vibrate", "", listOf("Key press", "Haptics"), "keypress/haptics",
+        )
+
+        assertEquals(listOf("Key press"), seed(vibrate).map { it.title })
+        assertEquals(listOf<String?>(null), seed(vibrate).map { it.route })
     }
 }

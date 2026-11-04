@@ -13,7 +13,19 @@ By the end of this you will have built the Cipher Tool: a keyboard panel with
 two tabs that encodes and decodes text. No Lua experience assumed. If you have
 written any programming language at all, you already know enough.
 
-You need a text editor and a way to make a ZIP file. That is the whole toolchain.
+To follow this walkthrough by hand, you need a text editor and a way to make
+a ZIP file. That is the whole toolchain for it.
+
+:::tip[Skip the toolchain entirely]
+WM Keyboard also ships an in-app plugin editor with live preview and starter
+templates, including one that builds this exact Cipher Tool. Its Install
+button validates the manifest and installs the plugin directly. No ZIP file
+is needed. **Save as a file** in its menu writes the `.wmplugin` for you, named
+after the plugin and its version, like `Cipher Tool-1.0.0.wmplugin`. This tutorial still walks through the manual path below, since
+it's the clearest way to see how the pieces fit together.
+
+<SettingsPath path="Tools / Plugins / Write a plugin" />
+:::
 
 ## Two files in a folder
 
@@ -93,7 +105,7 @@ result. If you have used React, this will feel familiar. If you have not, the
 whole rule is *`render()` says what things look like, `on_event` says what
 changes*.
 
-`render()` returns tables. The `ui.*` helpers just build them for you:
+`render()` returns tables. The `ui.*` helpers build them for you:
 
 ```lua
 ui.button { id = "go", text = "Go" }
@@ -307,7 +319,7 @@ repository fills it in for you, and `tools/validate.py` checks it.
 	/>
 	<LinkCard
 		title="Permissions"
-		description="How to ask for storage, and why that is the only thing to ask for."
+		description="How to ask for storage and reminders, and why there is nothing else to ask for."
 		href="/plugins/permissions/"
 	/>
 </CardGrid>

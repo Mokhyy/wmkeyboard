@@ -2,6 +2,8 @@ package com.wasimaster.wmkeyboard.core.emoji
 
 import androidx.annotation.StringRes
 import com.wasimaster.wmkeyboard.common.R as CommonR
+import com.wasimaster.wmkeyboard.core.netlog.NetLog
+import com.wasimaster.wmkeyboard.core.netlog.NetSource
 import com.wasimaster.wmkeyboard.emoji.R
 import java.io.File
 import java.io.IOException
@@ -253,6 +255,48 @@ object EmojiDictDownloadManager {
         }
     }
 
+    /**
+     * Installs [entry]'s dictionary from a copy the user fetched some other
+     * way: the repo's `.json.gz`, or the same JSON inflated. Decoded and
+     * stored exactly as a download is, on the caller's thread. Returns how
+     * many emoji it names; throws when the file is not a dictionary.
+     */
+    fun install(filesDir: File, entry: EmojiDictEntry, file: File): Int {
+        val language = entry.languageId
+        cancel(language)
+        val raw = file.inputStream().buffered()
+        raw.mark(2)
+        val gzip = raw.read() == 0x1f && raw.read() == 0x8b
+        raw.reset()
+        val text = (if (gzip) GZIPInputStream(raw) else raw).reader().use { reader ->
+            val out = StringBuilder()
+            val buffer = CharArray(16 * 1024)
+            while (true) {
+                val read = reader.read(buffer)
+                if (read < 0) break
+                out.appendRange(buffer, 0, read)
+                if (out.length > MAX_INFLATED_BYTES) throw IOException("emoji dictionary too large")
+            }
+            out.toString()
+        }
+        val pack = EmojiDictCodec.decode(text)?.takeUnless { it.isEmpty }
+            ?: throw IOException("not an emoji dictionary")
+        val part = EmojiDictStore.partFile(filesDir, language)
+        part.parentFile?.mkdirs()
+        part.writeText(EmojiDictCodec.encodeTsv(pack))
+        val final = EmojiDictStore.packFile(filesDir, language)
+        final.delete()
+        if (!part.renameTo(final)) {
+            part.delete()
+            throw IOException("could not move the dictionary into place")
+        }
+        EmojiDictStore.clearDeclined(filesDir, language)
+        synchronized(jobs) { givenUp.remove(language) }
+        set(language, DownloadStatus.Downloaded(pack.size, final.length()))
+        _completions.tryEmit(language)
+        return pack.size
+    }
+
     fun cancel(langId: String) {
         synchronized(jobs) { jobs[langId]?.cancel() }
     }
@@ -311,6 +355,7 @@ object EmojiDictDownloadManager {
 
     private suspend fun fetch(entry: EmojiDictEntry): EmojiKeywordPack {
         val connection = URL(entry.url).openConnection() as HttpURLConnection
+        val netCall = NetLog.call(NetSource.DOWNLOAD_EMOJI, "GET", entry.url, route = NetLog.pathOf(entry.url))
         try {
             connection.connectTimeout = 15_000
             connection.readTimeout = 30_000
@@ -320,6 +365,7 @@ object EmojiDictDownloadManager {
             // transport-level re-encode would be inflated out from under the
             // GZIPInputStream below.
             connection.setRequestProperty("Accept-Encoding", "identity")
+            netCall.status = connection.responseCode
             val status = connection.responseCode
             if (status != HttpURLConnection.HTTP_OK) {
                 throw FailedException(
@@ -329,7 +375,7 @@ object EmojiDictDownloadManager {
                 )
             }
             val total = connection.contentLengthLong.takeIf { it > 0 } ?: entry.approxGzBytes
-            val counting = CountingInputStream(connection.inputStream)
+            val counting = CountingInputStream(netCall.countIn(connection.inputStream))
             val text = StringBuilder()
             val buffer = CharArray(16 * 1024)
             var lastUpdate = 0L
@@ -357,8 +403,12 @@ object EmojiDictDownloadManager {
                     FailReason.MALFORMED,
                     R.string.core_emoji_dict_error_not_a_list,
                 )
+        } catch (t: Throwable) {
+            netCall.fail(t)
+            throw t
         } finally {
             connection.disconnect()
+            netCall.end()
         }
     }
 }

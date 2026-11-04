@@ -169,6 +169,29 @@ data class Snippet(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val confirm: Boolean = false,
     /**
+     * Expand on the keystroke that finishes the trigger, with no space,
+     * punctuation or Enter after it.
+     *
+     * Espanso's default, and what its `word: true` turns off. A trigger that
+     * expands this way is never looked up again when the word ends: if it did
+     * not fire on its last letter it was escaped or taken back, and the space
+     * after it must leave it alone. Inert for a pattern, which is matched over
+     * whole words, and for a snippet that [asks], which has nothing to fire.
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val immediate: Boolean = false,
+    /**
+     * With [immediate], fire in the middle of a word as well as at its start.
+     *
+     * Off, a trigger that begins with a letter or a digit needs something
+     * other than a letter or a digit in front of it, the same boundary every
+     * other trigger needs, so `btw` leaves "subtwig" alone. On, it fires
+     * wherever the text ends with it, which is what an Espanso match with no
+     * `word`, `left_word` or `right_word` does.
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val insideWords: Boolean = false,
+    /**
      * The [SnippetFolder] this snippet belongs to, or 0 for none.
      *
      * Folders are one level deep and a snippet is in at most one of them, so
@@ -309,6 +332,17 @@ data class SnippetFolder(
     val enabled: Boolean = true,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val createdAt: Long = 0,
+    /**
+     * Id of the icon the folder wears, from the same catalogue a keyboard mode
+     * picks from, or null for the plain folder glyph.
+     *
+     * The id and never the drawing, exactly as `KeyboardMode.icon` does: a file
+     * written by a build whose catalogue has since changed still loads, and an
+     * id this build does not know falls back to the plain folder rather than
+     * failing to draw.
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val icon: String? = null,
 )
 
 /**
@@ -381,7 +415,9 @@ class SnippetStore(private val storageFile: File?) {
      */
     @Synchronized
     fun add(snippet: Snippet, now: Long = System.currentTimeMillis()): Snippet {
-        val added = normalize(snippet, id = nextId++, createdAt = now)
+        val id = freshId(nextId, now)
+        nextId = id + 1
+        val added = normalize(snippet, id = id, createdAt = now)
         snippets.add(added)
         lookup = null
         return added
@@ -484,6 +520,25 @@ class SnippetStore(private val storageFile: File?) {
         lookup = null
     }
 
+    /**
+     * Replaces the whole list with [items], exactly as given.
+     *
+     * The undo behind a delete. Putting one snippet back is not enough on its
+     * own: [remove] also strips the removed id out of every other snippet's
+     * [Snippet.children], and [add] would hand the snippet a fresh id that
+     * those links would not point at anyway. Restoring the list the delete was
+     * made against puts the ids, the order and the links back together.
+     *
+     * `nextId` is deliberately left where it is. Winding it back would hand the
+     * next new snippet an id a restored one already has.
+     */
+    @Synchronized
+    fun replaceAll(items: List<Snippet>) {
+        snippets.clear()
+        snippets.addAll(items)
+        lookup = null
+    }
+
     @Synchronized
     fun remove(id: Long) {
         if (!snippets.removeAll { it.id == id }) return
@@ -547,7 +602,7 @@ class SnippetStore(private val storageFile: File?) {
         now: Long = System.currentTimeMillis(),
     ): SnippetFolder {
         val added = SnippetFolder(
-            id = nextFolderId++,
+            id = freshId(nextFolderId, now).also { nextFolderId = it + 1 },
             name = name.trim(),
             enabled = enabled,
             createdAt = now,
@@ -563,6 +618,16 @@ class SnippetStore(private val storageFile: File?) {
     fun renameFolder(id: Long, name: String) {
         val index = folders.indexOfFirst { it.id == id }
         if (index >= 0) folders[index] = folders[index].copy(name = name.trim())
+    }
+
+    /**
+     * Sets the folder's icon, or clears it with null. Appearance only — the
+     * index never reads it, so the lookup stays good.
+     */
+    @Synchronized
+    fun setFolderIcon(id: Long, icon: String?) {
+        val index = folders.indexOfFirst { it.id == id }
+        if (index >= 0) folders[index] = folders[index].copy(icon = icon?.takeIf { it.isNotBlank() })
     }
 
     /** Arms or disarms every trigger in the folder. See [SnippetFolder]. */
@@ -680,6 +745,15 @@ class SnippetStore(private val storageFile: File?) {
     @Synchronized
     fun candidateCount(snippet: Snippet): Int =
         snippet.expansions().size + childrenOf(snippet).size
+
+    /**
+     * While true no trigger matches, of any kind, since every route asks [index]:
+     * a keyboard mode that wants them off. The snippets themselves are untouched.
+     */
+    @Volatile
+    var triggersPaused: Boolean = false
+
+    private val noTriggers by lazy { SnippetIndex.of(emptyList(), MultiExpandMode.CHIPS_ONLY) }
 
     /**
      * Tells the store what the app is set to do with a snippet that has several
@@ -825,11 +899,45 @@ class SnippetStore(private val storageFile: File?) {
     /** The snippet whose trigger matches [word] exactly (case-insensitive), if any. */
     fun matchTrigger(word: String): Snippet? = index().matchTrigger(word)
 
+    /** Plain triggers that expand without asking. See [SnippetIndex.expandingTriggers]. */
+    fun expandingTriggers(): Set<String> = index().expandingTriggers
+
+    /** True when an expanding trigger opens with a digit. See [SnippetIndex.hasDigitLedTriggers]. */
+    fun hasDigitLedTriggers(): Boolean = index().hasDigitLedTriggers
+
     /** True when any trigger reaches back past its last word, the prefix path's gate. */
     fun hasPrefixTriggers(): Boolean = index().hasPrefixTriggers
 
     /** True when some prefix trigger offers itself instead of expanding. */
     fun hasConfirmPrefixTriggers(): Boolean = index().hasConfirmPrefixTriggers
+
+    /** True when some trigger expands on its own last keystroke. */
+    fun hasImmediateTriggers(): Boolean = index().hasImmediateTriggers
+
+    /** Longest immediate trigger, in characters. See [SnippetIndex.immediateReach]. */
+    fun immediateReach(): Int = index().immediateReach
+
+    /**
+     * True when typing [last] could finish an immediate trigger, given [buffer]
+     * is the composing word, asked without reading the field.
+     */
+    fun couldFinishImmediate(last: Char, buffer: CharSequence): Boolean =
+        index().couldFinishImmediate(last, buffer)
+
+    /** The immediate trigger [before] ends with, or null. See [SnippetIndex.matchImmediate]. */
+    fun matchImmediate(before: CharSequence): ImmediateTrigger? = index().matchImmediate(before)
+
+    /** The snippet whose one-word immediate trigger is [word], for a glide. */
+    fun matchImmediateWord(word: String): Snippet? = index().matchImmediateWord(word)
+
+    /** True when some trigger ends in a symbol (#471), the suffix path's gate. */
+    fun hasSuffixTriggers(): Boolean = index().hasSuffixTriggers
+
+    /** True when a trigger ends in [symbol], asked without reading the field. */
+    fun couldEndWith(symbol: Char): Boolean = index().couldEndWith(symbol)
+
+    /** The symbol-ending trigger [before] ends with, or null. See [SnippetIndex.matchSuffix]. */
+    fun matchSuffix(before: CharSequence): SuffixTrigger? = index().matchSuffix(before)
 
     /** True when [word] could finish a prefix trigger, asked without reading the field. */
     fun couldFinishPrefix(word: String): Boolean = index().prefixCandidates(word).isNotEmpty()
@@ -873,7 +981,7 @@ class SnippetStore(private val storageFile: File?) {
     /** Ids of the patterns the app stopped for taking too long. */
     fun stoppedPatterns(): Set<Long> = index().stopped()
 
-    private fun index(): SnippetIndex = lookup ?: build()
+    private fun index(): SnippetIndex = if (triggersPaused) noTriggers else lookup ?: build()
 
     @Synchronized
     private fun build(): SnippetIndex =
@@ -1021,6 +1129,25 @@ class SnippetStore(private val storageFile: File?) {
 
     companion object {
 
+        /** Where the snippets live, under the app's files directory. */
+        const val FILE_PATH = "snippets/snippets.json"
+
+        /**
+         * An id for something new, and one that another device is very
+         * unlikely to hand out too: the time in milliseconds times a thousand,
+         * plus a random part, and never below the running counter.
+         *
+         * Plain counting gave every phone the same ids, which was harmless
+         * while a store lived on one phone. Sync merges two phones' snippets
+         * by id, and two different snippets both numbered 6 would be one of
+         * them lost. Still below 2^53, so a JSON reader that goes through a
+         * double keeps it exact.
+         */
+        internal fun freshId(counter: Long, now: Long): Long =
+            maxOf(counter, now * ID_SPREAD + kotlin.random.Random.nextLong(ID_SPREAD))
+
+        private const val ID_SPREAD = 1000L
+
         /** Any run of whitespace, which a saved trigger spelling holds as one space. */
         private val WHITESPACE_RUN = Regex("\\s+")
 
@@ -1042,6 +1169,20 @@ class SnippetStore(private val storageFile: File?) {
             val packageName: String? = null,
             /** Text currently selected in the field. */
             val selection: String? = null,
+            /**
+             * `{location}` and `{location:format}` (#350): where the phone is,
+             * in a Location tool format (`link`, `address`, `plus_code`…), or
+             * null when there is no reading.
+             */
+            val location: ((format: String?) -> String?)? = null,
+            /** `{place:Home}` and `{place:Home:format}`: a saved place, by name. */
+            val place: ((name: String, format: String?) -> String?)? = null,
+            /**
+             * `{ha:sensor.outside}` and `{ha:sensor.outside:unit_of_measurement}`:
+             * a Home Assistant entity's state, or one of its attributes, as last
+             * seen; null when the tool is off or knows nothing about the entity.
+             */
+            val homeAssistant: ((entityId: String, attribute: String?) -> String?)? = null,
         )
 
         /** Expanded text plus where the cursor should end up inside it. */
@@ -1055,6 +1196,15 @@ class SnippetStore(private val storageFile: File?) {
          * It is in seconds, which is the unit Espanso's `date` extension uses.
          */
         private val CUSTOM_DATE = Regex("""\{date([+-]\d{1,9})?(?::([^}\n]{1,40}))?\}""")
+
+        /** `{location}` or `{location:link}`. */
+        private val LOCATION = Regex("""\{location(?::([a-z_]{1,20}))?\}""")
+
+        /** `{place:Home}` or `{place:Home:address}`. */
+        private val PLACE = Regex("""\{place:([^}:\n]{1,60})(?::([a-z_]{1,20}))?\}""")
+
+        /** `{ha:light.kitchen}` or `{ha:sensor.outside:unit_of_measurement}`. */
+        private val HOME_ASSISTANT = Regex("""\{ha:([a-z0-9_]{1,40}\.[a-z0-9_]{1,80})(?::([a-z0-9_]{1,40}))?\}""")
 
         /** `{random:one|two|three}`, one alternative picked per insertion. */
         private val RANDOM = Regex("""\{random:([^}\n]{1,400})\}""")
@@ -1102,6 +1252,15 @@ class SnippetStore(private val storageFile: File?) {
                 val shift = match.groupValues[1].toLongOrNull() ?: 0L
                 val pattern = match.groupValues[2].ifEmpty { DEFAULT_DATE }
                 format(pattern, now + shift * 1000L)
+            }
+            // The Location tool's places (#350). Before the plain tokens so an
+            // address can never be read as one.
+            out = LOCATION.replace(out) { match -> ctx.location?.invoke(match.groupValues[1].ifEmpty { null }).orEmpty() }
+            out = HOME_ASSISTANT.replace(out) { match ->
+                ctx.homeAssistant?.invoke(match.groupValues[1], match.groupValues[2].ifEmpty { null }).orEmpty()
+            }
+            out = PLACE.replace(out) { match ->
+                ctx.place?.invoke(match.groupValues[1].trim(), match.groupValues[2].ifEmpty { null }).orEmpty()
             }
             val fmt: (String) -> String = { format(it, now) }
             for (variable in SnippetVariable.entries) {

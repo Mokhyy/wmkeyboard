@@ -9,6 +9,8 @@ import com.wasimaster.wmkeyboard.core.script.ScriptId
 import com.wasimaster.wmkeyboard.core.script.ScriptRegistry
 import com.wasimaster.wmkeyboard.core.transliteration.AvroPhonetic
 import com.wasimaster.wmkeyboard.core.transliteration.BengaliGraphemes
+import com.wasimaster.wmkeyboard.core.transliteration.HindiPhonetic
+import com.wasimaster.wmkeyboard.core.transliteration.Khipro
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -33,8 +35,157 @@ class ComposerTest {
         assertSame(BengaliTransliterateComposer, composerFor(bengali, ComposerType.TRANSLITERATE))
         assertTrue(composerFor(bengali, ComposerType.INDIC_CLUSTER) is IndicClusterComposer)
         assertTrue(composerFor(devanagari, ComposerType.INDIC_CLUSTER) is IndicClusterComposer)
+        assertSame(HindiTransliterateComposer, composerFor(devanagari, ComposerType.TRANSLITERATE))
+        assertSame(
+            UrduTransliterateComposer,
+            composerFor(ScriptRegistry[ScriptId.ARABIC], ComposerType.TRANSLITERATE),
+        )
         // A transliterator with no engine for its script degrades, never crashes.
-        assertSame(NoComposer, composerFor(devanagari, ComposerType.TRANSLITERATE))
+        assertSame(NoComposer, composerFor(latin, ComposerType.TRANSLITERATE))
+        assertSame(KhiproComposer.CLASSIC, composerFor(bengali, ComposerType.KHIPRO))
+        assertSame(KhiproComposer.DARK, composerFor(bengali, ComposerType.KHIPRO_DARK))
+        assertSame(NoComposer, composerFor(latin, ComposerType.KHIPRO))
+        assertSame(NoComposer, composerFor(latin, ComposerType.KHIPRO_DARK))
+    }
+
+    @Test
+    fun `the Urdu phonetic layout types through the Urdu composer`() {
+        val spec = BuiltInLayouts.URDU_PHONETIC
+        assertSame(UrduTransliterateComposer, composerFor(spec.script(), spec.composerType()))
+        // Its buffer is roman, so a word half-typed on a Latin keyboard carries
+        // into it when the language is switched mid-word (#522).
+        assertTrue(UrduTransliterateComposer.isRomanBuffer)
+        assertEquals("ur", UrduTransliterateComposer.phoneticLanguage)
+        assertEquals("کتب", UrduTransliterateComposer.composeBuffer("kitab"))
+        // The preview is diffed from the common prefix, because a key can take
+        // the letter before it away: the ا of "ka" when "kar" is typed.
+        assertEquals("ا", UrduTransliterateComposer.keyPreview("k", "a", false))
+        assertEquals("ر", UrduTransliterateComposer.keyPreview("ka", "r", false))
+        assertNull(UrduTransliterateComposer.keyPreview("ka", "1", false))
+    }
+
+    @Test
+    fun `a phonetic layout types through its own language's rules, not its script's`() {
+        // Assamese shares the Bengali script with Avro, Marathi Devanagari with
+        // Hindi phonetic, Persian and Arabic the Arabic script with Urdu: the
+        // layout's language picks the rules.
+        val expected = mapOf(
+            BuiltInLayouts.ASSAMESE_PHONETIC to "as",
+            BuiltInLayouts.MARATHI_PHONETIC to "mr",
+            BuiltInLayouts.GUJARATI_PHONETIC to "gu",
+            BuiltInLayouts.PUNJABI_PHONETIC to "pa",
+            BuiltInLayouts.ODIA_PHONETIC to "or",
+            BuiltInLayouts.TAMIL_PHONETIC to "ta",
+            BuiltInLayouts.TELUGU_PHONETIC to "te",
+            BuiltInLayouts.KANNADA_PHONETIC to "kn",
+            BuiltInLayouts.MALAYALAM_PHONETIC to "ml",
+            BuiltInLayouts.PERSIAN_PHONETIC to "fa",
+            BuiltInLayouts.ARABIC_PHONETIC to "ar",
+            BuiltInLayouts.AVRO to "bn",
+            BuiltInLayouts.HINDI_PHONETIC to "hi",
+            BuiltInLayouts.URDU_PHONETIC to "ur",
+        )
+        for ((spec, language) in expected) {
+            val composer = spec.resolvedComposer()
+            assertEquals(spec.id, language, composer.phoneticLanguage)
+            assertTrue(spec.id, composer.isTransliterating)
+            // A word half-typed on a Latin keyboard can carry into every one (#522).
+            assertTrue(spec.id, composer.isRomanBuffer)
+        }
+        // Without a language a phonetic layout falls back to its script's first.
+        assertSame(BengaliTransliterateComposer, composerFor(bengali, ComposerType.TRANSLITERATE))
+        // And the same instance every time, which the service compares by.
+        assertSame(
+            BuiltInLayouts.TAMIL_PHONETIC.resolvedComposer(),
+            BuiltInLayouts.TAMIL_PHONETIC.resolvedComposer(),
+        )
+    }
+
+    @Test
+    fun `Arabizi digits belong to the word`() {
+        val arabic = BuiltInLayouts.ARABIC_PHONETIC.resolvedComposer()
+        assertTrue(arabic.bufferDigits)
+        assertTrue(arabic.digitsStartBuffer)
+        // A number on its own is still a number, and not a word to learn.
+        assertEquals("2024", arabic.composeBuffer("2024"))
+        assertFalse(arabic.isPlausibleWord("2024"))
+        // The other phonetic layouts keep digits out of the buffer.
+        assertFalse(BuiltInLayouts.PERSIAN_PHONETIC.resolvedComposer().bufferDigits)
+        assertFalse(BuiltInLayouts.TAMIL_PHONETIC.resolvedComposer().bufferDigits)
+    }
+
+    @Test
+    fun `the Khipro layout types through the Khipro composer`() {
+        val spec = BuiltInLayouts.KHIPRO
+        assertSame(KhiproComposer.CLASSIC, composerFor(spec.script(), spec.composerType()))
+        val composer = KhiproComposer.CLASSIC
+        assertTrue(composer.isTransliterating)
+        // Exact, not phonetic: no Avro ranking pass, only completion.
+        assertNull(composer.phoneticLanguage)
+        assertEquals("bn", composer.completionLanguage)
+    }
+
+    @Test
+    fun `Khipro buffers its modifier keys, and a comma only inside a word`() {
+        val composer = KhiproComposer.CLASSIC
+        composer.variant = Khipro.Variant.TOUCHSCREEN
+        for (c in "/;?\\।") assertTrue("$c", composer.buffersChar(c, ""))
+        assertFalse(composer.buffersChar(',', ""))
+        assertTrue(composer.buffersChar(',', "j"))
+        assertFalse(composer.buffersChar('.', "ami"))
+        assertFalse(composer.bufferDigits)
+    }
+
+    @Test
+    fun `a word typed on a hardware keyboard reads against the desktop spec`() {
+        val composer = KhiproComposer.CLASSIC
+        try {
+            composer.variant = Khipro.Variant.DESKTOP
+            assertTrue(composer.buffersChar('.', "ami"))
+            assertTrue(composer.bufferDigits && composer.digitsStartBuffer)
+            assertEquals("কথা।", composer.composeBuffer("kotha."))
+            assertEquals("১২", composer.composeBuffer("12"))
+        } finally {
+            composer.variant = Khipro.Variant.TOUCHSCREEN
+        }
+        assertEquals("কথা.", composer.composeBuffer("kotha."))
+    }
+
+    @Test
+    fun `the Khipro Dark layout joins consonants only on the slash`() {
+        val spec = BuiltInLayouts.KHIPRO_DARK
+        val composer = composerFor(spec.script(), spec.composerType())
+        assertSame(KhiproComposer.DARK, composer)
+        assertEquals("লাগবে", composer.composeBuffer("lagbe"))
+        assertEquals("ন্ত্র্য", composer.composeBuffer("ntrz///"))
+        val dark = KhiproComposer.DARK
+        try {
+            dark.startWord(hardwareKeyboard = true)
+            assertEquals(Khipro.Variant.DARK_DESKTOP, dark.variant)
+            assertEquals("১২", dark.composeBuffer("12"))
+        } finally {
+            dark.startWord(hardwareKeyboard = false)
+        }
+        assertEquals(Khipro.Variant.DARK_TOUCHSCREEN, dark.variant)
+    }
+
+    @Test
+    fun `Khipro key hints diff the spec's own output`() {
+        val composer = KhiproComposer.CLASSIC
+        // h after k rewrites ক to খ: the key's contribution is the whole new letter.
+        assertEquals("খ", composer.keyPreview("k", "h", wholeCluster = false))
+        assertEquals("কা", composer.keyPreview("k", "a", wholeCluster = true))
+        // The slicer after a vowel writes the chandrabindu.
+        assertEquals("ঁ", composer.keyPreview("ca", "/", wholeCluster = false))
+    }
+
+    @Test
+    fun `Khipro learns whole Bengali words only`() {
+        val composer = KhiproComposer.CLASSIC
+        assertTrue(composer.isPlausibleWord(composer.composeBuffer("ami")))
+        assertFalse(composer.isPlausibleWord(","))
+        assertFalse(composer.isPlausibleWord(composer.composeBuffer("?hello")))
+        assertFalse(composer.isPlausibleWord(composer.composeBuffer("kqq")))
     }
 
     @Test
@@ -149,6 +300,46 @@ class ComposerTest {
         assertTrue(composer.isClusterShaping)
         // क + ि (consonant + spacing vowel sign) deletes as one cluster.
         assertEquals(2, composer.deleteLength("कि"))
+    }
+
+    @Test
+    fun `the Hindi phonetic built-in overrides the script with the transliterator`() {
+        val spec = BuiltInLayouts.HINDI_PHONETIC
+        assertEquals(ScriptId.DEVANAGARI, spec.script().id)
+        assertEquals(ComposerType.TRANSLITERATE, spec.composerType())
+        val composer = composerFor(spec.script(), spec.composerType())
+        assertSame(HindiTransliterateComposer, composer)
+        assertTrue(composer.isTransliterating)
+        assertFalse(composer.isClusterShaping)
+        // What routes its commit and strip through the Hindi dictionary path.
+        assertEquals("hi", composer.phoneticLanguage)
+        assertEquals("bn", BengaliTransliterateComposer.phoneticLanguage)
+        assertNull(NoComposer.phoneticLanguage)
+        for (word in listOf("kaise", "namaste", "karna")) {
+            assertEquals(HindiPhonetic.transliterate(word), composer.composeBuffer(word))
+        }
+        // Committed text is Devanagari, so a conjunct still deletes as one unit.
+        assertEquals(3, composer.deleteLength("क्ष"))
+    }
+
+    @Test
+    fun `Hindi key preview is the diff of two transliterations`() {
+        val composer = HindiTransliterateComposer
+        assertEquals("क", composer.keyPreview("", "k", wholeCluster = false))
+        // A closing "a" is long, and the hint says so before the key is pressed.
+        assertEquals("ा", composer.keyPreview("k", "a", wholeCluster = false))
+        assertEquals("का", composer.keyPreview("k", "a", wholeCluster = true))
+        // A cluster that closes the word joins: the key adds the virama too.
+        assertEquals("्न", composer.keyPreview("kar", "n", wholeCluster = false))
+        assertEquals("र्न", composer.keyPreview("kar", "n", wholeCluster = true))
+        assertNull(composer.keyPreview("k", "1", wholeCluster = false))
+    }
+
+    @Test
+    fun `a Hindi buffer committed half typed is not a word to learn`() {
+        assertTrue(HindiTransliterateComposer.isPlausibleWord("करना"))
+        assertFalse(HindiTransliterateComposer.isPlausibleWord("कर्"))
+        assertFalse(HindiTransliterateComposer.isPlausibleWord(""))
     }
 
     @Test

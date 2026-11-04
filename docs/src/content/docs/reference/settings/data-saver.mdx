@@ -8,9 +8,12 @@ sidebar:
 import SettingsPath from '@components/SettingsPath.astro';
 
 The Data saver screen is three groups: what turns data saving on, the
-fetches the keyboard makes on its own, and the ones you start yourself. This
-page is the field reference. For what it's for and how the ask-first answer
-behaves in practice, start at [Data saver](/privacy/data-saver/).
+fetches the keyboard makes on its own, and the ones you start yourself. The
+last two only appear once something has turned data saving on. With **Save
+data now** off and **Turn on by itself** left at **Only when I turn it on**,
+the screen shows just the first group. This page is the field reference. For
+what it's for and how the ask-first answer behaves in practice, start at
+[Data saver](/privacy/data-saver/).
 
 Every row in the last two groups is a choice, not a switch. The full set of
 answers is **Allow**, **Ask each time** and **Turn off**. The middle one is
@@ -26,7 +29,7 @@ panel on screen and nobody there to answer.
 | Setting | Control | Default |
 |---|---|---|
 | Save data now | Toggle | Off |
-| Turn on by itself | Choice of 5 | **On mobile data or a metered network** |
+| Turn on by itself | Choice of 5 | **Only when I turn it on** |
 
 **Save data now** holds on any connection, Wi-Fi included, until you turn it
 off. It's the answer to a network Android thinks is free and you know isn't,
@@ -66,11 +69,15 @@ week's rate is worse than the fetch.
 
 | Setting | Control | Default |
 |---|---|---|
-| GIFs and stickers | Allow / Ask each time / Turn off | **Ask each time** |
-| Web and image search | Allow / Ask each time / Turn off | **Ask each time** |
+| GIFs and stickers | Allow / Ask each time / Turn off | **Allow** |
+| Web and image search | Allow / Ask each time / Turn off | **Allow** |
 | Animated emoji | Allow / Ask each time / Turn off | **Ask each time** |
 | Downloads | Allow / Ask each time / Turn off | **Ask each time** |
-| Cloud AI | Allow / Ask each time / Turn off | **Ask each time** |
+| Cloud AI | Allow / Ask each time / Turn off | **Allow** |
+| Transcription server | Allow / Ask each time / Turn off | **Allow** |
+| Online grammar check | Allow / Turn off | **Allow** |
+| Song recognition online | Allow / Ask each time / Turn off | **Ask each time** |
+| Speed test | Allow / Ask each time / Turn off | **Ask each time** |
 
 At **Ask each time**, the panel says why it's empty and carries a **Use
 mobile data** button. Tapping it allows that one feature until the network
@@ -84,7 +91,17 @@ treats pressing **Send** as the yes. **Downloads** covers language data,
 dictionaries, emoji keyword packs, add-ons and the on-device speech and
 language models, and it's where the old **Ask before downloading on mobile
 data** and **Only download over Wi-Fi** switches went. **Cloud AI** never
-holds an on-device model, which costs nothing to reach.
+holds an on-device model, which costs nothing to reach, and it also covers the
+[sticker generator's online engines](/emoji/sticker-generator/#engines), where
+the second press of **Generate** is the yes. **Transcription
+server** has no panel to put a button on, so at **Ask each time** the voice
+panel says why it stopped and the next press of the microphone is the yes.
+**Song recognition online** holds the clip [Music ID](/tools/music-id/) would send to
+a recognition service, a few hundred kilobytes per tap on Listen; at **Ask each
+time** the panel says so and offers **Use data**.
+**Online grammar check** holds [LanguageTool](/smart/grammar/#checkers-harper-and-languagetool)
+and offers no **Ask each time**, since a check goes out after every pause in
+typing; held, Harper keeps checking English on the phone.
 
 ## Details & edge cases
 
@@ -97,7 +114,7 @@ holds an on-device model, which costs nothing to reach.
   **Allow**, a Whisper model at about 150 MB or an on-device AI model at
   about 500 MB still confirms on a metered connection. That prompt is older
   than this screen and independent of it.
-- **Add-ons keep a switch of their own.** **Refresh on Wi-Fi only**, on the
+- **Add-ons keep a switch of their own.** **Only on Wi-Fi**, on the
   Add-ons screen, is separate from the **Add-on updates** row here. Either
   one holding is enough to skip the automatic refresh a visit would make.
 - **Nothing here is a permission.** Data saving decides whether a fetch is

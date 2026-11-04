@@ -9,9 +9,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Check
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Check
 import com.wasimaster.wmkeyboard.core.addons.AddonType
-import androidx.compose.material.icons.outlined.Delete
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,13 +47,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.wasimaster.wmkeyboard.core.script.LanguageRegistry
 import com.wasimaster.wmkeyboard.core.script.ScriptId
-import com.wasimaster.wmkeyboard.core.settings.KeyboardSettings
+import com.wasimaster.wmkeyboard.core.layout.resolveLayout
 import com.wasimaster.wmkeyboard.core.settings.SettingsRepository
 import com.wasimaster.wmkeyboard.core.fonts.FontFile
 import com.wasimaster.wmkeyboard.core.fonts.FontImportResult
 import com.wasimaster.wmkeyboard.core.fonts.FontStore
 import com.wasimaster.wmkeyboard.core.fonts.InstalledFont
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 // ---- fonts ----
 
@@ -88,16 +90,23 @@ private data class FontMessage(
  * before the library existed; nothing migrates and nothing is lost.
  */
 @Composable
+@Suppress("UnusedParameter")
 internal fun FontSettings(
     repository: SettingsRepository,
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     onNavigate: (String) -> Unit,
 ) {
     val context = LocalContext.current
     AddonStoreGroup(AddonType.Font, onNavigate)
     // One row per script, the font it draws with as the value; the full list
-    // of faces for a script lives on its own page.
-    val enabledScripts = settings.enabledLanguages.mapTo(mutableSetOf()) { it.script }
+    // of faces for a script lives on its own page. Which scripts get a row is
+    // read here; each row reads its own font.
+    // A layout can write a script its language does not (Klingon's pIqaD), so
+    // the enabled layouts' own scripts count too.
+    val enabledScripts = settings.watch { s ->
+        s.enabledLanguages.mapTo(mutableSetOf()) { it.script } +
+            s.enabledLayoutIds.mapNotNull { id -> resolveLayout(s.customLayouts, id).ownScript }
+    }
     SettingsGroup(
         stringResource(R.string.fonts_pick_group_title),
         info = stringResource(R.string.fonts_info),
@@ -105,7 +114,11 @@ internal fun FontSettings(
         item {
             NavRow(
                 R.string.fonts_english_header,
-                value = KeyboardFonts.displayName(context, settings.keyFontId, settings.customFontName),
+                value = KeyboardFonts.displayName(
+                    context,
+                    settings.watch { it.keyFontId },
+                    settings.watch { it.customFontName },
+                ),
                 route = "fonts/${ScriptId.LATIN.name}",
             ) { onNavigate("fonts/${ScriptId.LATIN.name}") }
         }
@@ -115,10 +128,11 @@ internal fun FontSettings(
                 val script = choices.script.name
                 NavRow(
                     title = stringResource(R.string.fonts_script_header, stringResource(choices.labelRes)),
+                    icon = SettingsRowIcons[R.string.fonts_script_header],
                     value = KeyboardFonts.displayName(
                         context,
-                        settings.scriptFontIds[script] ?: KeyboardFonts.DEFAULT_ID,
-                        settings.customScriptFontNames[script].orEmpty(),
+                        settings.watch { it.scriptFontIds[script] } ?: KeyboardFonts.DEFAULT_ID,
+                        settings.watch { it.customScriptFontNames[script] }.orEmpty(),
                     ),
                     route = "fonts/$script",
                 ) { onNavigate("fonts/$script") }
@@ -134,7 +148,7 @@ internal fun FontSettings(
  * Cyrillic and Greek share the English list.
  */
 @Composable
-internal fun FontPickerScreen(repository: SettingsRepository, settings: KeyboardSettings, scriptArg: String) {
+internal fun FontPickerScreen(repository: SettingsRepository, settings: LiveSettings, scriptArg: String) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val fontStore = remember { FontStore.get(context) }
@@ -145,15 +159,21 @@ internal fun FontPickerScreen(repository: SettingsRepository, settings: Keyboard
     // The failure to show, still unresolved; see [FontMessage].
     var fontMessage by remember { mutableStateOf<FontMessage?>(null) }
 
+    // Several files picked at once go in one at a time: an import stages into
+    // one fixed file, and the last of them is the one left selected.
+    val importTurn = remember { Mutex() }
+
     fun importIntoLibrary(uri: android.net.Uri, apply: suspend (String) -> Unit) {
         scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    context.contentResolver.requireInputStream(uri).use {
-                        FontFile.import(it, fontStore, name = fontFileLabel(context, uri))
+            val result = importTurn.withLock {
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.requireInputStream(uri).use {
+                            FontFile.import(it, fontStore, name = fontFileLabel(context, uri))
+                        }
+                    }.getOrElse {
+                        FontImportResult.Failed(ContentR.string.core_content_font_error_read)
                     }
-                }.getOrElse {
-                    FontImportResult.Failed(ContentR.string.core_content_font_error_read)
                 }
             }
             when (result) {
@@ -210,11 +230,11 @@ internal fun FontPickerScreen(repository: SettingsRepository, settings: Keyboard
         FontPickerSection(
             header = stringResource(R.string.fonts_english_header),
             sample = "The quick brown fox jumps over the lazy dog",
-            selectedId = settings.keyFontId,
+            selectedId = settings.watch { it.keyFontId },
             googleNames = KeyboardFonts.googleFonts,
             customId = KeyboardFonts.CUSTOM_ID,
             customFile = KeyboardFonts.customFontFile(context),
-            customName = settings.customFontName,
+            customName = settings.watch { it.customFontName },
             onSelect = { id -> scope.launch { repository.setKeyFontId(id) } },
             onImport = { uri -> importIntoLibrary(uri) { repository.setKeyFontId(it) } },
             installedFonts = installedFonts,
@@ -243,12 +263,14 @@ internal fun FontPickerScreen(repository: SettingsRepository, settings: Keyboard
         FontPickerSection(
             header = stringResource(R.string.fonts_script_header, scriptName),
             sample = choices.sample,
-            selectedId = settings.scriptFontIds[script] ?: KeyboardFonts.DEFAULT_ID,
+            selectedId = settings.watch { it.scriptFontIds[script] } ?: KeyboardFonts.DEFAULT_ID,
             googleNames = choices.fonts,
-            defaultLabel = stringResource(R.string.fonts_default_noto_label),
+            defaultLabel = choices.automaticName
+                ?.let { stringResource(R.string.fonts_default_named_label, it) }
+                ?: stringResource(R.string.fonts_default_noto_label),
             customId = customId,
             customFile = KeyboardFonts.customScriptFontFile(context, choices.script),
-            customName = settings.customScriptFontNames[script].orEmpty(),
+            customName = settings.watch { it.customScriptFontNames[script] }.orEmpty(),
             onSelect = { id -> scope.launch { repository.setScriptFontId(script, id) } },
             onImport = onImportFont,
             installedFonts = installedFonts,
@@ -296,8 +318,8 @@ private fun FontPickerSection(
 ) {
     val context = LocalContext.current
     val importFont = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-    ) { uri -> if (uri != null) onImport?.invoke(uri) }
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris -> uris.forEach { uri -> onImport?.invoke(uri) } }
     val relevant = remember(installedFonts, scripts) {
         installedFonts.filter { font ->
             font.langIds.isEmpty() || scripts.isEmpty() ||
@@ -313,7 +335,7 @@ private fun FontPickerSection(
     if (relevant.isNotEmpty()) {
         SettingsGroup(installedTitle) {
             for (font in relevant) {
-                item {
+                item(key = font.id) {
                     val id = FontStore.fontIdFor(font.id)
                     // Matched on the library id, not the prefixed settings one:
                     // an install records the font exactly as the store knows it.
@@ -385,8 +407,10 @@ private fun FontChoiceRow(
     onDelete: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
+    val deleteDesc = stringResource(R.string.fonts_delete_desc, label)
     WmRow(
         title = label,
+        swipeActions = if (onDelete != null) listOf(deleteSwipeAction(deleteDesc, onDelete)) else emptyList(),
         // The row is the preview: name and sample both drawn in the font
         // itself, so picking one shows what it will look like.
         titleContent = { Text(label, fontFamily = family, fontSize = 18.sp) },

@@ -6,11 +6,11 @@ import com.wasimaster.wmkeyboard.settings.R
 /**
  * What arms data saving by itself, on top of the manual switch.
  *
- * The default is [METERED] rather than the system's own Data Saver, unlike
- * power saving's [PowerSavingTrigger.SYSTEM_SAVER]: a metered connection is a
- * fact about the network the user is on, not a preference they have to have
- * expressed somewhere else first, and the whole point of the feature is to
- * stop the keyboard spending a mobile allowance nobody offered it.
+ * The default is [OFF], like [PowerSavingTrigger.OFF]: data saving holds
+ * features back, and a keyboard that stops working on its own reads as broken.
+ * Android also reports plenty of Wi-Fi and every VPN as metered (#142), so a
+ * metered default fired for people who never were on mobile data. Those who
+ * pay by the megabyte pick a trigger here.
  */
 enum class DataSaverTrigger(@StringRes val labelRes: Int) {
     /** Nothing but the manual switch. */
@@ -99,9 +99,13 @@ data class DeviceNetworkState(
  * The split between the first block and the second is the whole design: the
  * background fetches are things the keyboard does on its own, so they are off
  * by default and get no [MeteredPolicy.ASK] (nobody is there to answer). The
- * rest are things the user opened a panel or pressed a button to start, so
- * they default to asking rather than to silently not working — a GIF grid that
- * comes up empty with no explanation reads as a bug.
+ * rest are things the user opened a panel or pressed a button to start, and
+ * they are allowed by default — the same rule as Android's own Data Saver,
+ * which restricts background data and lets the foreground through. The two
+ * exceptions ask: a download, which can run to hundreds of megabytes, and an
+ * animated emoji, whose preview plays before anything was sent. A GIF grid
+ * that comes up empty, or a search that needs a second tap, read as bugs on a
+ * mode most people turn on once and forget.
  */
 data class DataSaverSettings(
     /**
@@ -111,7 +115,7 @@ data class DataSaverSettings(
      */
     val manual: Boolean = false,
     /** What switches it on by itself. */
-    val trigger: DataSaverTrigger = DataSaverTrigger.METERED,
+    val trigger: DataSaverTrigger = DataSaverTrigger.OFF,
 
     /**
      * Link previews: the page title and thumbnail fetched for a copied URL and
@@ -129,10 +133,10 @@ data class DataSaverSettings(
     val weatherChip: MeteredPolicy = MeteredPolicy.BLOCK,
     /**
      * The Wiktionary recording behind the vocabulary card's speaker button.
-     * Blocked by default rather than asked: a spoken word has a free fallback
-     * (the platform synthesiser), so a notice over a 30 KB clip would be noise.
+     * Allowed by default: one tap, a 30 KB clip. Blocking it falls back to the
+     * platform synthesiser, which is the cheap answer for anyone who sets it.
      */
-    val vocabAudio: MeteredPolicy = MeteredPolicy.BLOCK,
+    val vocabAudio: MeteredPolicy = MeteredPolicy.ALLOW,
     /**
      * Exchange-rate tables for the currency chip and converter. Allowed by
      * default: a few hundred bytes, cached for hours, and a converter showing
@@ -143,9 +147,9 @@ data class DataSaverSettings(
     val addonRefresh: MeteredPolicy = MeteredPolicy.BLOCK,
 
     /** GIF and sticker search, including the trending grid a panel opens on. */
-    val mediaSearch: MeteredPolicy = MeteredPolicy.ASK,
+    val mediaSearch: MeteredPolicy = MeteredPolicy.ALLOW,
     /** Web and image search results, and the thumbnails an image grid loads. */
-    val webSearch: MeteredPolicy = MeteredPolicy.ASK,
+    val webSearch: MeteredPolicy = MeteredPolicy.ALLOW,
     /** Fetching the animated version of a held emoji to send as a GIF. */
     val animatedEmoji: MeteredPolicy = MeteredPolicy.ASK,
     /**
@@ -158,9 +162,55 @@ data class DataSaverSettings(
     /**
      * Cloud AI: chat, the AI actions, and translation through a paid API.
      * Small payloads, so this is about the bill and about roaming rather than
-     * about bytes.
+     * about bytes — and the roaming trigger is the place to say so.
      */
-    val cloudAi: MeteredPolicy = MeteredPolicy.ASK,
+    val cloudAi: MeteredPolicy = MeteredPolicy.ALLOW,
+    /**
+     * Dictation sent to a transcription server (#286): about 32 KB per second
+     * of speech, up to a megabyte a clip. Allowed by default like [cloudAi] —
+     * the user picked the server engine on purpose, and a mic that silently
+     * stops working on mobile data reads as broken.
+     */
+    val cloudVoice: MeteredPolicy = MeteredPolicy.ALLOW,
+    /**
+     * A file the Send files tool uploads to a Send instance or fetches from a
+     * link (#729): whole files, so the one feature here that can move gigabytes
+     * on a metered connection. Asked, like [downloads].
+     */
+    val fileSend: MeteredPolicy = MeteredPolicy.ASK,
+    /**
+     * Grammar checks sent to a LanguageTool server: the field's text, a few
+     * kilobytes, again after each pause in typing. Allowed by default like
+     * [cloudAi], since the user switched LanguageTool on themself. Offered
+     * two answers, like the background rows: a check runs on every pause, so
+     * there is no one moment to ask at. Held, the grammar tool uses Harper
+     * where it can and says so where it cannot.
+     */
+    val cloudGrammar: MeteredPolicy = MeteredPolicy.ALLOW,
+
+    /**
+     * A clip from the microphone sent to a song recognition service: a few
+     * hundred kilobytes as Opus, a third of a megabyte as WAV, once per tap
+     * on Listen. Asked, like [cloudVoice]: the tap is the moment to ask at.
+     */
+    val cloudMusic: MeteredPolicy = MeteredPolicy.ASK,
+
+    /**
+     * A run of the speed test, which moves more data than anything else the
+     * keyboard does (a hundred megabytes or more on a fast line). Asks by
+     * default: the panel says how much a run is likely to cost before it goes.
+     */
+    val speedTest: MeteredPolicy = MeteredPolicy.ASK,
+
+    /**
+     * With no connection, or with the server not answering, dictation, the AI
+     * actions and the Translate tool use the on-device model instead of the
+     * server they are set to (#452), where one is downloaded. Not a data-saving
+     * policy but the other half of the same question, what the keyboard does
+     * about the network, so it lives here. Off by default: it changes which
+     * engine answers, and the user picked the server on purpose.
+     */
+    val offlineFallback: Boolean = false,
 ) {
     /** Whether data saving should be in force given the device's [state]. */
     fun appliesTo(state: DeviceNetworkState): Boolean {
@@ -180,8 +230,8 @@ data class DataSaverSettings(
         get() = listOf(
             linkPreviews, dictionaryLookup, photoBackgrounds, weatherChip,
             currencyRates, addonRefresh, mediaSearch, webSearch, animatedEmoji,
-            downloads, cloudAi,
-            vocabAudio,
+            downloads, cloudAi, cloudVoice, fileSend, cloudGrammar, cloudMusic,
+            vocabAudio, speedTest,
         ).any { it != MeteredPolicy.ALLOW }
 }
 
@@ -209,6 +259,20 @@ enum class MeteredFeature {
 
     /** The vocabulary card's Wiktionary recording. */
     VOCAB_AUDIO,
+
+    /** A dictation clip uploaded to the user's transcription server. */
+    CLOUD_VOICE,
+
+    /** A file going up to a Send instance or coming down from a link (#729). */
+    FILE_SEND,
+
+    /** The field's text sent to a LanguageTool server for a grammar check. */
+    CLOUD_GRAMMAR,
+
+    /** A clip from the microphone sent to a song recognition service. */
+    CLOUD_MUSIC,
+    /** A run of the speed test: tens to hundreds of megabytes, on purpose. */
+    SPEED_TEST,
 }
 
 /** What may happen to one [MeteredFeature] right now. */
@@ -247,6 +311,11 @@ data class DataSaverStatus(
         MeteredFeature.ADDON_REFRESH -> settings.addonRefresh
         MeteredFeature.DICTIONARY_LOOKUP -> settings.dictionaryLookup
         MeteredFeature.VOCAB_AUDIO -> settings.vocabAudio
+        MeteredFeature.CLOUD_VOICE -> settings.cloudVoice
+        MeteredFeature.FILE_SEND -> settings.fileSend
+        MeteredFeature.CLOUD_GRAMMAR -> settings.cloudGrammar
+        MeteredFeature.CLOUD_MUSIC -> settings.cloudMusic
+        MeteredFeature.SPEED_TEST -> settings.speedTest
     }
 
     fun decide(feature: MeteredFeature): MeteredDecision = when {
@@ -288,8 +357,11 @@ fun KeyboardSettings.onMeteredNetwork(): KeyboardSettings {
         } else {
             clipboard
         },
-        qrScanLinkPreviews =
-        if (ds.linkPreviews.stopsBackgroundWork) false else qrScanLinkPreviews,
+        scanner = if (ds.linkPreviews.stopsBackgroundWork) {
+            scanner.copy(qrScanLinkPreviews = false)
+        } else {
+            scanner
+        },
         dictionaryAutoLookup =
         if (ds.dictionaryLookup.stopsBackgroundWork) false else dictionaryAutoLookup,
         // The photo pool already has its own metered switch, which the pool's

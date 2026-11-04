@@ -3,12 +3,12 @@ package com.wasimaster.wmkeyboard.app
 import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.Color
 import com.wasimaster.wmkeyboard.R
+import com.wasimaster.wmkeyboard.core.settings.EverythingTools
 import com.wasimaster.wmkeyboard.core.settings.KeyboardSettings
 import com.wasimaster.wmkeyboard.core.settings.MinimalTools
 import com.wasimaster.wmkeyboard.core.settings.OnboardingSettings
 import com.wasimaster.wmkeyboard.core.settings.PersonaDepth
 import com.wasimaster.wmkeyboard.core.settings.PersonaLanguages
-import com.wasimaster.wmkeyboard.core.settings.PersonaPrivacy
 import com.wasimaster.wmkeyboard.core.settings.PowerTools
 import com.wasimaster.wmkeyboard.core.settings.RecommendedTools
 import com.wasimaster.wmkeyboard.core.settings.SpaceSwipeAction
@@ -20,8 +20,8 @@ import com.wasimaster.wmkeyboard.core.settings.ToolbarTool
  * decided per device, per persona and per run — see [onboardingPages].
  */
 internal enum class OnboardingPage {
-    WELCOME, PERSONA, LANGUAGES, LOOK, EMOJI, FEEDBACK, GESTURES,
-    DISCOVER, TOOLS, TOOL_SETUP, TRY,
+    WELCOME, PERSONA, LANGUAGES, LOOK, FEEDBACK, GESTURES, DISCOVER, TOOLS,
+    TOOL_SETUP, TRY,
 }
 
 /** Tools with a first-run choice worth asking about on the setup page. */
@@ -33,15 +33,20 @@ internal val ToolSetupTools = setOf(
  * The wizard's live page list.
  *
  * The persona answers *grow* it. An unanswered quiz is the short path — the
- * same one "keep it simple" gets — because the progress row at the top is the
- * first thing anyone sees, and eleven steps on a screen where nothing has been
- * asked yet is the whole wizard reading as a chore. Answering "a good middle"
- * or "show me everything" adds the pages that answer earns, which the progress
- * row animates in.
+ * same one "keep it simple" gets: turn the keyboard on, answer the quiz, done.
+ * The progress row at the top is the first thing anyone sees, and a long row
+ * of steps on a screen where nothing has been asked yet is the whole wizard
+ * reading as a chore. "A good middle" adds the haptics and gesture pages and
+ * a typing test; "show me everything" adds the theme, the feature tour and the
+ * tool pages on top. The progress row animates each one in.
  *
- * The emoji page is asked of everyone, for the default skin tone alone; the
- * font half of it is what's conditional, inside the page. On a replay the
- * welcome page only appears when the keyboard actually needs setting up again.
+ * There is no page for the app's own language: it follows the phone's, and
+ * someone who reads another language first has already set the phone to it.
+ * On a replay the welcome page only appears when the keyboard actually needs
+ * setting up again.
+ *
+ * [restored] is a run where the welcome page's restore brought a backup in:
+ * the welcome page is all that is left.
  */
 internal fun onboardingPages(
     persona: OnboardingSettings,
@@ -49,7 +54,11 @@ internal fun onboardingPages(
     enabledLanguageCount: Int,
     replay: Boolean,
     imeReady: Boolean,
+    restored: Boolean = false,
 ): List<OnboardingPage> = OnboardingPage.entries.filter { page ->
+    // A restored backup answered every question already: only the step no
+    // backup can carry, turning the keyboard on, is left.
+    if (restored) return@filter page == OnboardingPage.WELCOME
     when (page) {
         OnboardingPage.WELCOME -> !(replay && imeReady)
         // Unanswered means one language, the same as answering "just one":
@@ -59,10 +68,11 @@ internal fun onboardingPages(
         // to manage, so the page has something to say.
         OnboardingPage.LANGUAGES ->
             persona.personaLanguages == PersonaLanguages.MANY || enabledLanguageCount > 1
-        OnboardingPage.FEEDBACK, OnboardingPage.GESTURES ->
+        OnboardingPage.FEEDBACK, OnboardingPage.GESTURES, OnboardingPage.TRY ->
             persona.personaDepth == PersonaDepth.BALANCED ||
                 persona.personaDepth == PersonaDepth.POWER
-        OnboardingPage.TOOLS -> persona.personaDepth == PersonaDepth.POWER
+        OnboardingPage.LOOK, OnboardingPage.DISCOVER, OnboardingPage.TOOLS ->
+            persona.personaDepth == PersonaDepth.POWER
         OnboardingPage.TOOL_SETUP ->
             persona.personaDepth == PersonaDepth.POWER &&
                 enabledTools.any { it in ToolSetupTools }
@@ -71,10 +81,10 @@ internal fun onboardingPages(
 }
 
 /**
- * Where [current] sits in [pages]. A page can disappear under the user (the
- * emoji count landing at zero, or a persona re-answer hiding the page they are
- * on); fall back to the nearest earlier page that survived rather than
- * snapping to the start.
+ * Where [current] sits in [pages]. A page can disappear under the user (a
+ * persona re-answer hiding the page they are on, or the last of two languages
+ * being turned off); fall back to the nearest earlier page that survived
+ * rather than snapping to the start.
  */
 internal fun resolvePageIndex(pages: List<OnboardingPage>, current: OnboardingPage): Int =
     pages.indexOf(current).let { found ->
@@ -90,7 +100,6 @@ internal val OnboardingPageAccents: Map<OnboardingPage, Color> = mapOf(
     OnboardingPage.PERSONA to Color(0xFF7E57C2),
     OnboardingPage.LANGUAGES to Color(0xFF66BB6A),
     OnboardingPage.LOOK to Color(0xFFEC407A),
-    OnboardingPage.EMOJI to Color(0xFFFFB300),
     OnboardingPage.FEEDBACK to Color(0xFF7E57C2),
     OnboardingPage.GESTURES to Color(0xFF26C6DA),
     OnboardingPage.DISCOVER to Color(0xFF00ACC1),
@@ -158,9 +167,6 @@ internal fun recommendedSpacebarChoice(persona: OnboardingSettings): SpacebarCho
 internal sealed interface PresetWrite {
     data class SpaceSwipes(val short: SpaceSwipeAction, val long: SpaceSwipeAction) : PresetWrite
     data class GlobeAsEmoji(val value: Boolean) : PresetWrite
-    data class LearnFromTyping(val value: Boolean) : PresetWrite
-    data class ClipboardHistory(val value: Boolean) : PresetWrite
-    data class TypingStats(val value: Boolean) : PresetWrite
 }
 
 /**
@@ -185,12 +191,6 @@ internal fun presetsFor(answer: PersonaLanguages): List<PresetWrite> = when (ans
  * The tool set a persona lands, or null while the depth question is still
  * unanswered and there is nothing to seed.
  *
- * Derived from the whole persona rather than from the depth answer alone,
- * because two of the three answers move it: depth picks the set, and strict
- * privacy adds incognito to whichever set that is. Recomputing from the
- * combined answers on every change is what makes the pair order-independent —
- * an additive write would be undone by a later `setEnabledTools`.
- *
  * [isSupported] drops what this build or device cannot run, and the set is
  * topped up when that (or a device without Google services) shortens it — see
  * [ToolTopUps].
@@ -207,33 +207,11 @@ internal fun starterTools(
         PersonaDepth.UNSET -> return null
     }
     val supported = base.filterTo(LinkedHashSet(), isSupported)
-    val topped =
-        if (supported.size < base.size || !playServices) {
-            supported + ToolTopUps.filter(isSupported)
-        } else {
-            supported
-        }
-    // The persona that reaches for incognito is the one that asked for strict
-    // privacy; it is the one tool that belongs in every set for that answer.
-    return if (persona.personaPrivacy == PersonaPrivacy.STRICT) {
-        topped + ToolbarTool.INCOGNITO
+    return if (supported.size < base.size || !playServices) {
+        supported + ToolTopUps.filter(isSupported)
     } else {
-        topped
+        supported
     }
-}
-
-/**
- * What the strict privacy answer turns off. Incognito in private fields is
- * already on for everyone, so it is not repeated here; STANDARD writes nothing
- * because the defaults already are the standard behaviour.
- */
-internal fun presetsFor(answer: PersonaPrivacy): List<PresetWrite> = when (answer) {
-    PersonaPrivacy.STRICT -> listOf(
-        PresetWrite.LearnFromTyping(false),
-        PresetWrite.ClipboardHistory(false),
-        PresetWrite.TypingStats(false),
-    )
-    PersonaPrivacy.STANDARD, PersonaPrivacy.UNSET -> emptyList()
 }
 
 /**
@@ -251,7 +229,7 @@ internal fun toolsAfterFinish(
     playServices: Boolean,
     isSupported: (ToolbarTool) -> Boolean,
 ): Set<ToolbarTool>? {
-    if (settings.enabledTools.toSet() != ToolbarTool.entries.toSet()) return null
+    if (settings.enabledTools.toSet() != EverythingTools.toSet()) return null
     val persona = settings.onboarding.takeIf { it.personaDepth != PersonaDepth.UNSET }
         ?: settings.onboarding.copy(personaDepth = PersonaDepth.BALANCED)
     return starterTools(persona, playServices, isSupported)

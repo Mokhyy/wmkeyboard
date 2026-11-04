@@ -12,6 +12,7 @@ import android.hardware.SensorManager
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.annotation.StringRes
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -20,14 +21,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -35,33 +34,29 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Backspace
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.outlined.KeyboardReturn
-import androidx.compose.material.icons.outlined.Air
-import androidx.compose.material.icons.outlined.Cloud
-import androidx.compose.material.icons.automirrored.outlined.VolumeOff
-import androidx.compose.material.icons.outlined.Compress
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Thermostat
-import androidx.compose.material.icons.outlined.Umbrella
-import androidx.compose.material.icons.outlined.WaterDrop
-import androidx.compose.material.icons.outlined.WbSunny
-import androidx.compose.material.icons.outlined.WbTwilight
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Air
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Cloud
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.VolumeOff
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Compress
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Download
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Refresh
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Thermostat
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Umbrella
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.WaterDrop
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.WbSunny
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.WbTwilight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -76,6 +71,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -96,41 +92,50 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.pluralStringResource
-import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
-import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.wasimaster.wmkeyboard.core.addons.AddonType
+import com.wasimaster.wmkeyboard.core.emoji.EmojiFontShaping
+import com.wasimaster.wmkeyboard.core.emoji.EmojiShaper
+import com.wasimaster.wmkeyboard.core.feedback.SoundPackStore
+import com.wasimaster.wmkeyboard.core.feedback.SoundStore
+import com.wasimaster.wmkeyboard.core.fonts.FontStore
+import com.wasimaster.wmkeyboard.core.fonts.InstalledFont
+import com.wasimaster.wmkeyboard.core.script.LanguageRegistry
+import com.wasimaster.wmkeyboard.core.script.ScriptId
 import com.wasimaster.wmkeyboard.core.icons.IconPack
 import com.wasimaster.wmkeyboard.core.icons.IconPackStore
 import com.wasimaster.wmkeyboard.core.icons.IconSlots
 import com.wasimaster.wmkeyboard.core.settings.DefaultThemesPanelBuiltIns
+import com.wasimaster.wmkeyboard.core.settings.EmojiFontChoice
+import com.wasimaster.wmkeyboard.core.settings.KeyboardSettings
 import com.wasimaster.wmkeyboard.core.settings.HapticStyle
 import com.wasimaster.wmkeyboard.core.settings.KeyboardMode
 import com.wasimaster.wmkeyboard.core.settings.IconSettings
 import com.wasimaster.wmkeyboard.core.settings.KeySoundStyle
 import com.wasimaster.wmkeyboard.core.settings.ThemeSelectionTarget
 import com.wasimaster.wmkeyboard.core.settings.ToolbarTool
+import com.wasimaster.wmkeyboard.core.ui.WmSlider
+import com.wasimaster.wmkeyboard.core.ui.rememberLiveSlider
+import com.wasimaster.wmkeyboard.core.util.PlayServices
 import com.wasimaster.wmkeyboard.core.settings.modeThemeOwner
 import com.wasimaster.wmkeyboard.core.settings.slotThemeId
 import com.wasimaster.wmkeyboard.core.settings.themeSelectionTarget
 import com.wasimaster.wmkeyboard.app.ThemePreview
 import com.wasimaster.wmkeyboard.core.theme.BuiltInThemes
+import com.wasimaster.wmkeyboard.core.theme.FrostSurface
 import com.wasimaster.wmkeyboard.core.theme.flattenedThemes
 import com.wasimaster.wmkeyboard.core.theme.ThemeSpec
+import com.wasimaster.wmkeyboard.core.theme.PaletteStyle
+import com.wasimaster.wmkeyboard.ime.AppColors
 import com.wasimaster.wmkeyboard.core.theme.DEFAULT_THEME_ID
-import com.wasimaster.wmkeyboard.core.tools.AltCalendar
-import com.wasimaster.wmkeyboard.core.tools.AltCalendars
-import com.wasimaster.wmkeyboard.core.tools.CalendarSystems
-import com.wasimaster.wmkeyboard.core.tools.DeviceCalendar
-import com.wasimaster.wmkeyboard.core.tools.DeviceCalendarEvent
 import com.wasimaster.wmkeyboard.core.tools.MoonPhase
 import com.wasimaster.wmkeyboard.core.tools.Qibla
-import com.wasimaster.wmkeyboard.core.tools.ToolPrefill
 import com.wasimaster.wmkeyboard.core.tools.WeatherClient
 import com.wasimaster.wmkeyboard.common.R as CommonR
 import com.wasimaster.wmkeyboard.ime.FocusRegion
@@ -143,7 +148,6 @@ import com.wasimaster.wmkeyboard.core.layout.Key
 import com.wasimaster.wmkeyboard.core.layout.KeyAction
 import com.wasimaster.wmkeyboard.core.layout.secondaryLayouts
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.math.atan2
@@ -154,9 +158,6 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
-import androidx.core.content.ContextCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -184,7 +185,9 @@ private fun ToolPanelKey(
     Box(
         modifier = modifier
             .clip(shape)
-            .background(if (pressed) kb.pressedKey else kb.modifierKey, shape)
+            // Glass like the board's own keys, and only where those have faces.
+            .then(if (kb.keysHaveFaces) Modifier.frostGlass(kb, shape, FrostSurface.MODIFIER_KEYS) else Modifier)
+            .background(if (pressed) kb.pressedKey else kb.keyFace(kb.modifierKey), shape)
             .panelKeyBorder(kb, shape)
             .pointerInput(repeatable) {
                 detectTapGestures(
@@ -245,7 +248,17 @@ private fun PanelMessage(text: String, modifier: Modifier = Modifier) {
  * qibla direction computed from the saved weather location.
  */
 @Composable
-internal fun CompassPanel(state: KeyboardUiState) {
+internal fun CompassPanel(
+    state: KeyboardUiState,
+    /**
+     * The Location tool (#350): Use my location for the qibla, and a place to
+     * point at, picked on the Location panel's Found tab.
+     */
+    location: LocationCallbacks? = null,
+) {
+    val onUseMyLocation = location?.onUseMyLocationForTools
+    val locationUi = location?.state?.collectAsState()?.value
+    val place = locationUi?.compassTarget
     val context = LocalContext.current
     val sensorManager = remember {
         context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
@@ -253,6 +266,22 @@ internal fun CompassPanel(state: KeyboardUiState) {
     val sensor = remember { sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR) }
     // Raw sensor heading; the displayed azimuth chases it per frame below.
     var target by remember { mutableFloatStateOf(0f) }
+    // Magnetic to true north, once a saved place says where the phone is (#350).
+    // The rotation-vector sensor points at magnetic north, and the qibla
+    // bearing is a true one; with a saved place the gap between the two is
+    // known, so the rose turns to true north and the marker lands where the
+    // Kaaba is rather than up to twenty degrees off it. Cached: the panel
+    // recomposes every frame while the rose turns.
+    val savedLat = state.settings.weather.latitude
+    val savedLon = state.settings.weather.longitude
+    val declination = remember(savedLat, savedLon) {
+        if (savedLat != null && savedLon != null) {
+            android.hardware.GeomagneticField(savedLat, savedLon, 0f, System.currentTimeMillis()).declination
+        } else {
+            0f
+        }
+    }
+    val declinationNow by rememberUpdatedState(declination)
     var azimuth by remember { mutableFloatStateOf(0f) }
     var hasReading by remember { mutableStateOf(false) }
 
@@ -264,7 +293,7 @@ internal fun CompassPanel(state: KeyboardUiState) {
             override fun onSensorChanged(event: SensorEvent) {
                 SensorManager.getRotationMatrixFromVector(rotation, event.values)
                 SensorManager.getOrientation(rotation, orientation)
-                target = (Math.toDegrees(orientation[0].toDouble()).toFloat() + 360f) % 360f
+                target = (Math.toDegrees(orientation[0].toDouble()).toFloat() + declinationNow + 360f) % 360f
                 hasReading = true
             }
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
@@ -301,11 +330,18 @@ internal fun CompassPanel(state: KeyboardUiState) {
         return
     }
 
-    val latitude = state.settings.weatherLatitude
-    val longitude = state.settings.weatherLongitude
-    val qiblaBearing = if (state.settings.compassShowQibla && latitude != null && longitude != null) {
+    val latitude = state.settings.weather.latitude
+    val longitude = state.settings.weather.longitude
+    val qiblaBearing = if (state.settings.sensorTools.compassQibla && latitude != null && longitude != null) {
         Qibla.bearing(latitude.toDouble(), longitude.toDouble()).toFloat()
     } else null
+    // Measured from a fresh reading when there is one, else from the saved place.
+    val origin = locationUi?.origin ?: if (latitude != null && longitude != null) {
+        com.wasimaster.wmkeyboard.core.location.GeoPoint(latitude.toDouble(), longitude.toDouble())
+    } else {
+        null
+    }
+    val targetBearing = if (place != null && origin != null) origin.bearingTo(place.point).toFloat() else null
 
     val kb = LocalKbTheme.current
     Column(
@@ -357,6 +393,24 @@ internal fun CompassPanel(state: KeyboardUiState) {
                         }
                     }
                 }
+                // A place from the Location tool, the same way as the qibla.
+                if (targetBearing != null) {
+                    val angle = Math.toRadians(targetBearing.toDouble())
+                    val dir = Offset(sin(angle).toFloat(), -cos(angle).toFloat())
+                    val pos = center + dir * (radius - 34.dp.toPx())
+                    drawLine(kb.accent, center + dir * (radius - 12.dp.toPx()), center + dir * radius, 5f)
+                    val pinPaint = android.graphics.Paint().apply {
+                        isAntiAlias = true
+                        textSize = 14.sp.toPx()
+                        textAlign = android.graphics.Paint.Align.CENTER
+                    }
+                    drawContext.canvas.nativeCanvas.apply {
+                        save()
+                        rotate(azimuth, pos.x, pos.y)
+                        drawText("📍", pos.x, pos.y + pinPaint.textSize / 3f, pinPaint)
+                        restore()
+                    }
+                }
                 // Qibla marker rotates with the rose so it points at the
                 // real-world bearing.
                 if (qiblaBearing != null) {
@@ -387,7 +441,7 @@ internal fun CompassPanel(state: KeyboardUiState) {
             drawPath(needle, kb.accent)
             drawCircle(kb.accent, 4.dp.toPx(), center)
         }
-        if (state.settings.compassShowDegrees) {
+        if (state.settings.sensorTools.compassDegrees) {
             val shown = azimuth.roundToInt() % 360
             Text(
                 if (hasReading) {
@@ -400,7 +454,7 @@ internal fun CompassPanel(state: KeyboardUiState) {
                 fontWeight = FontWeight.SemiBold,
             )
         }
-        if (state.settings.compassShowQibla) {
+        if (state.settings.sensorTools.compassQibla) {
             Text(
                 if (qiblaBearing != null) {
                     stringResource(
@@ -415,6 +469,41 @@ internal fun CompassPanel(state: KeyboardUiState) {
                 fontSize = 12.sp,
                 modifier = Modifier.padding(bottom = 2.dp),
             )
+            if (qiblaBearing == null && onUseMyLocation != null) {
+                ToolPanelChip(
+                    stringResource(R.string.ime_location_use_my_location_action),
+                    selected = true,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                ) { onUseMyLocation() }
+            }
+        }
+        if (place != null && location != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(bottom = 4.dp, start = 12.dp, end = 12.dp),
+            ) {
+                Text(
+                    if (origin != null) {
+                        val bearing = origin.bearingTo(place.point).roundToInt() % 360
+                        stringResource(
+                            R.string.ime_location_compass_target,
+                            "📍 " + place.label,
+                            com.wasimaster.wmkeyboard.core.location.LocationFormatter.distance(origin.distanceTo(place.point)),
+                            bearing,
+                            cardinal(bearing),
+                        )
+                    } else {
+                        stringResource(R.string.ime_location_compass_needs_position, "📍 " + place.label)
+                    },
+                    color = kb.toolbarIcon,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Spacer(Modifier.width(8.dp))
+                ToolPanelChip(stringResource(R.string.ime_location_compass_clear_action)) { location.onCompassClear() }
+            }
         }
     }
 }
@@ -592,7 +681,7 @@ internal fun LevelPanel(state: KeyboardUiState) {
                 bubbleR, Offset(markX + off, cy),
             )
         }
-        if (state.settings.levelShowAngles) {
+        if (state.settings.sensorTools.levelAngles) {
             Text(
                 String.format(Locale.US, "↕ %.1f°   ↔ %.1f°", pitch, roll),
                 color = if (flat) kb.accent else kb.modifierKeyText,
@@ -607,7 +696,7 @@ internal fun LevelPanel(state: KeyboardUiState) {
 // ---- custom layouts ----
 
 /**
- * The Custom layout tool's picker (issue #62): one button per secondary
+ * The Secondary layout tool's picker (issue #62): one button per secondary
  * layout, by name. A tap goes through the ordinary key dispatch as an "open a
  * layout" key — the service opens the grid and closes this panel — so the
  * panel needs no callback of its own.
@@ -652,8 +741,17 @@ internal fun CustomLayoutPanel(
 internal fun MoonPhasePanel(state: KeyboardUiState) {
     val height = keyRowsHeight(state)
     val kb = LocalKbTheme.current
-    val info = remember { MoonPhase.at(System.currentTimeMillis()) }
-    val dateFormat = remember { SimpleDateFormat("EEE, d MMM", Locale.getDefault()) }
+    val now = remember { System.currentTimeMillis() }
+    val info = remember { MoonPhase.at(now) }
+    val quarters = remember { MoonPhase.quarters(now) }
+    val context = LocalContext.current
+    // The time with the day: a phase falls at an hour, and "full moon on
+    // Tuesday" was not enough to know whether tonight is the night (#970).
+    val dateFormat = remember {
+        val time = if (android.text.format.DateFormat.is24HourFormat(context)) "HH:mm" else "h:mm a"
+        SimpleDateFormat("EEE d MMM, $time", Locale.getDefault())
+    }
+    val arabic = state.settings.sensorTools.moonArabicNames
 
     Row(
         modifier = Modifier
@@ -676,7 +774,7 @@ internal fun MoonPhasePanel(state: KeyboardUiState) {
             // southern-hemisphere setting each mirror the drawing.
             val waning = info.cycleFraction > 0.5
             val f = if (waning) 1.0 - info.cycleFraction else info.cycleFraction
-            val mirrored = waning != state.settings.moonSouthernHemisphere
+            val mirrored = waning != state.settings.sensorTools.moonSouthern
             val term = cos(2.0 * Math.PI * f).toFloat() // 1 new → -1 full
             val discRect = Rect(center - Offset(radius, radius), Size(radius * 2, radius * 2))
             val ellipseHalf = radius * abs(term)
@@ -703,6 +801,9 @@ internal fun MoonPhasePanel(state: KeyboardUiState) {
                 fontSize = 17.sp,
                 fontWeight = FontWeight.SemiBold,
             )
+            if (arabic) {
+                Text(MoonPhase.arabicName(info.phaseIndex), color = kb.modifierKeyText, fontSize = 15.sp)
+            }
             Text(
                 stringResource(
                     R.string.ime_moon_detail_info,
@@ -713,22 +814,20 @@ internal fun MoonPhasePanel(state: KeyboardUiState) {
                 fontSize = 12.sp,
             )
             Spacer(Modifier.height(8.dp))
-            Text(
-                stringResource(
-                    R.string.ime_moon_full_info,
-                    dateFormat.format(Date(info.nextFullMoonMillis)),
-                ),
-                color = kb.modifierKeyText,
-                fontSize = 13.sp,
-            )
-            Text(
-                stringResource(
-                    R.string.ime_moon_new_info,
-                    dateFormat.format(Date(info.nextNewMoonMillis)),
-                ),
-                color = kb.modifierKeyText,
-                fontSize = 13.sp,
-            )
+            // The main phases around today (#970): the one just gone, dimmed,
+            // then the next three.
+            for (q in quarters) {
+                val past = q.atMillis <= now
+                val name = stringResource(MoonPhase.phaseNameRes(q.phaseIndex)) +
+                    if (arabic) " · " + MoonPhase.arabicName(q.phaseIndex) else ""
+                Text(
+                    stringResource(R.string.ime_moon_phase_at, name, dateFormat.format(Date(q.atMillis))),
+                    color = if (past) kb.toolbarIcon else kb.modifierKeyText,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
@@ -749,6 +848,7 @@ private fun WeatherStat(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
             .clip(shape)
+            .frostGlass(kb, shape, FrostSurface.CHIPS)
             .background(kb.chip)
             .chipBorder(kb, shape)
             .padding(horizontal = 6.dp, vertical = 6.dp),
@@ -772,6 +872,8 @@ internal fun WeatherPanel(
     state: KeyboardUiState,
     onRefresh: () -> Unit,
     onOpenSettings: () -> Unit,
+    /** Reads the phone's position once and saves it as the weather location (#350); null hides the offer. */
+    onUseMyLocation: (() -> Unit)? = null,
 ) {
     // Keyboard height, no more: the stat grid scrolls, and growing the
     // window upward for it shoved the app's own content off screen.
@@ -819,6 +921,17 @@ internal fun WeatherPanel(
                         .width(160.dp)
                         .focusRing(focusedAction == 0),
                 ) { onOpenSettings() }
+                if (onUseMyLocation != null) {
+                    Spacer(Modifier.height(8.dp))
+                    val useMine = stringResource(R.string.ime_location_use_my_location_action)
+                    ToolPanelKey(
+                        description = useMine,
+                        label = useMine,
+                        modifier = Modifier
+                            .height(40.dp)
+                            .width(160.dp),
+                    ) { onUseMyLocation() }
+                }
             }
             WeatherUi.Loading -> PanelMessage(stringResource(R.string.ime_weather_progress))
             WeatherUi.Error -> Column(
@@ -845,7 +958,7 @@ internal fun WeatherPanel(
             }
             is WeatherUi.Ready -> {
                 val info = weather.info
-                val fahrenheit = state.settings.weatherFahrenheit
+                val fahrenheit = state.settings.weather.fahrenheit
                 val unit = if (fahrenheit) "°F" else "°C"
                 Column(
                     modifier = Modifier
@@ -869,7 +982,7 @@ internal fun WeatherPanel(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            val place = state.settings.weatherPlaceName.ifBlank { null }
+                            val place = state.settings.weather.placeName.ifBlank { null }
                             val highLow = stringResource(
                                 R.string.ime_weather_high_low_info,
                                 WeatherClient.toDisplay(info.highC, fahrenheit),
@@ -883,17 +996,23 @@ internal fun WeatherPanel(
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
-                        IconButton(
-                            onClick = onRefresh,
-                            modifier = Modifier.focusRing(focusedAction == 0, CircleShape),
+                        IconHint(
+                            stringResource(
+                                R.string.ime_weather_refresh_desc,
+                            ),
                         ) {
-                            Icon(
-                                Icons.Outlined.Refresh,
-                                contentDescription = stringResource(
-                                    R.string.ime_weather_refresh_desc,
-                                ),
-                                tint = kb.toolbarIcon,
-                            )
+                            IconButton(
+                                onClick = onRefresh,
+                                modifier = Modifier.focusRing(focusedAction == 0, CircleShape),
+                            ) {
+                                Icon(
+                                    Icons.Outlined.Refresh,
+                                    contentDescription = stringResource(
+                                        R.string.ime_weather_refresh_desc,
+                                    ),
+                                    tint = kb.toolbarIcon,
+                                )
+                            }
                         }
                     }
                     Spacer(Modifier.height(6.dp))
@@ -995,526 +1114,6 @@ internal fun WeatherPanel(
     }
 }
 
-// ---- calendar ----
-
-/**
- * Month calendar: a Gregorian grid carrying the first chosen alternate
- * calendar's date inside each cell, both chosen calendars' month spans in the
- * header, and a Today shortcut. Tapping a day shows that day's summary across
- * the chosen calendars and its events read from the device calendar
- * (read-only; [onRequestPermission] asks for READ_CALENDAR).
- */
-@Composable
-internal fun CalendarPanel(
-    state: KeyboardUiState,
-    onRequestPermission: () -> Unit,
-    onPrefillConsumed: () -> Unit = {},
-) {
-    val kb = LocalKbTheme.current
-    val today = remember {
-        Calendar.getInstance().let {
-            CalendarSystems.SimpleDate(
-                it.get(Calendar.YEAR), it.get(Calendar.MONTH) + 1, it.get(Calendar.DAY_OF_MONTH),
-            )
-        }
-    }
-    // Opened from a "next friday" chip: land on that day, selected, so the
-    // panel answers "am I free then" without a tap. Snapshotted at first
-    // composition because the service clears the prefill immediately after.
-    val prefill = remember { state.toolPrefill as? ToolPrefill.Calendar }
-    LaunchedEffect(Unit) { if (prefill != null) onPrefillConsumed() }
-    val opened = remember {
-        prefill?.let { CalendarSystems.SimpleDate(it.year, it.month, it.day) } ?: today
-    }
-    var shownYear by remember { mutableIntStateOf(opened.year) }
-    var shownMonth by remember { mutableIntStateOf(opened.month) }
-    var selected by remember { mutableStateOf(opened) }
-
-    val monthFormat = remember { SimpleDateFormat("MMMM yyyy", Locale.getDefault()) }
-    val monthLabel = remember(shownYear, shownMonth) {
-        monthFormat.format(
-            Calendar.getInstance().apply { set(shownYear, shownMonth - 1, 1) }.time
-        )
-    }
-    // The two calendars riding along with the Gregorian one, in draw order and
-    // with empty slots dropped, so everything below just iterates.
-    val altCalendars = listOf(state.settings.calendarAltOne, state.settings.calendarAltTwo)
-        .filter { it != AltCalendar.NONE }
-        .distinct()
-    // The day cells only have room for one extra number, so the first pick
-    // that has one to give wins.
-    val cellCalendar = altCalendars.firstOrNull { it.hasDayLabel }
-    val hijriAdjust = state.settings.hijriAdjustDays
-    val daysInMonth = CalendarSystems.gregorianMonthLength(shownYear, shownMonth)
-
-    // Which months of the chosen calendars this Gregorian month spans.
-    val spanLabel = remember(shownYear, shownMonth, altCalendars, hijriAdjust) {
-        altCalendars
-            .map { AltCalendars.monthSpan(it, shownYear, shownMonth, hijriAdjust) }
-            .filter { it.isNotEmpty() }
-            .joinToString("  ·  ")
-    }
-
-    // Ring regions — the month/selection state is all composable-local, which
-    // is exactly what the publish-up controller exists for. Three fixed
-    // ACTIONS slots (Today no-ops while already on the current month, rather
-    // than renumbering next); the day grid is seven columns, so Up/Down walk
-    // weeks the way the eye does.
-    PanelFocusTarget(
-        panel = PanelMode.CALENDAR,
-        region = FocusRegion.ACTIONS,
-        count = 3,
-        columns = 3,
-    ) { index ->
-        when (index) {
-            0 -> if (shownMonth == 1) { shownMonth = 12; shownYear-- } else shownMonth--
-            1 -> {
-                shownYear = today.year
-                shownMonth = today.month
-                selected = today
-            }
-            2 -> if (shownMonth == 12) { shownMonth = 1; shownYear++ } else shownMonth++
-        }
-    }
-    PanelFocusTarget(
-        panel = PanelMode.CALENDAR,
-        region = FocusRegion.RESULTS,
-        count = daysInMonth,
-        columns = 7,
-    ) { index ->
-        val day = index + 1
-        if (day in 1..daysInMonth) {
-            selected = CalendarSystems.SimpleDate(shownYear, shownMonth, day)
-        }
-    }
-    val focusedAction = state.focusedIndex(FocusRegion.ACTIONS)
-    val focusedDay = state.focusedIndex(FocusRegion.RESULTS)?.plus(1)
-
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val panelHeight = maxHeight
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 10.dp, vertical = 2.dp),
-        ) {
-            // Header: month navigation + Today shortcut.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(
-                    onClick = {
-                        if (shownMonth == 1) { shownMonth = 12; shownYear-- } else shownMonth--
-                    },
-                    modifier = Modifier
-                        .size(30.dp)
-                        .focusRing(focusedAction == 0, CircleShape),
-                ) {
-                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft,
-                        contentDescription = stringResource(
-                            R.string.ime_calendar_previous_month_desc,
-                        ),
-                        tint = kb.toolbarIcon)
-                }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        monthLabel,
-                        color = kb.modifierKeyText,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                    )
-                    if (spanLabel.isNotEmpty()) {
-                        Text(
-                            spanLabel,
-                            color = kb.toolbarIcon,
-                            fontSize = 10.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-                if (shownYear != today.year || shownMonth != today.month) {
-                    Box(
-                        modifier = Modifier
-                            .clip(kb.chipShape())
-                            .background(kb.chip)
-                            .chipBorder(kb, kb.chipShape())
-                            .focusRing(focusedAction == 1, kb.chipShape())
-                            .clickable {
-                                shownYear = today.year
-                                shownMonth = today.month
-                                selected = today
-                            }
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                    ) {
-                        Text(
-                            stringResource(R.string.ime_calendar_today_label),
-                            color = kb.modifierKeyText,
-                            fontSize = 11.sp,
-                        )
-                    }
-                }
-                IconButton(
-                    onClick = {
-                        if (shownMonth == 12) { shownMonth = 1; shownYear++ } else shownMonth++
-                    },
-                    modifier = Modifier
-                        .size(30.dp)
-                        .focusRing(focusedAction == 2, CircleShape),
-                ) {
-                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                        contentDescription = stringResource(R.string.ime_calendar_next_month_desc),
-                        tint = kb.toolbarIcon)
-                }
-            }
-            // Weekday initials, with the user's weekend tinted. Which days those
-            // are is a setting, defaulted from the device's region — Friday and
-            // Saturday in much of the Middle East, Friday alone in Bangladesh,
-            // Saturday and Sunday most other places.
-            val weekend = state.settings.calendarWeekend.days
-            val weekdayInitials = stringArrayResource(R.array.ime_calendar_weekday_initials)
-            Row(modifier = Modifier.fillMaxWidth()) {
-                weekdayInitials.forEachIndexed { index, initial ->
-                    Text(
-                        initial,
-                        color = if (index in weekend) kb.accent else kb.toolbarIcon,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-            // Day grid.
-            val firstJdn = CalendarSystems.gregorianToJdn(shownYear, shownMonth, 1)
-            val firstDow = CalendarSystems.dayOfWeek(firstJdn)
-            val weeks = (firstDow + daysInMonth + 6) / 7
-            // The grid is the flexible child, so it would otherwise surrender
-            // whatever the event list asked for and collapse into unreadable
-            // slivers on a busy day. Reserve legible week rows first and hand
-            // the events everything left over — that is what keeps a long list
-            // scrolling in a real amount of room instead of cramping the month.
-            val eventsMaxHeight = (panelHeight - CALENDAR_CHROME_HEIGHT - (weeks * 26).dp)
-                .coerceIn(0.dp, 200.dp)
-            Column(modifier = Modifier.weight(1f)) {
-                for (week in 0 until weeks) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                    ) {
-                        for (dow in 0 until 7) {
-                            val day = week * 7 + dow - firstDow + 1
-                            if (day < 1 || day > daysInMonth) {
-                                Spacer(Modifier.weight(1f))
-                            } else {
-                                val isToday = today.year == shownYear &&
-                                    today.month == shownMonth && today.day == day
-                                val isSelected = selected.year == shownYear &&
-                                    selected.month == shownMonth && selected.day == day
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight()
-                                        .padding(horizontal = 2.dp)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(if (isSelected) kb.chipActive else Color.Transparent)
-                                        .then(
-                                            if (isToday && !isSelected) {
-                                                Modifier.border(1.dp, kb.accent, RoundedCornerShape(6.dp))
-                                            } else Modifier
-                                        )
-                                        .focusRing(day == focusedDay, RoundedCornerShape(6.dp))
-                                        .clickable {
-                                            selected = CalendarSystems.SimpleDate(shownYear, shownMonth, day)
-                                        },
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    val primary = when {
-                                        isSelected -> kb.chipActiveText
-                                        isToday -> kb.accent
-                                        else -> kb.modifierKeyText
-                                    }
-                                    if (cellCalendar != null) {
-                                        val altDay = AltCalendars.dayLabel(
-                                            cellCalendar, shownYear, shownMonth, day, hijriAdjust,
-                                        )
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                day.toString(),
-                                                color = primary,
-                                                fontSize = 12.sp,
-                                                fontWeight = if (isToday || isSelected) FontWeight.Bold
-                                                    else FontWeight.Normal,
-                                            )
-                                            Text(
-                                                altDay,
-                                                color = if (isSelected) kb.chipActiveText.copy(alpha = 0.7f)
-                                                    else kb.toolbarIcon,
-                                                fontSize = 8.sp,
-                                                maxLines = 1,
-                                                modifier = Modifier.padding(start = 2.dp),
-                                            )
-                                        }
-                                    } else {
-                                        Text(
-                                            day.toString(),
-                                            color = primary,
-                                            fontSize = 12.sp,
-                                            fontWeight = if (isToday || isSelected) FontWeight.Bold
-                                                else FontWeight.Normal,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            // Selected date across the enabled calendars, then its events.
-            val gregorianText = remember(selected) {
-                SimpleDateFormat("d MMMM yyyy", Locale.getDefault()).format(
-                    Calendar.getInstance().apply {
-                        set(selected.year, selected.month - 1, selected.day)
-                    }.time
-                )
-            }
-            val weekdayText = remember(selected) {
-                SimpleDateFormat("EEEE", Locale.getDefault()).format(
-                    Calendar.getInstance().apply {
-                        set(selected.year, selected.month - 1, selected.day)
-                    }.time
-                )
-            }
-            val relativeDays =
-                (CalendarSystems.gregorianToJdn(selected.year, selected.month, selected.day) -
-                    CalendarSystems.gregorianToJdn(today.year, today.month, today.day)).toInt()
-            val relativeText = when {
-                relativeDays == 0 -> stringResource(R.string.ime_calendar_today_label)
-                relativeDays == 1 -> stringResource(R.string.ime_calendar_tomorrow_label)
-                relativeDays == -1 -> stringResource(R.string.ime_calendar_yesterday_label)
-                relativeDays > 0 -> pluralStringResource(
-                    R.plurals.ime_calendar_in_days_info, relativeDays, relativeDays,
-                )
-                else -> pluralStringResource(
-                    R.plurals.ime_calendar_days_ago_info, -relativeDays, -relativeDays,
-                )
-            }
-            // The alternate calendars ride along as context on the second line.
-            val altText = remember(selected, altCalendars, hijriAdjust) {
-                altCalendars
-                    .map {
-                        AltCalendars.fullDate(
-                            it, selected.year, selected.month, selected.day, hijriAdjust,
-                        )
-                    }
-                    .filter { it.isNotEmpty() }
-                    .joinToString(" · ")
-            }
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp),
-            ) {
-                Text(
-                    gregorianText,
-                    color = kb.modifierKeyText,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                )
-                Text(
-                    if (altText.isEmpty()) "$weekdayText · $relativeText"
-                    else "$weekdayText · $relativeText · $altText",
-                    color = kb.secondaryText,
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                )
-            }
-            CalendarDayEvents(
-                selected = selected,
-                onRequestPermission = onRequestPermission,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = eventsMaxHeight),
-            )
-        }
-    }
-}
-
-/**
- * Everything in the calendar panel that is not the day grid or the event
- * list: the month header, the weekday initials, the selected-day summary and
- * the paddings between them.
- */
-private val CALENDAR_CHROME_HEIGHT = 96.dp
-
-/**
- * The selected day's events read from the device calendar. Shows a compact
- * permission prompt until READ_CALENDAR is granted; after that it queries
- * on a background thread whenever the selected day changes, and re-checks
- * the grant when the keyboard returns to the foreground (the system dialog
- * lives in a trampoline activity, like the camera tool).
- */
-@Composable
-private fun CalendarDayEvents(
-    selected: CalendarSystems.SimpleDate,
-    onRequestPermission: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val kb = LocalKbTheme.current
-    val feedback = LocalKeyPressFeedback.current
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-
-    var hasPermission by remember { mutableStateOf(hasCalendarPermission(context)) }
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) hasPermission = hasCalendarPermission(context)
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    if (!hasPermission) {
-        Row(
-            modifier = modifier.padding(top = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                stringResource(R.string.ime_calendar_permission_info),
-                color = kb.secondaryText,
-                fontSize = 12.sp,
-                modifier = Modifier.weight(1f),
-            )
-            Box(
-                modifier = Modifier
-                    .padding(start = 8.dp)
-                    .clip(kb.chipShape())
-                    .background(kb.chipActive)
-                    .chipBorder(kb, kb.chipShape())
-                    .clickable {
-                        feedback()
-                        onRequestPermission()
-                    }
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-            ) {
-                Text(
-                    stringResource(R.string.ime_calendar_allow_action),
-                    color = kb.chipActiveText,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
-        }
-        return
-    }
-
-    // null = still loading; empty = queried, nothing scheduled.
-    var events by remember { mutableStateOf<List<DeviceCalendarEvent>?>(null) }
-    LaunchedEffect(selected, hasPermission) {
-        events = null
-        events = withContext(Dispatchers.IO) {
-            DeviceCalendar.eventsForDay(context, selected.year, selected.month, selected.day)
-        }
-    }
-
-    val list = events
-    when {
-        list == null -> Unit
-        list.isEmpty() -> Text(
-            stringResource(R.string.ime_calendar_no_events_empty),
-            color = kb.secondaryText,
-            fontSize = 12.sp,
-            modifier = modifier.padding(top = 6.dp),
-        )
-        else -> {
-            val timeFormat = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
-            // A lazy list rather than a scrolling Column: a busy day's events
-            // are then always reachable by dragging inside the list, however
-            // little height the panel could spare for it. The cards keep their
-            // own breathing room, so a full day reads as a stack rather than a
-            // wall of text.
-            LazyColumn(
-                modifier = modifier.padding(top = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                contentPadding = PaddingValues(bottom = 4.dp),
-            ) {
-                // No key: EVENT_ID repeats across the instances of a recurring
-                // event, and duplicate keys are a crash rather than a glitch.
-                items(list) { event -> EventRow(event, timeFormat) }
-            }
-        }
-    }
-}
-
-/**
- * One event card: the calendar's own colour as a stripe down the left, the
- * title, and the time (with the location after it, when there is one). The
- * stripe rather than a dot means the colour still reads at a glance in a
- * stack of events, and the card gives each event an edge of its own.
- */
-@Composable
-private fun EventRow(event: DeviceCalendarEvent, timeFormat: SimpleDateFormat) {
-    val kb = LocalKbTheme.current
-    val color = if (event.color != 0) Color(event.color) else kb.accent
-    val shape = kb.cardShape()
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            // Intrinsic height so the stripe can fill the card: inside a lazy
-            // list the row's own height is otherwise unbounded and fillMaxHeight
-            // would have nothing to fill.
-            .height(IntrinsicSize.Min)
-            .clip(shape)
-            .background(kb.chip, shape)
-            .chipBorder(kb, shape),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .width(3.dp)
-                .fillMaxHeight()
-                .background(color),
-        )
-        Column(
-            modifier = Modifier
-                .padding(start = 8.dp, end = 8.dp, top = 5.dp, bottom = 5.dp)
-                .weight(1f),
-        ) {
-            Text(
-                event.title,
-                color = kb.modifierKeyText,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            val time = if (event.allDay) {
-                stringResource(R.string.ime_calendar_all_day_label)
-            } else {
-                timeFormat.format(Date(event.begin))
-            }
-            Text(
-                event.location?.let { "$time · $it" } ?: time,
-                color = kb.secondaryText,
-                fontSize = 11.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-/** Whether the calendar tool may read the device calendar. */
-internal fun hasCalendarPermission(context: Context): Boolean =
-    ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CALENDAR) ==
-        android.content.pm.PackageManager.PERMISSION_GRANTED
-
 // ---- themes ----
 
 /**
@@ -1525,9 +1124,15 @@ internal fun hasCalendarPermission(context: Context): Boolean =
  * swatch previews what the default id would resolve to (device dynamic
  * colors), not the currently active theme.
  *
- * A second chip switches the panel to the installed icon packs — the same
- * tap-to-apply grid, drawing each pack's own glyphs. Icon packs have no
- * auto-theme or mode override, so that half is never read-only.
+ * Two more chips switch the panel to the installed icon packs and to the emoji
+ * faces — the same tap-to-apply grid, drawing each pack's own glyphs and each
+ * font's own emoji. Neither of those has an auto-theme or mode override, so
+ * those halves are never read-only.
+ *
+ * Every grid ends on the same last entry: the add-on store, filtered to the one
+ * kind that grid is showing. A quick switcher whose answer to "I want another
+ * one" is "go and find the store yourself" is a dead end, and the store already
+ * links the other way (see `AddonStoreRow` in the settings app).
  *
  * A press means "the keyboard looks like this now", and under the auto pair
  * that is the pair's live half rather than the manual selection — writing the
@@ -1540,12 +1145,16 @@ internal fun hasCalendarPermission(context: Context): Boolean =
 internal fun ThemesPanel(
     state: KeyboardUiState,
     onThemeSelect: (String) -> Unit,
+    onAppColorPick: (String, Int) -> Unit,
+    onAppColorStyle: (PaletteStyle) -> Unit,
     onIconPackSelect: (String) -> Unit,
+    onEmojiFontSelect: (EmojiFontChoice, String) -> Unit,
+    onFontSelect: (ScriptId, String) -> Unit,
     onOpenRoute: (String) -> Unit,
     onClose: () -> Unit,
 ) {
     val kb = LocalKbTheme.current
-    var iconsTab by remember { mutableStateOf(false) }
+    var tab by remember { mutableStateOf(ThemesPanelTab.THEMES) }
     // A mode that carries a theme owns it for as long as the mode is active, so
     // the panel shows which one is live and presses do nothing (it's read-only).
     //
@@ -1588,45 +1197,85 @@ internal fun ThemesPanel(
     val packStore = remember(context) { IconPackStore.get(context) }
     val packRevision by packStore.revision.collectAsState()
     val packs = remember(packRevision) { packStore.packs() }
+    val fontStore = remember(context) { FontStore.get(context) }
+    val fontRevision by fontStore.revision.collectAsState()
+    // The standing choice is part of the key: it decides whether the two faces
+    // that can vanish (Google's, and an imported file) still get a card.
+    val faces = remember(context, fontRevision, state.settings.emojiFont) {
+        emojiFaceOptions(context, fontStore, state.settings.emojiFont)
+    }
+    val scriptTabs = rememberFontScriptTabs(state.settings)
+    // The fonts tab opens on the script being typed, because that is the one
+    // whose keys the user can see the effect on. A script with no picker (most
+    // of them: only a curated set has alternatives worth listing) falls back to
+    // the English tab, which is also where Cyrillic and Greek are chosen.
+    var fontScript by remember(scriptTabs) {
+        mutableStateOf(
+            scriptTabs.firstOrNull { it.script == state.settings.script.id }?.script
+                ?: ScriptId.LATIN,
+        )
+    }
     // Full-bleed: the toolbar row hides and its space becomes the header —
-    // back button on the left, the Themes/Icons tabs filling the rest — so
-    // the cards get the reclaimed rows.
+    // back button on the left, the Themes/Icons/Emoji tabs filling the rest —
+    // so the cards get the reclaimed rows.
     FullBleedTool(
         state,
         title = "",
         onClose = onClose,
         headerActions = {
-            // Tab reaches the chips: the icon grid is unreachable if the
-            // keyboard can browse the themes but never switch the panel over.
+            // Tab reaches the chips: the icon and emoji grids are unreachable
+            // if the keyboard can browse the themes but never switch the panel
+            // over.
             PanelFocusTarget(
                 panel = PanelMode.THEMES,
                 region = FocusRegion.CHIPS,
-                count = 2,
-                columns = 2,
-                onActivate = { index -> iconsTab = index == 1 },
+                count = ThemesPanelTab.entries.size,
+                columns = ThemesPanelTab.entries.size,
+                onActivate = { index ->
+                    ThemesPanelTab.entries.getOrNull(index)?.let { tab = it }
+                },
             )
             ThemesTabChips(
-                iconsTab = iconsTab,
-                onSelect = { iconsTab = it },
+                tab = tab,
+                onSelect = { tab = it },
                 focused = state.focusedIndex(FocusRegion.CHIPS),
                 modifier = Modifier.weight(1f),
             )
         },
     ) {
-        ThemesPanelBody(
-            state, kb, iconsTab, locked, selectedId, auto, themes,
-            packs, packStore, packRevision, modeTheme, autoOn, darkSlot, randomSlot,
-            onThemeSelect, onIconPackSelect, onOpenRoute,
-        )
+        val tabs = ThemesPanelTab.entries
+        Box(Modifier.fillMaxSize().swipeTabs(tab.ordinal, tabs.size) { tab = tabs[it] }) {
+            ThemesPanelBody(
+                state, kb, tab, locked, selectedId, auto, themes,
+                packs, packStore, packRevision, faces,
+                scriptTabs, fontScript, { fontScript = it }, fontStore, fontRevision,
+                modeTheme, autoOn, darkSlot, randomSlot,
+                onThemeSelect, onAppColorPick, onAppColorStyle,
+                onIconPackSelect, onEmojiFontSelect, onFontSelect, onOpenRoute,
+            )
+        }
     }
 }
 
-/** Everything under the header: the info row, then the theme or pack grid. */
+/** Which grid of the appearance panel is on screen. */
+private enum class ThemesPanelTab { THEMES, ICONS, EMOJI, FONTS }
+
+/**
+ * The add-on store filtered to one kind of add-on.
+ *
+ * Spelled out here rather than imported because the store's routes belong to
+ * the settings app, which this module cannot see. It is still not a loose
+ * string: the argument is the enum's own name, which is exactly what the
+ * settings app parses the route argument back into.
+ */
+private fun addonsTypeRoute(type: AddonType): String = "addons?type=${type.name}"
+
+/** Everything under the header: the info row, then the grid for [tab]. */
 @Composable
 private fun ThemesPanelBody(
     state: KeyboardUiState,
     kb: KbTheme,
-    iconsTab: Boolean,
+    tab: ThemesPanelTab,
     locked: Boolean,
     selectedId: String,
     auto: KbTheme,
@@ -1634,12 +1283,22 @@ private fun ThemesPanelBody(
     packs: List<IconPack>,
     packStore: IconPackStore,
     packRevision: Int,
+    faces: List<EmojiFaceOption>,
+    scriptTabs: List<FontScriptTab>,
+    fontScript: ScriptId,
+    onFontScriptSelect: (ScriptId) -> Unit,
+    fontStore: FontStore,
+    fontRevision: Int,
     modeTheme: KeyboardMode?,
     autoOn: Boolean,
     darkSlot: Boolean,
     randomSlot: Boolean,
     onThemeSelect: (String) -> Unit,
+    onAppColorPick: (String, Int) -> Unit,
+    onAppColorStyle: (PaletteStyle) -> Unit,
     onIconPackSelect: (String) -> Unit,
+    onEmojiFontSelect: (EmojiFontChoice, String) -> Unit,
+    onFontSelect: (ScriptId, String) -> Unit,
     onOpenRoute: (String) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -1651,9 +1310,13 @@ private fun ThemesPanelBody(
         ) {
             Text(
                 when {
-                    iconsTab && packs.isEmpty() ->
+                    tab == ThemesPanelTab.FONTS ->
+                        stringResource(R.string.ime_font_pick_info)
+                    tab == ThemesPanelTab.EMOJI ->
+                        stringResource(R.string.ime_emoji_font_pick_info)
+                    tab == ThemesPanelTab.ICONS && packs.isEmpty() ->
                         stringResource(R.string.ime_icons_empty_info)
-                    iconsTab -> stringResource(R.string.ime_icons_pick_info)
+                    tab == ThemesPanelTab.ICONS -> stringResource(R.string.ime_icons_pick_info)
                     modeTheme != null -> stringResource(
                         R.string.ime_themes_mode_locked_info, modeTheme.name,
                     )
@@ -1670,28 +1333,77 @@ private fun ThemesPanelBody(
             )
             ToolPanelKey(
                 description = stringResource(
-                    if (iconsTab) R.string.ime_icons_edit_desc
-                    else R.string.ime_themes_edit_desc,
+                    when (tab) {
+                        ThemesPanelTab.THEMES -> R.string.ime_themes_edit_desc
+                        ThemesPanelTab.ICONS -> R.string.ime_icons_edit_desc
+                        ThemesPanelTab.EMOJI -> R.string.ime_emoji_font_edit_desc
+                        ThemesPanelTab.FONTS -> R.string.ime_font_edit_desc
+                    },
                 ),
                 label = stringResource(
-                    if (iconsTab) R.string.ime_icons_edit_action
-                    else R.string.ime_themes_edit_action,
+                    when (tab) {
+                        ThemesPanelTab.THEMES -> R.string.ime_themes_edit_action
+                        ThemesPanelTab.ICONS -> R.string.ime_icons_edit_action
+                        ThemesPanelTab.EMOJI -> R.string.ime_emoji_font_edit_action
+                        ThemesPanelTab.FONTS -> R.string.ime_font_edit_action
+                    },
                 ),
                 modifier = Modifier.height(32.dp).width(120.dp),
-            ) { onOpenRoute(if (iconsTab) "icons" else "themes") }
+            ) {
+                onOpenRoute(
+                    when (tab) {
+                        ThemesPanelTab.THEMES -> "themes"
+                        ThemesPanelTab.ICONS -> "icons"
+                        ThemesPanelTab.EMOJI -> "emoji"
+                        // Straight to the script on screen, not to the list of
+                        // scripts: the panel already knows which one is being
+                        // looked at.
+                        ThemesPanelTab.FONTS -> "fonts/${fontScript.name}"
+                    },
+                )
+            }
         }
-        if (iconsTab) {
-            IconPacksGrid(state, packs, packStore, packRevision, onIconPackSelect)
-            return@Column
+        when (tab) {
+            ThemesPanelTab.ICONS -> {
+                IconPacksGrid(state, packs, packStore, packRevision, onIconPackSelect, onOpenRoute)
+                return@Column
+            }
+            ThemesPanelTab.EMOJI -> {
+                EmojiFacesGrid(state, faces, onEmojiFontSelect, onOpenRoute)
+                return@Column
+            }
+            ThemesPanelTab.FONTS -> {
+                FontsGrid(
+                    state, scriptTabs, fontScript, onFontScriptSelect,
+                    fontStore, fontRevision, onFontSelect, onOpenRoute,
+                )
+                return@Column
+            }
+            ThemesPanelTab.THEMES -> Unit
+        }
+        // The app's own colours sit above the grid while the keyboard is
+        // taking them, so the alternative colours and styles are one press
+        // away in the app they are for.
+        val appColors by AppColors.current.collectAsState()
+        val sample = appColors
+        if (state.settings.appColors.enabled && sample != null) {
+            AppColorStrip(sample, state.settings.appColors, onAppColorPick, onAppColorStyle)
         }
         // Index 0 is the leading "Auto" card, so a theme sits one past its own
-        // position. Read-only in exactly the states a press is, so the keyboard
-        // and the hardware keyboard cannot disagree about what a card does.
+        // position, and the store card closes the list one past the last theme.
+        // Read-only in exactly the states a press is, so the keyboard and the
+        // hardware keyboard cannot disagree about what a card does — except for
+        // the store card, which is a link rather than a selection and so stays
+        // live even where a theme cannot be chosen.
         PanelFocusTarget(
             panel = PanelMode.THEMES,
-            count = themes.size + 1,
+            count = themes.size + 2,
             columns = 2,
             onActivate = { index ->
+                if (index == themes.size + 1) {
+                    onOpenRoute(addonsTypeRoute(AddonType.Theme))
+                    return@PanelFocusTarget
+                }
                 if (locked) return@PanelFocusTarget
                 if (index == 0) onThemeSelect(DEFAULT_THEME_ID)
                 else themes.getOrNull(index - 1)?.let { onThemeSelect(it.id) }
@@ -1739,15 +1451,19 @@ private fun ThemesPanelBody(
                     onClick = { if (!locked) onThemeSelect(theme.id) },
                 ) { ThemePreview(theme) }
             }
+            getMoreItem(
+                labelRes = R.string.ime_themes_more_label,
+                focused = focused == themes.size + 1,
+            ) { onOpenRoute(addonsTypeRoute(AddonType.Theme)) }
         }
     }
 }
 
-/** The two chips switching the panel between themes and icon packs. */
+/** The chips switching the panel between themes, icon packs and emoji faces. */
 @Composable
 private fun ThemesTabChips(
-    iconsTab: Boolean,
-    onSelect: (Boolean) -> Unit,
+    tab: ThemesPanelTab,
+    onSelect: (ThemesPanelTab) -> Unit,
     focused: Int? = null,
     modifier: Modifier = Modifier.fillMaxWidth(),
 ) {
@@ -1760,8 +1476,10 @@ private fun ThemesTabChips(
         listOf(
             R.string.ime_themes_tab_themes,
             R.string.ime_themes_tab_icons,
+            R.string.ime_themes_tab_emoji,
+            R.string.ime_themes_tab_fonts,
         ).forEachIndexed { index, labelRes ->
-            val active = (index == 1) == iconsTab
+            val active = ThemesPanelTab.entries[index] == tab
             Text(
                 stringResource(labelRes),
                 color = if (active) kb.chipActiveText else kb.chipText,
@@ -1773,10 +1491,11 @@ private fun ThemesTabChips(
                 modifier = Modifier
                     .weight(1f)
                     .clip(shape)
+                    .frostGlass(kb, shape, FrostSurface.CHIPS)
                     .background(if (active) kb.chipActive else kb.chip)
                     .chipBorder(kb, shape)
                     .focusRing(index == focused, shape)
-                    .clickable { onSelect(index == 1) }
+                    .clickable { onSelect(ThemesPanelTab.entries[index]) }
                     .padding(horizontal = 12.dp, vertical = 4.dp),
             )
         }
@@ -1785,7 +1504,8 @@ private fun ThemesTabChips(
 
 /**
  * The icon pack half of the themes panel: Built-in first, then every
- * installed pack, each card previewing a handful of the pack's own glyphs.
+ * installed pack, each card previewing a handful of the pack's own glyphs,
+ * and the store last.
  */
 @Composable
 private fun IconPacksGrid(
@@ -1794,14 +1514,18 @@ private fun IconPacksGrid(
     store: IconPackStore,
     revision: Int,
     onIconPackSelect: (String) -> Unit,
+    onOpenRoute: (String) -> Unit,
 ) {
     PanelFocusTarget(
         panel = PanelMode.THEMES,
-        count = packs.size + 1,
+        count = packs.size + 2,
         columns = 2,
         onActivate = { index ->
-            if (index == 0) onIconPackSelect("")
-            else packs.getOrNull(index - 1)?.let { onIconPackSelect(it.id) }
+            when (index) {
+                0 -> onIconPackSelect("")
+                packs.size + 1 -> onOpenRoute(addonsTypeRoute(AddonType.IconPack))
+                else -> packs.getOrNull(index - 1)?.let { onIconPackSelect(it.id) }
+            }
         },
     )
     val focused = state.focusedIndex()
@@ -1852,6 +1576,561 @@ private fun IconPacksGrid(
                 onClick = { onIconPackSelect(pack.id) },
             )
         }
+        getMoreItem(
+            labelRes = R.string.ime_icons_more_label,
+            focused = focused == packs.size + 1,
+        ) { onOpenRoute(addonsTypeRoute(AddonType.IconPack)) }
+    }
+}
+
+// ---- emoji faces ----
+
+/**
+ * One card in the emoji half: a face the keyboard can draw emoji with.
+ *
+ * [choice] and [installedId] together are what the setting stores — the
+ * installed faces all share one choice and are told apart by the store id, so
+ * neither alone identifies a card. [key] exists because the grid needs a stable
+ * item key across both kinds.
+ *
+ * A card is named either by a string resource (the three faces that are not
+ * files in the library) or by the font's own name; exactly one is ever set.
+ */
+private data class EmojiFaceOption(
+    val key: String,
+    val choice: EmojiFontChoice,
+    val installedId: String = "",
+    val name: String = "",
+    @StringRes val labelRes: Int = 0,
+)
+
+/**
+ * Every emoji face worth offering in the panel, in the order the settings
+ * screen lists them: the phone's own, Google's, the library, an imported file.
+ *
+ * [selected] is the standing choice, and it keeps a card that would otherwise
+ * be filtered out: a phone that has lost Play services must still show what it
+ * is set to, or the panel says the user is using a face that is not on it.
+ */
+private fun emojiFaceOptions(
+    context: Context,
+    store: FontStore,
+    selected: EmojiFontChoice,
+): List<EmojiFaceOption> = buildList {
+    add(
+        EmojiFaceOption(
+            key = "system",
+            choice = EmojiFontChoice.SYSTEM,
+            labelRes = R.string.ime_emoji_font_system_label,
+        ),
+    )
+    // Google's face is a file from the Play services font provider rather than
+    // one of the app's own, so it is only an answer on a device that has one.
+    if (PlayServices.hasFontProvider(context) || selected == EmojiFontChoice.NOTO) {
+        add(
+            EmojiFaceOption(
+                key = "noto",
+                choice = EmojiFontChoice.NOTO,
+                labelRes = R.string.ime_emoji_font_noto_label,
+            ),
+        )
+    }
+    // The downloaded faces: an emoji-font add-on and the one-tap Noto fetch
+    // both land in this library, so this is the whole of "what did I install".
+    store.emojiFonts().forEach { font ->
+        add(
+            EmojiFaceOption(
+                key = "installed:${font.id}",
+                choice = EmojiFontChoice.INSTALLED,
+                installedId = font.id,
+                name = font.name,
+            ),
+        )
+    }
+    // Imported by hand in the settings app. There is no importer in the
+    // keyboard, so this card only exists once a file has arrived — offering
+    // "Custom" with nothing behind it would select the system font.
+    if (KeyboardFonts.customEmojiFontFile(context).exists()) {
+        add(
+            EmojiFaceOption(
+                key = "custom",
+                choice = EmojiFontChoice.CUSTOM,
+                labelRes = CommonR.string.common_custom,
+            ),
+        )
+    }
+}
+
+/** Whether [settings] is currently drawing emoji with this face. */
+private fun EmojiFaceOption.isLive(settings: KeyboardSettings): Boolean =
+    settings.emojiFont == choice &&
+        (choice != EmojiFontChoice.INSTALLED ||
+            settings.emojiFontInstalled.installedId == installedId)
+
+/** The faces the cards draw — shapes people tell apart at a glance. */
+private val EmojiFacePreview = listOf("😀", "😂", "🥰", "😎", "👍", "🎉")
+
+/**
+ * The emoji half of the themes panel: every face the keyboard can draw emoji
+ * with, each card drawing the same handful of emoji in that font, and the
+ * store last.
+ */
+@Composable
+private fun EmojiFacesGrid(
+    state: KeyboardUiState,
+    faces: List<EmojiFaceOption>,
+    onEmojiFontSelect: (EmojiFontChoice, String) -> Unit,
+    onOpenRoute: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    PanelFocusTarget(
+        panel = PanelMode.THEMES,
+        count = faces.size + 1,
+        columns = 2,
+        onActivate = { index ->
+            val face = faces.getOrNull(index)
+            if (face == null) onOpenRoute(addonsTypeRoute(AddonType.EmojiFont))
+            else onEmojiFontSelect(face.choice, face.installedId)
+        },
+    )
+    val focused = state.focusedIndex()
+    val gridState = rememberLazyGridState()
+    ScrollFocusIntoView(focused) { gridState.animateScrollToItem(it) }
+    // A font's coverage tables decide how each emoji has to be spelled for it
+    // (see [EmojiFontShaping]) — ❤️ in particular comes out of the system font
+    // in a face with no variation-selector table. Read off the main thread and
+    // kept per card, the same shape the icon grid caches its parsed packs in:
+    // a card that reads a megabyte of font on the frame it draws is a stall.
+    val shapers = remember(faces) { mutableStateMapOf<String, EmojiShaper>() }
+    // Opened on the face in use, for the same reason the other two grids are.
+    LaunchedEffect(Unit) {
+        val index = faces.indexOfFirst { it.isLive(state.settings) }
+        if (index >= 0) gridState.scrollToItem(index)
+    }
+    LazyVerticalGrid(
+        state = gridState,
+        columns = GridCells.Fixed(2),
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        itemsIndexed(faces, key = { _, face -> face.key }) { index, face ->
+            LaunchedEffect(face.key) {
+                if (face.key !in shapers) {
+                    val file = KeyboardFonts.emojiFontFile(context, face.choice, face.installedId)
+                    shapers[face.key] = withContext(Dispatchers.Default) {
+                        EmojiFontShaping.warm(file)
+                        EmojiFontShaping.forFontFile(file)
+                    }
+                }
+            }
+            EmojiFaceCard(
+                name = if (face.labelRes != 0) stringResource(face.labelRes) else face.name,
+                family = remember(face.key) {
+                    KeyboardFonts.emojiFamily(context, face.choice, face.installedId)
+                },
+                shaper = shapers[face.key] ?: EmojiFontShaping.Identity,
+                selected = face.isLive(state.settings),
+                focused = focused == index,
+                onClick = { onEmojiFontSelect(face.choice, face.installedId) },
+            )
+        }
+        getMoreItem(
+            labelRes = R.string.ime_emoji_font_more_label,
+            focused = focused == faces.size,
+        ) { onOpenRoute(addonsTypeRoute(AddonType.EmojiFont)) }
+    }
+}
+
+/** [ThemeCard]'s shape and selection border around a line-up of emoji. */
+@Composable
+private fun EmojiFaceCard(
+    name: String,
+    family: FontFamily?,
+    shaper: EmojiShaper,
+    selected: Boolean,
+    focused: Boolean,
+    onClick: () -> Unit,
+) {
+    val kb = LocalKbTheme.current
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(92.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .then(
+                if (selected) Modifier.border(2.dp, kb.accent, RoundedCornerShape(10.dp))
+                else Modifier.border(1.dp, kb.divider, RoundedCornerShape(10.dp))
+            )
+            .focusRing(focused, RoundedCornerShape(10.dp))
+            .background(kb.chip)
+            .clickable(onClick = onClick),
+    ) {
+        Column(
+            modifier = Modifier.align(Alignment.Center),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            EmojiFacePreview.chunked(3).forEach { rowEmoji ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    rowEmoji.forEach { emoji ->
+                        val spelling = shaper.spelling(emoji)
+                        Text(
+                            spelling.text,
+                            // One Text per emoji: emoji fonts often have no
+                            // space glyph, so a single spaced string overlaps.
+                            fontSize = 20.sp,
+                            fontFamily = if (spelling.systemFont) null else family,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
+        Text(
+            name,
+            color = kb.suggestionText,
+            fontSize = 10.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 8.dp, bottom = 4.dp),
+        )
+    }
+}
+
+// ---- key label fonts ----
+
+/**
+ * One script's font picker in the fonts tab.
+ *
+ * [ScriptId.LATIN] is the odd one: it has no entry in
+ * [KeyboardFonts.scriptFontChoices] because it is not a per-script override at
+ * all — it is the keyboard's own `keyFontId`, which Cyrillic and Greek ride
+ * too. Every other tab writes one key of `scriptFontIds`.
+ */
+private data class FontScriptTab(
+    val script: ScriptId,
+    @StringRes val labelRes: Int,
+    val sample: String,
+    /** Google Fonts names offered here, before the provider check. */
+    val googleNames: List<String>,
+)
+
+/**
+ * The script chips the fonts tab offers: English first, then every enabled
+ * language's script that has a curated list of its own.
+ *
+ * Enabled rather than all of them, exactly as the settings screen filters —
+ * twenty-two chips for scripts the user does not type is not a picker. A
+ * script with no curated alternatives (Thaana, say) has no chip at all: its
+ * automatic Noto face is the only sensible answer and there is nothing to
+ * choose between.
+ */
+@Composable
+private fun rememberFontScriptTabs(settings: KeyboardSettings): List<FontScriptTab> {
+    val latinSample = stringResource(R.string.ime_font_latin_sample)
+    return remember(settings.enabledLanguages, latinSample) {
+        val enabled = settings.enabledLanguages.mapTo(mutableSetOf()) { it.script }
+        buildList {
+            add(
+                FontScriptTab(
+                    ScriptId.LATIN,
+                    R.string.ime_font_script_latin_label,
+                    latinSample,
+                    KeyboardFonts.googleFonts,
+                ),
+            )
+            for (choices in KeyboardFonts.scriptFontChoices) {
+                if (choices.script !in enabled) continue
+                add(
+                    FontScriptTab(
+                        choices.script, choices.labelRes, choices.sample, choices.fonts,
+                    ),
+                )
+            }
+        }
+    }
+}
+
+/** One selectable face in the fonts tab; [labelRes] names it when [name] cannot. */
+private data class FontOption(
+    val id: String,
+    val name: String = "",
+    @StringRes val labelRes: Int = 0,
+)
+
+/**
+ * The faces one script tab offers: the automatic one, the library, the curated
+ * Google Fonts, then the file this script's picker imported before fonts moved
+ * into the library.
+ *
+ * The library is filtered the way the settings screen filters it — a font that
+ * declared its languages is only offered for the scripts it claims, so a Latin
+ * display face never turns up in the Devanagari list about to blank the board.
+ * A font that declared nothing is offered everywhere, which is the honest
+ * reading of "no claim".
+ */
+private fun fontOptions(
+    context: Context,
+    tab: FontScriptTab,
+    installed: List<InstalledFont>,
+    customName: String,
+): List<FontOption> = buildList {
+    add(FontOption(KeyboardFonts.DEFAULT_ID, labelRes = R.string.ime_font_system_default_label))
+    // English also drives Cyrillic and Greek, which have no picker of their own.
+    val scripts = if (tab.script == ScriptId.LATIN) {
+        setOf(ScriptId.LATIN, ScriptId.CYRILLIC, ScriptId.GREEK)
+    } else {
+        setOf(tab.script)
+    }
+    for (font in installed) {
+        val claims = font.langIds.isEmpty() ||
+            font.langIds.any { LanguageRegistry.byId(it).script in scripts }
+        if (claims) add(FontOption(FontStore.fontIdFor(font.id), name = font.name))
+    }
+    // Every Google Fonts entry is a file from the Play services font provider.
+    // Without one each would resolve to the system face, so picking it would
+    // change nothing on screen — the rows come out rather than sit there.
+    if (PlayServices.hasFontProvider(context)) {
+        for (name in tab.googleNames) add(FontOption(KeyboardFonts.googleId(name), name = name))
+    }
+    val customId = if (tab.script == ScriptId.LATIN) {
+        KeyboardFonts.CUSTOM_ID.takeIf { KeyboardFonts.customFontFile(context).exists() }
+    } else {
+        KeyboardFonts.customScriptFontId(tab.script)
+            ?.takeIf { KeyboardFonts.customScriptFontFile(context, tab.script)?.exists() == true }
+    }
+    if (customId != null) {
+        add(FontOption(customId, name = customName, labelRes = R.string.ime_font_custom_label))
+    }
+}
+
+/** Which face [settings] draws this script's key labels with. */
+private fun selectedFontId(settings: KeyboardSettings, script: ScriptId): String =
+    if (script == ScriptId.LATIN) {
+        settings.keyFontId
+    } else {
+        settings.scriptFontIds[script.name] ?: KeyboardFonts.DEFAULT_ID
+    }
+
+/**
+ * The fonts half of the appearance panel: a chip per script, then that
+ * script's faces, each row drawn in the face it offers.
+ *
+ * One column rather than two, unlike every other grid here. A font is judged by
+ * reading text in it, and a sample line for a script — "আমি ভালো আছি · কখগঘঙ
+ * চছজঝঞ" — has nowhere to go in half a phone's width.
+ */
+@Composable
+private fun FontsGrid(
+    state: KeyboardUiState,
+    scriptTabs: List<FontScriptTab>,
+    script: ScriptId,
+    onScriptSelect: (ScriptId) -> Unit,
+    store: FontStore,
+    revision: Int,
+    onFontSelect: (ScriptId, String) -> Unit,
+    onOpenRoute: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    val tab = scriptTabs.firstOrNull { it.script == script } ?: scriptTabs.first()
+    val installed = remember(revision) { store.textFonts() }
+    val customName = if (tab.script == ScriptId.LATIN) {
+        state.settings.customFontName
+    } else {
+        state.settings.customScriptFontNames[tab.script.name].orEmpty()
+    }
+    val options = remember(tab, installed, customName) {
+        fontOptions(context, tab, installed, customName)
+    }
+    val selected = selectedFontId(state.settings, tab.script)
+    // Its own region, not a second CHIPS row: the focus controller keys a
+    // region's activation by region, so two rows under one name would leave
+    // Enter running the wrong row's action. Empty when the row is not drawn —
+    // a user typing only Latin has one tab and no row, and a ring stop with
+    // nothing on screen under it is a dead press.
+    val scriptChips = if (scriptTabs.size > 1) scriptTabs else emptyList()
+    PanelFocusTarget(
+        panel = PanelMode.THEMES,
+        region = FocusRegion.CATEGORIES,
+        count = scriptChips.size,
+        columns = scriptChips.size.coerceAtLeast(1),
+        onActivate = { index -> scriptChips.getOrNull(index)?.let { onScriptSelect(it.script) } },
+    )
+    PanelFocusTarget(
+        panel = PanelMode.THEMES,
+        count = options.size + 1,
+        columns = 1,
+        onActivate = { index ->
+            val option = options.getOrNull(index)
+            if (option == null) onOpenRoute(addonsTypeRoute(AddonType.Font))
+            else onFontSelect(tab.script, option.id)
+        },
+    )
+    if (scriptChips.isNotEmpty()) {
+        FontScriptChips(
+            tabs = scriptChips,
+            script = tab.script,
+            focused = state.focusedIndex(FocusRegion.CATEGORIES),
+            onSelect = onScriptSelect,
+        )
+    }
+    val focused = state.focusedIndex()
+    val gridState = rememberLazyGridState()
+    ScrollFocusIntoView(focused) { gridState.animateScrollToItem(it) }
+    // Opened on the face in use, for the same reason the other grids are. Keyed
+    // on the tab so switching script re-places the list rather than leaving it
+    // scrolled to a row belonging to the script before it.
+    LaunchedEffect(tab) {
+        val index = options.indexOfFirst { it.id == selected }
+        if (index >= 0) gridState.scrollToItem(index)
+    }
+    LazyVerticalGrid(
+        state = gridState,
+        columns = GridCells.Fixed(1),
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        itemsIndexed(options, key = { _, option -> option.id }) { index, option ->
+            FontCard(
+                name = option.name.ifBlank {
+                    if (option.labelRes != 0) stringResource(option.labelRes) else option.id
+                },
+                sample = tab.sample,
+                family = remember(option.id, revision) {
+                    KeyboardFonts.family(context, option.id)
+                },
+                selected = selected == option.id,
+                focused = focused == index,
+                onClick = { onFontSelect(tab.script, option.id) },
+            )
+        }
+        getMoreItem(
+            labelRes = R.string.ime_font_more_label,
+            focused = focused == options.size,
+        ) { onOpenRoute(addonsTypeRoute(AddonType.Font)) }
+    }
+}
+
+/** The scrollable script row above the font list. */
+@Composable
+private fun FontScriptChips(
+    tabs: List<FontScriptTab>,
+    script: ScriptId,
+    focused: Int?,
+    onSelect: (ScriptId) -> Unit,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+    ) {
+        for ((index, tab) in tabs.withIndex()) {
+            StyleChip(
+                label = stringResource(tab.labelRes),
+                selected = tab.script == script,
+                focused = index == focused,
+            ) { onSelect(tab.script) }
+        }
+    }
+}
+
+/**
+ * One font row: its name and a sample line, both drawn in the font itself, so
+ * the row is its own preview.
+ */
+@Composable
+private fun FontCard(
+    name: String,
+    sample: String,
+    family: FontFamily?,
+    selected: Boolean,
+    focused: Boolean,
+    onClick: () -> Unit,
+) {
+    val kb = LocalKbTheme.current
+    val shape = RoundedCornerShape(10.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .then(
+                if (selected) Modifier.border(2.dp, kb.accent, shape)
+                else Modifier.border(1.dp, kb.divider, shape)
+            )
+            .focusRing(focused, shape)
+            .background(kb.chip)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    ) {
+        Text(
+            name,
+            color = kb.suggestionText,
+            fontFamily = family,
+            fontSize = 14.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            sample,
+            color = kb.toolbarIcon,
+            fontFamily = family,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+// ---- the store link every grid ends on ----
+
+/**
+ * The last entry of every grid in this panel: a full-width row that opens the
+ * add-on store filtered to the kind of thing the grid holds.
+ *
+ * Full width rather than a card of its own, for two reasons. A card would have
+ * to guess the height of whatever it sits beside — the theme cards are as tall
+ * as their preview draws, the pack and face cards are a fixed 92dp — and a row
+ * spanning the grid reads as the end of the list rather than as one more
+ * choice in it, which is exactly what it is.
+ */
+private fun LazyGridScope.getMoreItem(
+    @StringRes labelRes: Int,
+    focused: Boolean,
+    onClick: () -> Unit,
+) = item(key = "wmkb:get-more", span = { GridItemSpan(maxLineSpan) }) {
+    val kb = LocalKbTheme.current
+    val shape = RoundedCornerShape(10.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .clip(shape)
+            .border(1.dp, kb.divider, shape)
+            .focusRing(focused, shape)
+            .background(kb.chip)
+            .clickable(onClick = onClick),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Outlined.Download,
+            contentDescription = null,
+            tint = kb.suggestionText,
+            modifier = Modifier.size(18.dp),
+        )
+        Text(
+            stringResource(labelRes),
+            color = kb.suggestionText,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 8.dp),
+        )
     }
 }
 
@@ -2046,6 +2325,7 @@ private fun StyleChip(
     Box(
         modifier = Modifier
             .clip(shape)
+            .frostGlass(kb, shape, FrostSurface.CHIPS)
             .background(if (selected) kb.chipActive else kb.chip)
             .chipBorder(kb, shape)
             .focusRing(focused, shape)
@@ -2062,6 +2342,53 @@ private fun StyleChip(
 }
 
 /**
+ * The installed sounds, or the installed sound packs, under the style chips.
+ *
+ * Custom and Pack are the two key sounds that name a file the user installed
+ * rather than a waveform the app generates, and until this row existed neither
+ * could be *chosen* from the keyboard — the chips could only show a selection
+ * already made in Settings, so a freshly installed sound pack was invisible
+ * here. Scrolls sideways for the same reason the style chips do: a name is as
+ * long as its author made it.
+ *
+ * The store link closes the row rather than opening it, so an empty library
+ * reads as "here is where more come from" instead of as a broken picker.
+ */
+@Composable
+private fun SoundChoiceRow(
+    choices: List<Pair<String, String>>,
+    selectedId: String,
+    focused: Int?,
+    @StringRes emptyRes: Int,
+    @StringRes moreRes: Int,
+    onMore: () -> Unit,
+    onSelect: (String) -> Unit,
+) {
+    val kb = LocalKbTheme.current
+    if (choices.isEmpty()) {
+        Text(stringResource(emptyRes), color = kb.toolbarIcon, fontSize = 11.sp)
+    }
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+    ) {
+        for ((index, choice) in choices.withIndex()) {
+            StyleChip(
+                label = choice.first,
+                selected = selectedId == choice.second,
+                focused = index == focused,
+            ) { onSelect(choice.second) }
+        }
+        StyleChip(
+            label = stringResource(moreRes),
+            selected = false,
+            focused = focused == choices.size,
+            onClick = onMore,
+        )
+    }
+}
+
+/**
  * Quick sound & haptics controls without leaving the keyboard. Every change
  * lands in the same DataStore settings the full settings app edits.
  */
@@ -2069,6 +2396,7 @@ private fun StyleChip(
 internal fun SoundHapticsPanel(
     state: KeyboardUiState,
     onAction: (SoundHapticAction) -> Unit,
+    onOpenRoute: (String) -> Unit,
 ) {
     val height = keyRowsHeight(state)
     val kb = LocalKbTheme.current
@@ -2103,23 +2431,59 @@ internal fun SoundHapticsPanel(
         columns = 2,
     ) { index ->
         if (index == 0) {
-            onAction(SoundHapticAction.Haptics(!settings.hapticFeedback))
+            onAction(SoundHapticAction.Haptics(!settings.haptics.enabled))
         } else {
-            onAction(SoundHapticAction.Sound(!settings.keySound))
+            onAction(SoundHapticAction.Sound(!settings.sound.enabled))
         }
     }
-    val hapticChipCount = if (settings.hapticFeedback) HapticStyle.entries.size else 0
+    val hapticChipCount = if (settings.haptics.enabled) HapticStyle.entries.size else 0
+    val soundStore = remember(context) { SoundStore.get(context) }
+    val soundRevision by soundStore.revision.collectAsState()
+    val sounds = remember(soundRevision) { soundStore.sounds() }
+    val soundPackStore = remember(context) { SoundPackStore.get(context) }
+    val packRevision by soundPackStore.revision.collectAsState()
+    val soundPacks = remember(packRevision) { soundPackStore.packs() }
     // Custom and Pack both name something the user installed rather than a
-    // fixed style, and neither has a picker on the keyboard — so each appears
-    // here only when it is already the choice, to show what is selected and to
-    // let the user step off it.
+    // fixed style, so each is offered once there is anything for it to name —
+    // and kept when it is the standing choice even if that thing has since been
+    // deleted, so the user can see what is selected and step off it.
     val soundStyles = KeySoundStyle.entries.filter {
         when (it) {
-            KeySoundStyle.CUSTOM, KeySoundStyle.PACK -> settings.keySoundStyle == it
+            KeySoundStyle.CUSTOM -> sounds.isNotEmpty() || settings.sound.style == it
+            KeySoundStyle.PACK -> soundPacks.isNotEmpty() || settings.sound.style == it
             else -> true
         }
     }
-    val soundChipCount = if (settings.keySound) soundStyles.size else 0
+    val soundChipCount = if (settings.sound.enabled) soundStyles.size else 0
+    // What the chosen style picks from, as name/id pairs — empty for the five
+    // built-in styles, which are waveforms rather than files.
+    val soundChoices: List<Pair<String, String>> = when {
+        !settings.sound.enabled -> emptyList()
+        settings.sound.style == KeySoundStyle.CUSTOM -> sounds.map { it.name to it.id }
+        settings.sound.style == KeySoundStyle.PACK -> soundPacks.map { it.name to it.id }
+        else -> emptyList()
+    }
+    val soundChoiceRoute = if (settings.sound.style == KeySoundStyle.PACK) {
+        addonsTypeRoute(AddonType.SoundPack)
+    } else {
+        addonsTypeRoute(AddonType.Sound)
+    }
+    // The list, then the store link that closes it — the same last entry every
+    // grid in the appearance panel ends on.
+    PanelFocusTarget(
+        panel = PanelMode.SOUND_HAPTICS,
+        region = FocusRegion.RESULTS,
+        count = if (soundChoices.isEmpty()) 0 else soundChoices.size + 1,
+        columns = (soundChoices.size + 1).coerceAtLeast(1),
+    ) { index ->
+        val choice = soundChoices.getOrNull(index)
+        when {
+            choice == null -> onOpenRoute(soundChoiceRoute)
+            settings.sound.style == KeySoundStyle.PACK ->
+                onAction(SoundHapticAction.SoundPackChange(choice.second))
+            else -> onAction(SoundHapticAction.SoundCustomChange(choice.second))
+        }
+    }
     PanelFocusTarget(
         panel = PanelMode.SOUND_HAPTICS,
         region = FocusRegion.CHIPS,
@@ -2145,7 +2509,7 @@ internal fun SoundHapticsPanel(
             .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        if (settings.keySound && ringerMode != AudioManager.RINGER_MODE_NORMAL) {
+        if (settings.sound.enabled && ringerMode != AudioManager.RINGER_MODE_NORMAL) {
             // A warning, so the error tint stays — but it sits in a chip's
             // clothes: the theme's chip shape and, when set, its outline.
             val warnShape = kb.cardShape()
@@ -2181,12 +2545,12 @@ internal fun SoundHapticsPanel(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             Switch(
-                checked = settings.hapticFeedback,
+                checked = settings.haptics.enabled,
                 onCheckedChange = { onAction(SoundHapticAction.Haptics(it)) },
                 modifier = Modifier.focusRing(focusedSwitch == 0),
             )
         }
-        if (settings.hapticFeedback) {
+        if (settings.haptics.enabled) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -2194,12 +2558,12 @@ internal fun SoundHapticsPanel(
                 for ((index, style) in HapticStyle.entries.withIndex()) {
                     StyleChip(
                         label = stringResource(style.labelRes),
-                        selected = settings.hapticStyle == style,
+                        selected = settings.haptics.style == style,
                         focused = index == focusedChip,
                     ) { onAction(SoundHapticAction.HapticStyleChange(style)) }
                 }
             }
-            val hapticNote = when (settings.hapticStyle) {
+            val hapticNote = when (settings.haptics.style) {
                 HapticStyle.SYSTEM_KEY ->
                     stringResource(R.string.ime_sound_haptic_system_key_info)
                 HapticStyle.SYSTEM_TAP ->
@@ -2209,38 +2573,52 @@ internal fun SoundHapticsPanel(
             if (hapticNote != null) {
                 Text(hapticNote, color = kb.toolbarIcon, fontSize = 11.sp)
             }
-            if (settings.hapticStyle == HapticStyle.CUSTOM || settings.hapticStyle == HapticStyle.SHARP) {
+            if (settings.haptics.style == HapticStyle.CUSTOM || settings.haptics.style == HapticStyle.SHARP) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.ime_sound_intensity_label),
                         color = kb.toolbarIcon, fontSize = 11.sp,
                         modifier = Modifier.width(60.dp))
-                    Slider(
-                        value = settings.hapticAmplitude.toFloat(),
-                        onValueChange = { onAction(SoundHapticAction.HapticAmplitude(it.toInt())) },
+                    // One write when the finger lifts, not one per touch
+                    // event: a settings write recomposes this keyboard and the
+                    // settings app behind it, so the old per-event write left
+                    // the thumb waiting for the store to answer.
+                    val amplitude = rememberLiveSlider(
+                        settings.haptics.amplitude.toFloat(),
+                        { onAction(SoundHapticAction.HapticAmplitude(it.toInt())) },
+                    )
+                    WmSlider(
+                        value = amplitude.value,
+                        onValueChange = amplitude::onDrag,
+                        onValueChangeFinished = amplitude::onRelease,
                         valueRange = 1f..255f,
                         modifier = Modifier.weight(1f).height(28.dp),
                     )
                     Text(
-                        "${settings.hapticAmplitude * 100 / 255}%",
+                        "${amplitude.value.roundToInt() * 100 / 255}%",
                         color = kb.toolbarIcon, fontSize = 11.sp,
                     )
                 }
             }
             // Duration only bites on the custom one-shot path; the predefined
             // and primitive effects have a HAL-fixed length.
-            if (settings.hapticStyle == HapticStyle.CUSTOM) {
+            if (settings.haptics.style == HapticStyle.CUSTOM) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.ime_sound_duration_label),
                         color = kb.toolbarIcon, fontSize = 11.sp,
                         modifier = Modifier.width(60.dp))
-                    Slider(
-                        value = settings.hapticStrengthMs.toFloat(),
-                        onValueChange = { onAction(SoundHapticAction.HapticDuration(it.toInt())) },
+                    val duration = rememberLiveSlider(
+                        settings.haptics.strengthMs.toFloat(),
+                        { onAction(SoundHapticAction.HapticDuration(it.toInt())) },
+                    )
+                    WmSlider(
+                        value = duration.value,
+                        onValueChange = duration::onDrag,
+                        onValueChangeFinished = duration::onRelease,
                         valueRange = 5f..60f,
                         modifier = Modifier.weight(1f).height(28.dp),
                     )
                     Text(
-                        "${settings.hapticStrengthMs} ms",
+                        "${duration.value.roundToInt()} ms",
                         color = kb.toolbarIcon, fontSize = 11.sp,
                     )
                 }
@@ -2251,18 +2629,17 @@ internal fun SoundHapticsPanel(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             Switch(
-                checked = settings.keySound,
+                checked = settings.sound.enabled,
                 onCheckedChange = { onAction(SoundHapticAction.Sound(it)) },
                 modifier = Modifier.focusRing(focusedSwitch == 1),
             )
         }
-        if (settings.keySound) {
+        if (settings.sound.enabled) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                // CUSTOM names an installed file rather than a fixed style, and
-                // there is no file picker on the keyboard — so it only appears
-                // here when it is already the choice, to show what is selected
-                // and to let the user step off it. The chip list here must
-                // stay [soundStyles], which the CHIPS publisher indexes.
+                // Custom and Pack name an installed file rather than a fixed
+                // style; the row under this one picks which file. The chip list
+                // here must stay [soundStyles], which the CHIPS publisher
+                // indexes.
                 for ((index, style) in soundStyles.withIndex()) {
                     StyleChip(
                         label = when (style) {
@@ -2280,23 +2657,58 @@ internal fun SoundHapticsPanel(
                             KeySoundStyle.PACK ->
                                 stringResource(R.string.ime_sound_style_pack_label)
                         },
-                        selected = settings.keySoundStyle == style,
+                        selected = settings.sound.style == style,
                         focused = focusedChip != null && focusedChip - hapticChipCount == index,
                     ) { onAction(SoundHapticAction.SoundStyleChange(style)) }
+                }
+            }
+            if (settings.sound.style == KeySoundStyle.CUSTOM ||
+                settings.sound.style == KeySoundStyle.PACK
+            ) {
+                SoundChoiceRow(
+                    choices = soundChoices,
+                    selectedId = if (settings.sound.style == KeySoundStyle.PACK) {
+                        settings.sound.packId
+                    } else {
+                        settings.sound.customId
+                    },
+                    focused = state.focusedIndex(FocusRegion.RESULTS),
+                    emptyRes = if (settings.sound.style == KeySoundStyle.PACK) {
+                        R.string.ime_sound_packs_empty
+                    } else {
+                        R.string.ime_sound_customs_empty
+                    },
+                    moreRes = if (settings.sound.style == KeySoundStyle.PACK) {
+                        R.string.ime_sound_packs_more_label
+                    } else {
+                        R.string.ime_sound_customs_more_label
+                    },
+                    onMore = { onOpenRoute(soundChoiceRoute) },
+                ) { id ->
+                    if (settings.sound.style == KeySoundStyle.PACK) {
+                        onAction(SoundHapticAction.SoundPackChange(id))
+                    } else {
+                        onAction(SoundHapticAction.SoundCustomChange(id))
+                    }
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.ime_sound_volume_label),
                     color = kb.toolbarIcon, fontSize = 11.sp,
                     modifier = Modifier.width(60.dp))
-                Slider(
-                    value = settings.keySoundVolume,
-                    onValueChange = { onAction(SoundHapticAction.SoundVolume(it)) },
+                val volume = rememberLiveSlider(
+                    settings.sound.volume,
+                    { onAction(SoundHapticAction.SoundVolume(it)) },
+                )
+                WmSlider(
+                    value = volume.value,
+                    onValueChange = volume::onDrag,
+                    onValueChangeFinished = volume::onRelease,
                     valueRange = 0.05f..1f,
                     modifier = Modifier.weight(1f).height(28.dp),
                 )
                 Text(
-                    "${(settings.keySoundVolume * 100).roundToInt()}%",
+                    "${(volume.value * 100).roundToInt()}%",
                     color = kb.toolbarIcon, fontSize = 11.sp,
                 )
             }

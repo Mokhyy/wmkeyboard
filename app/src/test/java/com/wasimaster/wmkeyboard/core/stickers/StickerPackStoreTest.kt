@@ -80,6 +80,34 @@ class StickerPackStoreTest {
     }
 
     @Test
+    fun `sweeps a staging directory a dead import left a day ago`() {
+        val store = store()
+        val staging = store.stagingDir()!!
+        File(staging, "e1.bin").writeBytes(byteArrayOf(1))
+        assertTrue(staging.setLastModified(System.currentTimeMillis() - 2L * 24 * 60 * 60 * 1000))
+
+        store.reload()
+        assertFalse(staging.exists())
+    }
+
+    @Test
+    fun `removes several stickers in one go`() {
+        val store = store()
+        val pack = store.createPack("Cats")!!
+        val stickers = (1..4).map { (store.addSticker(pack.id, webp(it.toByte())) as StickerAddResult.Added).sticker }
+        val gone = setOf(stickers[0].id, stickers[2].id, "s_not_here")
+
+        assertEquals(2, store.removeStickers(pack.id, gone))
+        val left = store.pack(pack.id)!!.stickers
+        assertEquals(listOf(stickers[1].id, stickers[3].id), left.map { it.id })
+        assertFalse(File(store.packDir(pack.id), stickers[0].fileName).exists())
+        assertFalse(File(store.packDir(pack.id), stickers[2].fileName).exists())
+        assertTrue(store.fileFor(pack.id, stickers[1])!!.isFile)
+        // And the manifest on disk says the same.
+        assertEquals(2, store().pack(pack.id)!!.stickers.size)
+    }
+
+    @Test
     fun `refuses a sticker past the per-pack cap`() {
         val store = store()
         val pack = store.createPack("Cats")!!
@@ -129,6 +157,44 @@ class StickerPackStoreTest {
     }
 
     @Test
+    fun `moving several takes them across in order`() {
+        val store = store()
+        val from = store.createPack("Cats")!!
+        val to = store.createPack("Dogs")!!
+        val added = List(3) { (store.addSticker(from.id, webp()) as StickerAddResult.Added).sticker }
+
+        assertEquals(2, store.moveStickers(from.id, setOf(added[0].id, added[2].id), to.id))
+        assertEquals(listOf(added[1].id), store.pack(from.id)!!.stickers.map { it.id })
+        assertEquals(listOf(added[0].id, added[2].id), store.pack(to.id)!!.stickers.map { it.id })
+    }
+
+    @Test
+    fun `a copy has its own file, so deleting the first leaves it whole`() {
+        val store = store()
+        val from = store.createPack("Cats")!!
+        val to = store.createPack("Dogs")!!
+        val sticker = (store.addSticker(from.id, webp()) as StickerAddResult.Added).sticker
+
+        assertEquals(1, store.copyStickers(from.id, setOf(sticker.id), to.id))
+        val copy = store.pack(to.id)!!.stickers.single()
+        assertTrue(copy.id != sticker.id)
+        assertEquals(1, store.pack(from.id)!!.stickers.size)
+
+        store.removeStickers(from.id, setOf(sticker.id))
+        assertTrue(File(store.packDir(to.id), copy.fileName).isFile)
+    }
+
+    @Test
+    fun `copying into its own pack does nothing`() {
+        val store = store()
+        val from = store.createPack("Cats")!!
+        val sticker = (store.addSticker(from.id, webp()) as StickerAddResult.Added).sticker
+
+        assertEquals(0, store.copyStickers(from.id, setOf(sticker.id), from.id))
+        assertEquals(1, store.pack(from.id)!!.stickers.size)
+    }
+
+    @Test
     fun `reordering moves a sticker within its pack`() {
         val store = store()
         val pack = store.createPack("Cats")!!
@@ -148,7 +214,7 @@ class StickerPackStoreTest {
         val cats = store.createPack("Cats")!!
         val dogs = store.createPack("Dogs")!!
         store.addSticker(cats.id, webp(1), name = "grumpy")
-        store.addSticker(dogs.id, webp(2), name = "happy", emojis = listOf("🐶"))
+        store.addSticker(dogs.id, webp(2), name = "happy", keywords = listOf("🐶"))
 
         assertEquals(2, store.searchAsGifItems("").size)
         assertEquals(1, store.searchAsGifItems("grump").size)
@@ -165,7 +231,7 @@ class StickerPackStoreTest {
         val pack = store.createPack("Cats")!!
         store.addSticker(pack.id, webp(1), name = "first")
         val target = (
-            store.addSticker(pack.id, webp(2), name = "grumpy", emojis = listOf("cat"))
+            store.addSticker(pack.id, webp(2), name = "grumpy", keywords = listOf("cat"))
                 as StickerAddResult.Added
             ).sticker
         val oldFile = store.fileFor(pack.id, target)!!
@@ -176,7 +242,7 @@ class StickerPackStoreTest {
 
         assertEquals(target.id, sticker.id)
         assertEquals("grumpy", sticker.name)
-        assertEquals(listOf("cat"), sticker.emojis)
+        assertEquals(listOf("cat"), sticker.keywords)
         assertEquals(target.addedAt, sticker.addedAt)
         // Still second in the pack: an edit is not a re-add.
         assertEquals(1, store.pack(pack.id)!!.stickers.indexOfFirst { it.id == target.id })
@@ -225,9 +291,19 @@ class StickerPackStoreTest {
         val pack = store.createPack("Cats")!!
         // What an imported "grumpy cat" looks like once the editor has split
         // it: first word in the name, the rest in the tags.
-        store.addSticker(pack.id, webp(), name = "grumpy", emojis = listOf("cat"))
+        store.addSticker(pack.id, webp(), name = "grumpy", keywords = listOf("cat"))
 
         assertEquals(1, store.searchAsGifItems("grumpy cat").size)
+    }
+
+    @Test
+    fun `a sticker found by its triggers becomes the same item a search lists`() {
+        val store = store()
+        val pack = store.createPack("Cats")!!
+        val sticker = (store.addSticker(pack.id, webp(), name = "grumpy") as StickerAddResult.Added).sticker
+
+        assertEquals(store.searchAsGifItems("").single(), store.asGifItem(pack.id, sticker))
+        assertEquals(null, store.asGifItem("gone", sticker))
     }
 
     @Test

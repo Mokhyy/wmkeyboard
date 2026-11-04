@@ -1,5 +1,9 @@
 package com.wasimaster.wmkeyboard.core.tools
 
+import com.wasimaster.wmkeyboard.core.endpoints.ServiceEndpoint
+import com.wasimaster.wmkeyboard.core.endpoints.ServiceEndpoints
+import com.wasimaster.wmkeyboard.core.netlog.NetLog
+import com.wasimaster.wmkeyboard.core.netlog.NetSource
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -23,25 +27,36 @@ import kotlinx.serialization.json.jsonPrimitive
  */
 object UnsplashClient {
 
-    private const val BASE = "https://api.unsplash.com"
+    /** api.unsplash.com unless `ServiceEndpoint.UNSPLASH` points elsewhere. */
+    private val base: String get() = ServiceEndpoints.base(ServiceEndpoint.UNSPLASH)
 
     /** The headers whose values [PhotoRateLimit] wants back. */
     val RATE_HEADERS = setOf("X-Ratelimit-Limit", "X-Ratelimit-Remaining")
 
     /** Blocking; call on an IO dispatcher. Throws on failure. */
     fun search(query: PhotoQuery, apiKey: String): HttpResponse =
-        ToolHttp.getWithHeaders(searchUrl(query), headers = headers(apiKey), wantHeaders = RATE_HEADERS)
+        ToolHttp.getWithHeaders(
+            searchUrl(query), headers = headers(apiKey), wantHeaders = RATE_HEADERS,
+            source = NetSource.PHOTOS, route = "/search/photos",
+        )
 
     /** Blocking; call on an IO dispatcher. The curated feed, or one topic. */
     fun feed(query: PhotoQuery, apiKey: String): HttpResponse =
-        ToolHttp.getWithHeaders(feedUrl(query), headers = headers(apiKey), wantHeaders = RATE_HEADERS)
+        ToolHttp.getWithHeaders(
+            feedUrl(query), headers = headers(apiKey), wantHeaders = RATE_HEADERS,
+            source = NetSource.PHOTOS, route = NetLog.pathOf(feedUrl(query)),
+        )
 
     /**
      * Up to 30 photos for one request, which is what makes an unattended
      * prefetch affordable against a 50-per-hour budget.
      */
     fun random(query: PhotoQuery, apiKey: String, count: Int): HttpResponse =
-        ToolHttp.getWithHeaders(randomUrl(query, count), headers = headers(apiKey), wantHeaders = RATE_HEADERS)
+        ToolHttp.getWithHeaders(
+            randomUrl(query, count), headers = headers(apiKey), wantHeaders = RATE_HEADERS,
+            // Only the rotating pool asks for random photos, and it does so unattended.
+            source = NetSource.PHOTOS, route = "/photos/random", background = true,
+        )
 
     /**
      * The download ping their guidelines require whenever a user really takes a
@@ -52,7 +67,7 @@ object UnsplashClient {
      */
     fun triggerDownload(downloadLocation: String, apiKey: String) {
         if (downloadLocation.isBlank()) return
-        ToolHttp.get(downloadLocation, headers = headers(apiKey))
+        ToolHttp.get(downloadLocation, headers = headers(apiKey), source = NetSource.PHOTOS, route = "/photos/{id}/download")
     }
 
     private fun headers(apiKey: String) = mapOf(
@@ -64,7 +79,7 @@ object UnsplashClient {
     // ---- URL building -------------------------------------------------
 
     internal fun searchUrl(query: PhotoQuery): String = buildString {
-        append("$BASE/search/photos")
+        append("$base/search/photos")
         append("?query=${ToolHttp.encode(query.text.trim())}")
         append("&page=${query.page.coerceAtLeast(1)}")
         append("&per_page=${query.perPage.coerceIn(1, MAX_PER_PAGE)}")
@@ -75,9 +90,9 @@ object UnsplashClient {
 
     internal fun feedUrl(query: PhotoQuery): String = buildString {
         if (query.topicId.isNotBlank()) {
-            append("$BASE/topics/${ToolHttp.encode(query.topicId)}/photos")
+            append("$base/topics/${ToolHttp.encode(query.topicId)}/photos")
         } else {
-            append("$BASE/photos")
+            append("$base/photos")
         }
         append("?page=${query.page.coerceAtLeast(1)}")
         append("&per_page=${query.perPage.coerceIn(1, MAX_PER_PAGE)}")
@@ -85,7 +100,7 @@ object UnsplashClient {
     }
 
     internal fun randomUrl(query: PhotoQuery, count: Int): String = buildString {
-        append("$BASE/photos/random")
+        append("$base/photos/random")
         append("?count=${count.coerceIn(1, MAX_RANDOM_COUNT)}")
         if (query.text.isNotBlank()) append("&query=${ToolHttp.encode(query.text.trim())}")
         if (query.topicId.isNotBlank()) append("&topics=${ToolHttp.encode(query.topicId)}")

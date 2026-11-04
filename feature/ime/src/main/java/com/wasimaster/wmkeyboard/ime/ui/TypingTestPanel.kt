@@ -2,6 +2,8 @@ package com.wasimaster.wmkeyboard.ime.ui
 
 import android.content.Context
 import androidx.annotation.StringRes
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -25,7 +27,10 @@ import com.wasimaster.wmkeyboard.core.layout.language
 import com.wasimaster.wmkeyboard.core.layout.resolveLayout
 import com.wasimaster.wmkeyboard.core.script.LanguageDef
 import com.wasimaster.wmkeyboard.core.script.LanguageRegistry
+import com.wasimaster.wmkeyboard.core.script.ScriptRegistry
+import com.wasimaster.wmkeyboard.core.script.TextDirection
 import com.wasimaster.wmkeyboard.core.settings.TypingTestSettings
+import com.wasimaster.wmkeyboard.core.theme.FrostSurface
 import com.wasimaster.wmkeyboard.core.tools.TypingWordPools
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,6 +50,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -54,6 +60,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -62,6 +72,7 @@ import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -70,6 +81,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Text
@@ -90,6 +102,8 @@ import com.wasimaster.wmkeyboard.ime.R
 import com.wasimaster.wmkeyboard.ime.TypingTestAction
 import com.wasimaster.wmkeyboard.ime.TypingTestUi
 import kotlin.math.roundToInt
+import com.wasimaster.wmkeyboard.core.ui.ScrollRail
+import com.wasimaster.wmkeyboard.core.ui.rememberScrollRailState
 
 /**
  * The typing-speed tool. Two faces sharing one panel: the run itself —
@@ -179,6 +193,15 @@ private fun TypingRunView(state: KeyboardUiState, onAction: (TypingTestAction) -
                     .fillMaxWidth()
                     .verticalScroll(scrollState),
             ) {
+                // Each word is its own Text, so a word shapes right-to-left of
+                // its own accord while the row placing them stays left-to-right:
+                // a Persian prompt read backwards word by word even though every
+                // word was correct (issue #95). The row follows the prompt's
+                // script, so the first word starts at the right edge and the
+                // lines wrap leftwards.
+                CompositionLocalProvider(
+                    LocalLayoutDirection provides promptDirection(test.languageId),
+                ) {
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     // No inter-word gap here: each word carries its own trailing
@@ -206,6 +229,7 @@ private fun TypingRunView(state: KeyboardUiState, onAction: (TypingTestAction) -
                             modifier = wordModifier,
                         )
                     }
+                }
                 }
                 Spacer(Modifier.height(viewport / 2))
             }
@@ -241,6 +265,16 @@ private fun TypingUnavailableNotice(state: KeyboardUiState, modifier: Modifier =
             modifier = Modifier.padding(horizontal = 8.dp),
         )
     }
+}
+
+/**
+ * Which way the prompt's words run. Read off the language the prompt was
+ * dealt in rather than the keyboard's current one, so the row can never end
+ * up laid out against the script the words are actually written in.
+ */
+private fun promptDirection(languageId: String): LayoutDirection {
+    val script = ScriptRegistry[LanguageRegistry.byId(languageId).script]
+    return if (script.direction == TextDirection.RTL) LayoutDirection.Rtl else LayoutDirection.Ltr
 }
 
 /**
@@ -460,199 +494,277 @@ private fun TypingResultView(
     val history = remember(settings.typingTest.history) {
         TypingHistory.decode(settings.typingTest.history)
     }
+    // The score counts up into place, and a personal best gets a burst of
+    // paper out of its badge. Both are over well inside a second, and the
+    // buttons below work from the first frame.
+    val motion = kb.motion.any
+    val celebrate = motion && state.typingTest.personalBest
+    // Where the badge and this view sit on screen, for the burst's origin.
+    // Plain holders, read only in the burst's draw: a scroll moving them
+    // must not recompose the results.
+    val badgeCenter = remember { floatArrayOf(Float.NaN, Float.NaN) }
+    val viewTopLeft = remember { floatArrayOf(0f, 0f) }
 
-    Column(
-        modifier = Modifier
+    Box(
+        Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp, vertical = 2.dp),
+            .onGloballyPositioned {
+                val at = it.positionInRoot()
+                viewTopLeft[0] = at.x
+                viewTopLeft[1] = at.y
+            },
     ) {
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text(
-                result.wpm.roundToInt().toString(),
-                color = kb.accent,
-                fontSize = 44.sp,
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                " " + stringResource(R.string.ime_typing_wpm_label),
-                color = kb.secondaryText,
-                fontSize = 13.sp,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-            Spacer(Modifier.weight(1f))
-            if (state.typingTest.personalBest) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(kb.accent.copy(alpha = 0.18f))
-                        .padding(horizontal = 9.dp, vertical = 4.dp),
-                ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp, vertical = 2.dp),
+        ) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                CountUp(result.wpm.roundToInt(), animate = motion) { wpm ->
                     Text(
-                        stringResource(R.string.ime_typing_new_best_label),
+                        wpm.toString(),
                         color = kb.accent,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 44.sp,
+                        fontWeight = FontWeight.Bold,
                     )
                 }
-            } else if (best != null) {
                 Text(
-                    stringResource(R.string.ime_typing_best_info, best.roundToInt()),
+                    " " + stringResource(R.string.ime_typing_wpm_label),
                     color = kb.secondaryText,
-                    fontSize = 11.sp,
+                    fontSize = 13.sp,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
-            }
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            StatTile(
-                stringResource(R.string.ime_typing_accuracy_label),
-                "${result.accuracy.roundToInt()}%",
-                Modifier.weight(1f),
-            )
-            StatTile(
-                stringResource(R.string.ime_typing_raw_label),
-                result.raw.roundToInt().toString(),
-                Modifier.weight(1f),
-            )
-            StatTile(
-                stringResource(R.string.ime_typing_consistency_label),
-                "${result.consistency.roundToInt()}%",
-                Modifier.weight(1f),
-            )
-            StatTile(
-                stringResource(R.string.ime_typing_time_label),
-                "${result.seconds.roundToInt()}s",
-                Modifier.weight(1f),
-            )
-        }
-
-        Spacer(Modifier.height(6.dp))
-        Text(
-            stringResource(
-                R.string.ime_typing_char_counts_info,
-                result.correctChars,
-                result.incorrectChars,
-                result.extraChars,
-                result.missedChars,
-            ),
-            color = kb.secondaryText,
-            fontSize = 11.sp,
-        )
-
-        // Unlocked achievement badges — the stored set plus whatever this run
-        // just earned (the store write is async, so the union covers the gap).
-        // Newly earned ones borrow the "New best" badge's accent treatment.
-        val earnedNow = state.typingTest.earnedAchievements
-        val unlocked = remember(settings.typingTest.achievements, earnedNow) {
-            TypingAchievements.decode(settings.typingTest.achievements) + earnedNow
-        }
-        if (unlocked.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                stringResource(R.string.ime_typing_achievements_label),
-                color = kb.secondaryText,
-                fontSize = 10.sp,
-            )
-            Spacer(Modifier.height(3.dp))
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                for (id in TypingAchievements.ALL) {
-                    if (id !in unlocked) continue
-                    val isNew = id in earnedNow
-                    Row(
+                Spacer(Modifier.weight(1f))
+                if (state.typingTest.personalBest) {
+                    // Pops in with a little bounce when there is a burst to go
+                    // with it; celebrating is the one place a spring may overshoot.
+                    val badgeScale = remember(result) { Animatable(if (celebrate) BADGE_START_SCALE else 1f) }
+                    LaunchedEffect(result) {
+                        badgeScale.animateTo(1f, spring(dampingRatio = BADGE_DAMPING, stiffness = BADGE_STIFFNESS))
+                    }
+                    Box(
                         modifier = Modifier
+                            .onGloballyPositioned {
+                                val center = it.boundsInRoot().center
+                                badgeCenter[0] = center.x
+                                badgeCenter[1] = center.y
+                            }
+                            .graphicsLayer {
+                                scaleX = badgeScale.value
+                                scaleY = badgeScale.value
+                            }
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (isNew) kb.accent.copy(alpha = 0.18f) else kb.chip)
+                            .background(kb.accent.copy(alpha = 0.18f))
                             .padding(horizontal = 9.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            stringResource(achievementLabelRes(id)),
-                            color = if (isNew) kb.accent else kb.chipText,
+                            stringResource(R.string.ime_typing_new_best_label),
+                            color = kb.accent,
                             fontSize = 11.sp,
-                            fontWeight = if (isNew) FontWeight.SemiBold else FontWeight.Normal,
+                            fontWeight = FontWeight.SemiBold,
                         )
-                        if (isNew) {
-                            Spacer(Modifier.width(5.dp))
+                    }
+                } else if (best != null) {
+                    Text(
+                        stringResource(R.string.ime_typing_best_info, best.roundToInt()),
+                        color = kb.secondaryText,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                StatTile(
+                    stringResource(R.string.ime_typing_accuracy_label),
+                    result.accuracy.roundToInt(),
+                    suffix = "%",
+                    countUp = motion,
+                    modifier = Modifier.weight(1f),
+                )
+                StatTile(
+                    stringResource(R.string.ime_typing_raw_label),
+                    result.raw.roundToInt(),
+                    countUp = motion,
+                    modifier = Modifier.weight(1f),
+                )
+                StatTile(
+                    stringResource(R.string.ime_typing_consistency_label),
+                    result.consistency.roundToInt(),
+                    suffix = "%",
+                    countUp = motion,
+                    modifier = Modifier.weight(1f),
+                )
+                // The run's length is a setting read back, not a score: no count.
+                StatTile(
+                    stringResource(R.string.ime_typing_time_label),
+                    result.seconds.roundToInt(),
+                    suffix = "s",
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            Spacer(Modifier.height(6.dp))
+            Text(
+                stringResource(
+                    R.string.ime_typing_char_counts_info,
+                    result.correctChars,
+                    result.incorrectChars,
+                    result.extraChars,
+                    result.missedChars,
+                ),
+                color = kb.secondaryText,
+                fontSize = 11.sp,
+            )
+
+            // Unlocked achievement badges — the stored set plus whatever this run
+            // just earned (the store write is async, so the union covers the gap).
+            // Newly earned ones borrow the "New best" badge's accent treatment.
+            val earnedNow = state.typingTest.earnedAchievements
+            val unlocked = remember(settings.typingTest.achievements, earnedNow) {
+                TypingAchievements.decode(settings.typingTest.achievements) + earnedNow
+            }
+            if (unlocked.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    stringResource(R.string.ime_typing_achievements_label),
+                    color = kb.secondaryText,
+                    fontSize = 10.sp,
+                )
+                Spacer(Modifier.height(3.dp))
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    for (id in TypingAchievements.ALL) {
+                        if (id !in unlocked) continue
+                        val isNew = id in earnedNow
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .frostGlass(kb, RoundedCornerShape(10.dp), FrostSurface.CHIPS)
+                                .background(if (isNew) kb.accent.copy(alpha = 0.18f) else kb.chip)
+                                .padding(horizontal = 9.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Text(
-                                stringResource(R.string.ime_typing_achievement_new_label),
-                                color = kb.accent,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
+                                stringResource(achievementLabelRes(id)),
+                                color = if (isNew) kb.accent else kb.chipText,
+                                fontSize = 11.sp,
+                                fontWeight = if (isNew) FontWeight.SemiBold else FontWeight.Normal,
                             )
+                            if (isNew) {
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    stringResource(R.string.ime_typing_achievement_new_label),
+                                    color = kb.accent,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
                         }
                     }
                 }
             }
-        }
 
-        // Two samples is the minimum that makes a line rather than a dot.
-        if (result.samples.size >= 2) {
-            Spacer(Modifier.height(8.dp))
-            WpmGraph(result, modifier = Modifier.fillMaxWidth().height(74.dp))
-            Row {
-                LegendDot(stringResource(R.string.ime_typing_wpm_label), kb.accent)
-                Spacer(Modifier.width(10.dp))
-                LegendDot(stringResource(R.string.ime_typing_raw_label), kb.secondaryText)
-                Spacer(Modifier.weight(1f))
-                val config = typingConfigLabel(
-                    context,
-                    result.mode,
-                    settings.typingTest.duration,
-                    settings.typingTest.wordCount,
-                )
-                // English goes unnamed, the way the record keys leave it;
-                // any other language is part of what the score means.
-                val languageId = state.typingTest.languageId
+            // Two samples is the minimum that makes a line rather than a dot.
+            if (result.samples.size >= 2) {
+                Spacer(Modifier.height(8.dp))
+                WpmGraph(result, modifier = Modifier.fillMaxWidth().height(74.dp))
+                Row {
+                    LegendDot(stringResource(R.string.ime_typing_wpm_label), kb.accent)
+                    Spacer(Modifier.width(10.dp))
+                    LegendDot(stringResource(R.string.ime_typing_raw_label), kb.secondaryText)
+                    Spacer(Modifier.weight(1f))
+                    val config = typingConfigLabel(
+                        context,
+                        result.mode,
+                        settings.typingTest.duration,
+                        settings.typingTest.wordCount,
+                    )
+                    // English goes unnamed, the way the record keys leave it;
+                    // any other language is part of what the score means.
+                    val languageId = state.typingTest.languageId
+                    Text(
+                        if (languageId == "en") {
+                            config
+                        } else {
+                            stringResource(
+                                R.string.ime_typing_config_language_label,
+                                config,
+                                LanguageRegistry.byId(languageId).displayName,
+                            )
+                        },
+                        color = kb.secondaryText,
+                        fontSize = 10.sp,
+                    )
+                }
+            }
+
+            if (history.size >= 2) {
+                Spacer(Modifier.height(8.dp))
                 Text(
-                    if (languageId == "en") {
-                        config
-                    } else {
-                        stringResource(
-                            R.string.ime_typing_config_language_label,
-                            config,
-                            LanguageRegistry.byId(languageId).displayName,
-                        )
-                    },
+                    pluralStringResource(
+                        R.plurals.ime_typing_history_count,
+                        history.size,
+                        history.size,
+                    ),
                     color = kb.secondaryText,
                     fontSize = 10.sp,
                 )
+                Spacer(Modifier.height(3.dp))
+                HistoryBars(history, modifier = Modifier.fillMaxWidth().height(26.dp))
             }
-        }
 
-        if (history.size >= 2) {
             Spacer(Modifier.height(8.dp))
-            Text(
-                pluralStringResource(
-                    R.plurals.ime_typing_history_count,
-                    history.size,
-                    history.size,
-                ),
-                color = kb.secondaryText,
-                fontSize = 10.sp,
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ToolPanelChip(stringResource(R.string.ime_typing_again_action), selected = true) {
+                    onAction(TypingTestAction.Restart)
+                }
+                ToolPanelChip(stringResource(R.string.ime_typing_insert_score_action)) {
+                    onAction(TypingTestAction.InsertResult)
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            TypingConfigRow(state, onAction, compact = false)
+            Spacer(Modifier.height(6.dp))
+        }
+        if (celebrate) {
+            ConfettiBurst(
+                key = result,
+                accent = kb.accent,
+                modifier = Modifier.matchParentSize(),
+                origin = {
+                    if (badgeCenter[0].isNaN()) {
+                        Offset.Unspecified
+                    } else {
+                        Offset(badgeCenter[0] - viewTopLeft[0], badgeCenter[1] - viewTopLeft[1])
+                    }
+                },
             )
-            Spacer(Modifier.height(3.dp))
-            HistoryBars(history, modifier = Modifier.fillMaxWidth().height(26.dp))
         }
-
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            ToolPanelChip(stringResource(R.string.ime_typing_again_action), selected = true) {
-                onAction(TypingTestAction.Restart)
-            }
-            ToolPanelChip(stringResource(R.string.ime_typing_insert_score_action)) {
-                onAction(TypingTestAction.InsertResult)
-            }
-        }
-        Spacer(Modifier.height(6.dp))
-        TypingConfigRow(state, onAction, compact = false)
-        Spacer(Modifier.height(6.dp))
     }
 }
+
+/**
+ * [content] for a number that runs up from zero to [target] when it first
+ * shows (and again if it changes), over [COUNT_UP_MS]. Its own scope, so the
+ * per-frame value recomposes the number and nothing around it.
+ */
+@Composable
+private fun CountUp(target: Int, animate: Boolean, content: @Composable (Int) -> Unit) {
+    val shown = remember(target) { Animatable(if (animate) 0f else target.toFloat()) }
+    LaunchedEffect(target) {
+        shown.animateTo(target.toFloat(), tween(COUNT_UP_MS, easing = FastOutSlowInEasing))
+    }
+    content(shown.value.roundToInt())
+}
+
+private const val COUNT_UP_MS = 650
+private const val BADGE_START_SCALE = 0.6f
+private const val BADGE_DAMPING = 0.45f
+private const val BADGE_STIFFNESS = 500f
 
 /** The badge label for one achievement id. */
 @StringRes
@@ -664,15 +776,24 @@ private fun achievementLabelRes(id: String): Int = when (id) {
 }
 
 @Composable
-private fun StatTile(label: String, value: String, modifier: Modifier = Modifier) {
+private fun StatTile(
+    label: String,
+    value: Int,
+    modifier: Modifier = Modifier,
+    suffix: String = "",
+    countUp: Boolean = false,
+) {
     val kb = LocalKbTheme.current
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(10.dp))
+            .frostGlass(kb, RoundedCornerShape(10.dp), FrostSurface.CHIPS)
             .background(kb.chip)
             .padding(horizontal = 8.dp, vertical = 6.dp),
     ) {
-        Text(value, color = kb.keyText, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+        CountUp(value, animate = countUp) { shown ->
+            Text("$shown$suffix", color = kb.keyText, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+        }
         Text(label, color = kb.secondaryText, fontSize = 9.sp)
     }
 }
@@ -895,16 +1016,19 @@ private fun TypingLanguageChip(state: KeyboardUiState, onAction: (TypingTestActi
         ) { open = true }
         if (open) {
             val shape = kb.menuShape()
+            val rail = rememberScrollRailState()
             Popup(onDismissRequest = { open = false }) {
-                Column(
+                ScrollRail(
+                    state = rail,
                     modifier = Modifier
                         .widthIn(min = 160.dp, max = 240.dp)
                         .heightIn(max = 220.dp)
                         .clip(shape)
                         .background(kb.popup)
                         .popupBorder(kb, shape)
-                        .padding(vertical = 4.dp)
-                        .verticalScroll(rememberScrollState()),
+                        .padding(vertical = 4.dp),
+                    fadeColor = kb.popup,
+                    colors = kbRailColors(kb),
                 ) {
                     for ((language, layoutId) in choices) {
                         val current = language.id == state.language.id

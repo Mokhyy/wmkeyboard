@@ -11,9 +11,14 @@ import com.wasimaster.wmkeyboard.language.R
  * The rules a panel adds to the key rules it shares with a typing layout are
  * about its components: the panel *is* one of them, so that one must be there
  * exactly once; a component from another panel, or from a newer build, has
- * nothing to draw it here; and a few key actions — shift, caps lock, the Fn
- * layer, the chorded and timed typing keys — mean nothing on a panel and are
- * dropped rather than drawn as buttons that do nothing.
+ * nothing to draw it here; and the two key actions that only a converted
+ * layout can give meaning to (a kana variant, a Keyman key) are dropped
+ * rather than drawn as buttons that do nothing. Shift, caps lock, the Fn
+ * layer, an "open a layout" key and the chorded keys all used to be dropped
+ * too (issue #183); they are ordinary keys now — shift cases the panel's own
+ * text keys and extends its cursor moves, the chorded keys type through the
+ * same engines they do on a grid, and the layer keys close the panel on the
+ * way to their layer.
  *
  * There is no "way back" rule. The toolbar toggle and the system back button
  * both leave a panel, and two of the four shipped panels have never had an
@@ -24,23 +29,22 @@ import com.wasimaster.wmkeyboard.language.R
 data class RepairedPanelLayout(val spec: PanelLayoutSpec, val repairNotes: List<LayoutMessage>)
 
 /**
- * Key actions a panel layout will not carry: layer and case state that belongs
- * to the typing grid, and keys typed by chord or timing.
+ * Key actions a panel layout will not carry: the two that only make sense on
+ * the converted layout that authored them. A kana variant, a Hangul stroke and
+ * a tense consonant all change a letter the typing grid just typed, a reading
+ * column picks a syllable of the reading it is composing, and a Keyman key is
+ * one of a Keyman layout's own
+ * grid. Everything else a typing layout offers is a key here too.
  */
 fun KeyAction.isAllowedOnPanel(): Boolean = when (this) {
-    KeyAction.Shift, KeyAction.CapsLock, KeyAction.Fn, KeyAction.KanaVariant,
-    KeyAction.MorseDot, KeyAction.MorseDash,
-    -> false
-    is KeyAction.BrailleDot, is KeyAction.KeymanKey -> false
-    // A layer switch of the typing grid; the panel would have to close first,
-    // and a panel's own abc key already does that.
-    is KeyAction.Layout -> false
+    KeyAction.KanaVariant, KeyAction.AddStroke, KeyAction.DoubleConsonant, KeyAction.ReadingColumn -> false
+    is KeyAction.KeymanKey -> false
     else -> true
 }
 
 /** A field cell this panel can draw: one of its own kinds, and a real one. */
 private fun PanelLayoutSpec.owns(kind: PanelFieldKind): Boolean =
-    kind.isReal && kind.panel == panel
+    kind.isReal && kind.isOn(panel)
 
 /** Everything wrong with this panel layout, worst first. Never mutates. */
 fun validatePanelLayout(spec: PanelLayoutSpec): List<LayoutFinding> {
@@ -112,7 +116,8 @@ fun validatePanelLayout(spec: PanelLayoutSpec): List<LayoutFinding> {
         )
     }
     // Issue #60 on a panel: a panel that outlives the keyboard closing is left
-    // only by a key, a tool or Back, so say so for as long as the flag is on.
+    // only by a key or a tool — not by Back any more, which hides the keyboard
+    // over such a panel (#227) — so say so for as long as the flag is on.
     if (spec.grid.persistent) {
         findings += LayoutFinding(
             LayoutSeverity.WARNING,

@@ -51,6 +51,8 @@ object CangjieComposer : Composer {
 
     override val isTransliterating: Boolean get() = true
     override val isConversion: Boolean get() = true
+    override val readsBySound: Boolean get() = false
+    override val missingPack: String? get() = CjkDictionaries.missingCangjie
 
     override fun composeBuffer(buffer: String): String = cangjieGlyphs(buffer)
 
@@ -66,6 +68,8 @@ object CangjieQuickComposer : Composer {
 
     override val isTransliterating: Boolean get() = true
     override val isConversion: Boolean get() = true
+    override val readsBySound: Boolean get() = false
+    override val missingPack: String? get() = CjkDictionaries.missingCangjie
 
     override fun composeBuffer(buffer: String): String = cangjieGlyphs(buffer)
 

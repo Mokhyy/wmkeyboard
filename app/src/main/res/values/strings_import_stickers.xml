@@ -10,6 +10,10 @@
     <!-- Above the list of lines that say what the app had to change to make the
          file usable. -->
     <string name="import_repairs_title">The app changed these items during the import:</string>
+    <!-- The same list, but on the dialog that asks *before* anything is
+         imported. That dialog's button says Import, so the past tense above
+         read as if the work had already happened. -->
+    <string name="import_repairs_pending_title">What the app will change when you import:</string>
 
     <!-- ==== Theme and layout files. ==== -->
 
@@ -27,6 +31,37 @@
     <string name="import_keyman_no_grid_body">This Keyman package holds no on-screen keyboard, so there is no layout to add. Packages built for desktop computers only are like this.</string>
     <!-- Languages is the name of a screen in the settings app. -->
     <string name="import_layout_body">The app adds the layout to your layouts. The layout stays off. To type with it, turn it on in Languages.</string>
+    <!-- FUTO Keyboard is the name of another keyboard app; leave it as it is.
+         Languages is the name of a screen in the settings app. -->
+    <string name="import_futo_body">This is a FUTO Keyboard layout. The app adds its letter keys as a layout of yours; the symbol and number keys stay the ones you have. The layout stays off. To type with it, turn it on in Languages.</string>
+    <!-- Keys Cafe is the name of a Samsung app; leave it as it is.
+         Languages is the name of a screen in the settings app. -->
+    <!-- Multiling O Keyboard is the name of another keyboard app; leave it as
+         it is. Languages is the name of a screen in the settings app. -->
+    <string name="import_multiling_layout_body">This is a Multiling O Keyboard layout. The app adds it as a layout of yours, with its symbol and AltGr pages. The layout stays off. To type with it, turn it on in Languages.</string>
+    <string name="import_multiling_title">From Multiling O Keyboard</string>
+    <plurals name="import_multiling_layouts_body">
+        <item quantity="one">The text has %1$d layout. The app adds it as a layout of yours, in the language it was made for. It stays off. To type with it, turn it on in Languages.</item>
+        <item quantity="other">The text has %1$d layouts. The app adds them as layouts of yours, each in the language it was made for. They stay off. To type with one, turn it on in Languages.</item>
+    </plurals>
+    <string name="import_multiling_theme_line">The text also has the colours of a theme. The app saves them as a theme of yours. Open Themes to use it.</string>
+    <plurals name="import_multiling_layouts_done">
+        <item quantity="one">The app added %1$d layout. Turn it on in Languages to type with it.</item>
+        <item quantity="other">The app added %1$d layouts. Turn them on in Languages to type with them.</item>
+    </plurals>
+    <string name="import_multiling_theme_done">The app saved the theme. Open Themes to use it.</string>
+    <string name="import_keyscafe_body">This is a Samsung Keyboard layout made in Keys Cafe. The app adds it as a layout of yours, laid out as it was there, bottom row included; the symbol keys stay the ones you have. The layout stays off. To type with it, turn it on in Languages.</string>
+    <!-- Unexpected Keyboard and CleverKeys are the names of other keyboard apps; leave them as they are. -->
+    <!-- A layout made for a computer keyboard: Windows, Mac or Linux.
+         Languages is the name of a screen in the settings app. -->
+    <string name="import_desktop_layout_body">This is a layout for a computer keyboard. The app adds its letter keys as a layout of yours, in their places, with the AltGr and accented letters on press and hold; the symbol keys stay the ones you have. The layout stays off. To type with it, turn it on in Languages.</string>
+    <string name="import_desktop_title">From a computer layout</string>
+    <!-- A Linux layout file can hold several layouts, called variants. -->
+    <plurals name="import_desktop_layouts_body">
+        <item quantity="one">The file has %1$d layout. The app adds it as a layout of yours, in the language its letters suggest. It stays off. To type with it, turn it on in Languages.</item>
+        <item quantity="other">The file has %1$d layouts. The app adds them as layouts of yours, each in the language its letters suggest. They stay off. To type with one, turn it on in Languages.</item>
+    </plurals>
+    <string name="import_unexpected_body">This is an Unexpected Keyboard or CleverKeys layout. The app adds it as a layout of yours. The swipes to the corners of each key stay swipes; the symbol keys stay the ones you have. The layout stays off. To type with it, turn it on in Languages.</string>
 
     <!-- ==== Backup files. ==== -->
 
@@ -90,6 +125,51 @@
         <item quantity="other">The app imported %1$d snippets.</item>
     </plurals>
 
+    <!-- ==== Espanso files. Espanso is a text expander for computers; its
+         snippet files are one of the formats this app reads. ==== -->
+
+    <!-- %1$s is the name of the folder the snippets land in. -->
+    <string name="import_espanso_body">This is an Espanso file. The app adds its snippets to yours, in a folder called <xliff:g id="folder_name" example="Emoji shortcuts">%1$s</xliff:g>, so you can turn all of them off at once.</string>
+    <!-- Stands in for the folder name when the file gives nothing to name it
+         after. It goes into import_espanso_body. -->
+    <string name="import_espanso_folder_fallback">Espanso</string>
+    <string name="import_espanso_title">Nothing to import</string>
+    <string name="import_espanso_none">This is an Espanso file, but the app could read no snippets from it.</string>
+
+    <!-- ==== Snippet tables: a CSV or TSV file with a trigger column and a
+         text column, from another text expander or a spreadsheet. ==== -->
+
+    <!-- %1$s is the name of the folder the snippets land in. -->
+    <string name="import_csv_body">This is a table of snippets. The app adds them to yours, in a folder called <xliff:g id="folder_name" example="Replies">%1$s</xliff:g>, so you can turn all of them off at once.</string>
+    <!-- Stands in for the folder name when the file has no name to use. It
+         goes into import_csv_body. -->
+    <string name="import_csv_folder_fallback">Imported</string>
+    <string name="import_csv_none">This is a table, but no row has text for a snippet.</string>
+
+    <!-- ==== Gboard dictionary files. Gboard is Google's keyboard; do not
+         translate the name. Its personal dictionary export holds words, and
+         shortcuts that each offer a word. ==== -->
+
+    <string name="import_gboard_dictionary_title">Import Gboard dictionary?</string>
+    <string name="import_gboard_dictionary_empty">This is a Gboard dictionary, but it has no words in it.</string>
+    <!-- %1$d is how many words go into the personal dictionary. -->
+    <plurals name="import_gboard_dictionary_words">
+        <item quantity="one">The app adds %1$d word to your personal dictionary.</item>
+        <item quantity="other">The app adds %1$d words to your personal dictionary.</item>
+    </plurals>
+    <!-- %1$d is how many shortcuts become snippets. %2$s is the name of the
+         folder they land in. A snippet made from a shortcut does not type
+         itself: the keyboard shows it as a suggestion, as Gboard does. -->
+    <plurals name="import_gboard_dictionary_shortcuts">
+        <item quantity="one">The app makes %1$d shortcut into a snippet, in a folder called <xliff:g id="folder_name" example="Gboard">%2$s</xliff:g>. When you type the shortcut, the keyboard shows the word as a suggestion, as Gboard does.</item>
+        <item quantity="other">The app makes %1$d shortcuts into snippets, in a folder called <xliff:g id="folder_name" example="Gboard">%2$s</xliff:g>. When you type a shortcut, the keyboard shows its word as a suggestion, as Gboard does.</item>
+    </plurals>
+    <!-- %1$d is how many words the app added. -->
+    <plurals name="import_gboard_dictionary_words_done">
+        <item quantity="one">The app added %1$d word to your personal dictionary.</item>
+        <item quantity="other">The app added %1$d words to your personal dictionary.</item>
+    </plurals>
+
     <!-- ==== Sticker pack files. ==== -->
 
     <string name="import_stickers_title">Import sticker pack?</string>
@@ -133,25 +213,175 @@
     <!-- Shown when a file with more than one theme becomes one theme with
          several looks. %1$s is the theme's name, %2$d how many looks it has. -->
     <string name="import_floris_done_family" tools:ignore="PluralsCandidate">The app saved <xliff:g id="theme_name" example="Dusk">%1$s</xliff:g> with <xliff:g id="count" example="2">%2$d</xliff:g> looks. Open Themes to look at it.</string>
-    <string name="import_floris_old_title">Theme is for an older FlorisBoard</string>
-    <string name="import_floris_old_body">This theme is written for FlorisBoard 0.4. That style format is not the same as the one in FlorisBoard 0.5 and later, so the app cannot read it. A theme that this app read only in part would give you colours that your file never set.</string>
     <string name="import_floris_unreadable_body">The app cannot read this FlorisBoard file. It may be damaged, or it may be a language pack or a keyboard extension instead of a theme.</string>
 
+    <!-- ==== FUTO Keyboard custom themes: a ZIP with theme.txt or
+         config.json in it. ==== -->
+
+    <string name="import_futo_theme_title">Theme from FUTO Keyboard</string>
+    <string name="import_futo_theme_body">The app converts the colours of this FUTO Keyboard theme, and its background picture and font if it has them. The app saves the theme but does not turn it on, so that you can look at it first.</string>
+    <!-- %1$s is who made the theme. -->
+    <string name="import_futo_theme_credit">Made by <xliff:g id="author" example="Someone">%1$s</xliff:g>.</string>
+    <!-- %1$s is the name of the theme. -->
+    <string name="import_futo_theme_done">The app saved <xliff:g id="theme_name" example="Midnight">%1$s</xliff:g>. Open Themes to look at it.</string>
+    <string name="import_futo_theme_unreadable_body">The app cannot read that as a FUTO Keyboard theme. Pick the theme\'s .zip file, the one with theme.txt or config.json in it.</string>
+    <!-- Lines in the "what the app changed" list of a FUTO theme import. -->
+    <string name="import_futo_theme_dropped_pictures">The theme draws some keys with pictures of their own. This app draws those keys in the theme\'s colours.</string>
+    <string name="import_futo_theme_dropped_wallpaper">The theme takes some colours from the wallpaper. This app cannot read those, so it works out its own colours for those parts.</string>
+    <string name="import_futo_theme_dropped_shader">The theme draws an animated pattern behind the keys, which this app does not draw.</string>
+
+    <!-- ==== HeliBoard and LeanType colour themes. Those keyboards share a
+         theme as a line of text rather than as a file, so the app takes it
+         from a file or from the clipboard. ==== -->
+
+    <string name="import_heli_title">Theme from HeliBoard</string>
+    <string name="import_heli_body">HeliBoard and LeanType share a theme as a line of text. Copy it from the colour screen of that keyboard, or pick the file that you saved it in.</string>
+    <string name="import_heli_paste_action">Paste</string>
+    <string name="import_heli_file_action">Open a file</string>
+    <!-- %1$s is the name of the theme. %2$d is the number of colours the app
+         used, %3$d the number of colours in the theme. Not a plural: the word
+         "colours" agrees with the third number, which is never one. -->
+    <string name="import_heli_done" tools:ignore="PluralsCandidate">The app saved <xliff:g id="theme_name" example="Midnight">%1$s</xliff:g> and used %2$d of its %3$d colours. Open Themes to look at it.</string>
+    <string name="import_heli_unreadable_body">The app cannot read that as a HeliBoard theme. Copy the whole line of text from the menu at the top of the colour screen in HeliBoard or LeanType.</string>
+    <string name="import_heli_clipboard_empty_body">The clipboard is empty.</string>
+
+    <!-- Lines in the "what the app changed" list of a HeliBoard import. -->
+    <string name="import_heli_dropped_derived">The file leaves some colours for the keyboard to work out. This app works them out in its own way, so those parts may not match what you saw in HeliBoard.</string>
+    <string name="import_heli_dropped_unused">The file sets colours for parts of HeliBoard that this keyboard does not have, such as its emoji board. Those colours have nowhere to go.</string>
+
+    <!-- ==== Multiling O Keyboard themes. That keyboard shares a theme as a
+         block of text that starts with OK_Settings_Begin, so the app takes it
+         from a file or from the clipboard. ==== -->
+
+    <string name="import_multiling_theme_title">Theme from Multiling O</string>
+    <string name="import_multiling_theme_body">Multiling O Keyboard shares a theme as a block of text that starts with OK_Settings_Begin. Copy it from Misc, then Import | Export, in that keyboard, or pick the file that you saved it in. A link to a shared theme also works.</string>
+    <string name="import_multiling_theme_unreadable_body">The app cannot find the colours of a Multiling O theme in that text. Copy the whole block, from OK_Settings_Begin to OK_Settings_End.</string>
+
+    <!-- ==== Clink themes. Clink is an iOS keyboard; keep its name as it is.
+         Its themes are files that end in .clinktheme. ==== -->
+
+    <string name="import_clink_unreadable_body">The app cannot read that as a Clink theme. In Clink, open the theme menu and choose Export, then pick the .clinktheme file it saves.</string>
+    <string name="import_clink_file_body">This is a theme from Clink. The app saves it as a theme of yours, and does not switch to it.</string>
+    <!-- %1$s is the name of the theme, for example "Brick". -->
+    <string name="import_clink_done">The app saved <xliff:g id="theme_name" example="Brick">%1$s</xliff:g>. Open Themes to look at it.</string>
+
+    <!-- ==== Kinetica themes. Kinetica (a keyboard) has no theme file: its
+         theme is a few settings inside its backup file, so the app reads the
+         theme out of the backup. "Backup" is the name of the button in
+         Kinetica's settings. ==== -->
+
+    <string name="import_kinetica_unreadable_body">The app cannot read that as a Kinetica backup. In Kinetica, open Backup in its settings, tap Export a backup, and pick the file it saves.</string>
+    <!-- %1$s is the name of the theme, for example "Kinetica" or "Kinetica #475DFF". -->
+    <string name="import_kinetica_done">The app saved <xliff:g id="theme_name" example="Kinetica">%1$s</xliff:g>. Open Themes to look at it.</string>
+    <!-- Lines in the "what the app changed" list of a Kinetica import. -->
+    <string name="import_kinetica_dropped_rainbow">The swipe trail changes colour from key to key in Kinetica. Here it has the colour of the theme. You can choose another colour in the theme editor.</string>
+    <string name="import_kinetica_dropped_lit_keys">Kinetica lights up the keys that a swipe goes over. This keyboard draws only the trail.</string>
+
+    <!-- Lines in the "what the app changed" list of a Multiling O import. -->
+    <string name="import_multiling_dropped_text_shadows">The theme puts shadows behind the letters on the keys. This keyboard does not draw those.</string>
+    <string name="import_multiling_dropped_wallpaper">The theme uses a picture behind the keys, but the text does not contain the picture. Add one in the theme editor.</string>
+    <string name="import_multiling_dropped_unused">The theme sets colours for parts of Multiling O that this keyboard does not have. Those colours have nowhere to go.</string>
+
     <!-- Lines in the "what the app changed" list of a FlorisBoard import. -->
-    <string name="import_floris_dropped_old">Part of the file uses the older FlorisBoard style format.</string>
-    <string name="import_floris_dropped_elevation">Key shadows are not set. This app draws keys without a shadow.</string>
-    <string name="import_floris_dropped_corners">Keys have one corner size. The file sets a different size for each corner.</string>
-    <string name="import_floris_dropped_spacing">Space around single parts is not set. This app sets the key gap for the whole keyboard.</string>
-    <string name="import_floris_dropped_font">The font is not included. A font is a separate add-on in this app.</string>
-    <string name="import_floris_dropped_dynamic">Colours that follow the system wallpaper are not set. Turn on Material You in Themes for the same effect.</string>
+    <string name="import_floris_dropped_shadow_color">The file picks a colour for the shadows under the keys. The shadows come across, but this app draws them in its own colour.</string>
+    <string name="import_floris_dropped_corners">The file rounds some corners more than others. This app uses one corner size per key, and takes the first of them.</string>
+    <string name="import_floris_dropped_spacing">The file sets its own spacing around single keys and panels. This app uses one gap between keys for the whole keyboard, so those spacings are not used.</string>
+    <string name="import_floris_dropped_font">The file asks for a font by name but does not contain it. A theme that carries its font is installed with it; this one does not, so install the font yourself and pick it in the theme editor.</string>
+    <!-- A stylesheet may name a Material You role instead of a colour. The app
+         resolves it against the palette in use at import, remembers the role,
+         and moves the colour when the wallpaper changes (issue #357). The
+         switch named here is theme_follow_wallpaper_title. -->
+    <string name="import_floris_dropped_dynamic_follows">Some colours in this file follow your wallpaper. They change when you change your wallpaper. To keep the colours that they have now, turn off \"Follow wallpaper colors\" in the theme editor.</string>
+    <!-- Shown instead of the line above when the phone has no wallpaper
+         colours to read, which is every phone below Android 12. The colours
+         still resolved, but against stock Material rather than the wallpaper. -->
+    <string name="import_floris_dropped_dynamic_baseline">Some colours in this file follow the wallpaper on phones that support it. This phone does not, so the app used the standard Android colours for them.</string>
     <string name="import_floris_dropped_unknown">Some parts of the file name keyboard elements that this app does not have.</string>
+    <!-- The same line, with the parts named. %1$s is a comma-separated list of
+         the element names from the file, such as "extracted landscape input
+         layout, smartbar actions editor subheader". -->
+    <string name="import_floris_dropped_unknown_named">The file styles parts that this keyboard does not have: <xliff:g id="parts" example="extracted landscape input layout">%1$s</xliff:g>.</string>
+    <!-- %1$s is the named parts, %2$d how many more there are. -->
+    <plurals name="import_floris_dropped_unknown_named_more">
+        <item quantity="one">The file styles parts that this keyboard does not have: <xliff:g id="parts" example="extracted landscape input layout">%1$s</xliff:g>, and %2$d other.</item>
+        <item quantity="other">The file styles parts that this keyboard does not have: <xliff:g id="parts" example="extracted landscape input layout">%1$s</xliff:g>, and %2$d others.</item>
+    </plurals>
     <string name="import_floris_dropped_contrast">A key text colour was too close to the key colour to read. The app chose a colour that you can read.</string>
+
+    <!-- ==== Key sound packs (.wmsoundpack). ==== -->
+
+    <string name="import_sound_pack_title">Import key sounds?</string>
+    <string name="import_sound_pack_body">The app installs the pack and turns it on. Your keys play its recordings instead of the built-in sound.</string>
+    <!-- %1$s is the pack's name. %2$d is how many recordings it holds, and picks the wording. -->
+    <plurals name="import_sound_pack_done">
+        <item quantity="one">The app installed <xliff:g id="pack_name" example="Cherry MX Blue">%1$s</xliff:g> and turned it on. It has %2$d recording.</item>
+        <item quantity="other">The app installed <xliff:g id="pack_name" example="Cherry MX Blue">%1$s</xliff:g> and turned it on. It has %2$d recordings.</item>
+    </plurals>
 
     <!-- ==== A file the keyboard does not know, or cannot open. ==== -->
 
     <string name="import_unrecognized_title">Not a WM Keyboard file</string>
     <string name="import_unrecognized_body">The keyboard cannot read that file. It is not a theme, a layout, a snippet pack, a sticker pack, an icon pack, a plugin or a backup.</string>
+    <!-- Shown for a file that is readable text but none of the app's formats.
+         The app is offered for any JSON file and for files of unknown type, so
+         landing here is normal rather than a mistake. %1$s is the file name. -->
+    <string name="import_text_title">Open in the editor?</string>
+    <string name="import_text_body">The keyboard has no use for <xliff:g id="file_name" example="settings.json">%1$s</xliff:g>. It is not a theme, a layout, a snippet pack, a sticker pack, an icon pack, a plugin or a backup. You can still read and edit it here.</string>
+    <string name="import_open_editor_action">Open editor</string>
+    <!-- Shown for a language pack zip, or a word list or dictionary on its own,
+         opened from a file manager or a chat app. Import installs it the way
+         the download screens' own Import button does. -->
+    <string name="import_offline_title">Install language files?</string>
+    <string name="import_offline_body"><xliff:g id="file_name" example="wmkb-lang-de.zip">%1$s</xliff:g> holds files the keyboard normally downloads, such as word lists, word pairs or emoji names. Import installs them.</string>
+    <!-- The same question for the other files the download and import screens
+         install, each worded for what the file is. %1$s is the file name. -->
+    <string name="import_offline_gesture_title">Import the gesture library?</string>
+    <string name="import_offline_gesture_body"><xliff:g id="file_name" example="libjni_latinimegoogle.so">%1$s</xliff:g> is Google\'s gesture typing library. Import keeps it only if it is a build this keyboard knows, for this phone. To use it, pick it under Typing › Gestures › Glide engine.</string>
+    <string name="import_offline_native_title">Install a feature library?</string>
+    <string name="import_offline_native_body"><xliff:g id="file_name" example="libwmsherpa.so">%1$s</xliff:g> is a library that one of the keyboard\'s features runs on. Import installs it only if it is the exact build this app expects.</string>
+    <string name="import_offline_model_title">Install this model?</string>
+    <string name="import_offline_model_body"><xliff:g id="file_name" example="ggml-base.bin">%1$s</xliff:g> is a model for an on-device feature, such as voice typing, text scanning, handwriting or AI. Import puts it where its download would go.</string>
+    <string name="import_offline_dictionary_title">Install this dictionary?</string>
+    <string name="import_offline_dictionary_body"><xliff:g id="file_name" example="jmdict.zip">%1$s</xliff:g> is a dictionary of word meanings. Import adds it to the Dictionary tool.</string>
+    <string name="import_offline_gif_title">Install this GIF pack?</string>
+    <string name="import_offline_gif_body"><xliff:g id="file_name" example="reactions.zip">%1$s</xliff:g> is a GIF pack from CleverKeys. Import adds its GIFs to the GIF panel, for use with no internet.</string>
+    <string name="import_offline_rime_title">Install RIME schemas?</string>
+    <string name="import_offline_rime_body"><xliff:g id="file_name" example="my-schemas.zip">%1$s</xliff:g> holds RIME input schemas. Import adds them, and the RIME engine compiles them the next time the RIME screen is open.</string>
+    <string name="import_offline_app_language_title">Install an interface language?</string>
+    <string name="import_offline_app_language_body"><xliff:g id="file_name" example="wmkeyboard-1.0-vc100-lang-de.apk">%1$s</xliff:g> holds the app\'s text in another language. Import installs it, so the app can show that language.</string>
+    <string name="import_offline_mixed_title">Install these files?</string>
+    <string name="import_offline_mixed_body"><xliff:g id="file_name" example="files.zip">%1$s</xliff:g> holds files of more than one kind that the keyboard can install. Import installs each one it knows and reports on all of them.</string>
+    <!-- Files of other kinds opened from a file manager or a chat app, each
+         recognised by its contents rather than its name. -->
+    <string name="import_font_body">The app adds this font to your fonts. Pick where it draws text under Fonts.</string>
+    <string name="import_emoji_font_body">This is an emoji font. The app adds it and draws emoji with it.</string>
+    <string name="import_key_sound_body">The app adds this sound and plays it on every key press.</string>
+    <string name="import_flex_language_title">Language pack from FlorisBoard</string>
+    <string name="import_flex_language_body">This FlorisBoard language pack holds these tables: <xliff:g id="tables" example="cangjie5, quick5">%1$s</xliff:g>. The app installs the first one it can type with (Cangjie, Quick, stroke or Wubi 86).</string>
+    <string name="import_heli_file_body">This is a HeliBoard or LeanType theme. The app saves its colours as a theme of yours, and does not switch to it.</string>
+    <string name="import_foreign_layout_body">This is a layout from another keyboard (FlorisBoard or Keyman). The app adds its keys as a layout of yours. The layout stays off. To type with it, turn it on in Languages.</string>
+    <string name="import_double_pinyin_title">Use this double pinyin scheme?</string>
+    <string name="import_double_pinyin_body">The app saves <xliff:g id="scheme" example="自然码">%1$s</xliff:g> as your own double pinyin scheme and types with it.</string>
+    <string name="import_double_pinyin_done">The app saved the scheme and switched to it.</string>
+    <string name="import_input_method_body">This is another input method\'s table. The app adds it as a layout of yours. The layout stays off. To type with it, turn it on in Languages.</string>
+    <plurals name="import_dictionary_body">
+        <item quantity="one">This word list has %1$d word. The app adds it to suggestions and autocorrect for the language below.</item>
+        <item quantity="other">This word list has %1$d words. The app adds it to suggestions and autocorrect for the language below.</item>
+    </plurals>
+    <string name="import_emoji_keywords_title">Import emoji keywords?</string>
+    <string name="import_emoji_keywords_body">This file names emoji and the words that find them. The app adds it to emoji search for the language below.</string>
+    <string name="import_anki_title">Import flashcards?</string>
+    <string name="import_anki_body">This is an Anki deck. The app turns it into a vocabulary pack.</string>
+
+    <!-- ==== The preview above the confirm dialog. ==== -->
+
+    <!-- How many entries the preview above is not showing. %1$d picks the wording. -->
+    <plurals name="import_preview_more">
+        <item quantity="one">and %1$d more</item>
+        <item quantity="other">and %1$d more</item>
+    </plurals>
     <string name="import_unreadable_title">The app cannot open that file</string>
+    <string name="import_choose_another">Choose another file</string>
     <string name="import_unreadable_body">The file is not available. Something moved or deleted it, or the app that shared it stopped access to it.</string>
 
     <!-- ==== Plugin files. The dialog says what the plugin is and what it can
@@ -198,8 +428,8 @@
     <string name="import_sticker_packs_empty_subtitle">Make a pack below, or import a pack that someone shared</string>
     <string name="import_sticker_pack_new_title">New pack</string>
     <string name="import_sticker_pack_import_title">Import a pack</string>
-    <!-- .wmstickers is a file extension. Keep it as it is. -->
-    <string name="import_sticker_pack_import_subtitle">Opens a .wmstickers file that someone shared</string>
+    <!-- .wmstickers and .wastickers are file extensions. Keep them as they are. -->
+    <string name="import_sticker_pack_import_subtitle">Opens a .wmstickers file that someone shared, or a .wastickers file made for WhatsApp</string>
     <!-- %1$s is the name of the pack. -->
     <string name="import_sticker_pack_export_desc">Export %1$s</string>
     <!-- %1$s is the name of the pack. -->
@@ -234,7 +464,7 @@
     <!-- ==== One sticker pack: rename it, and add or edit its stickers. ==== -->
 
     <!-- 512×512 WebP is an image format and a size in pixels. -->
-    <string name="import_sticker_pack_caption">The app changes still images to 512×512 WebP files below 100 KB. This is the sticker format that WhatsApp asks for. The app keeps animated GIF files as they are, because Android cannot write animated WebP. Those files always send as images.</string>
+    <string name="import_sticker_pack_caption">The app changes still images to 512×512 WebP files below 100 KB. This is the sticker format that WhatsApp asks for. The app keeps animated GIF files as they are. Those files always send as images. The app changes animated PNG files to animated WebP files, which send as stickers.</string>
     <string name="import_sticker_pack_section_title">Pack</string>
     <string name="import_sticker_pack_rename_subtitle">Press to rename</string>
     <string name="import_sticker_pack_rename_title">Rename pack</string>
@@ -245,8 +475,8 @@
          wording never changes with the count: this is a ratio, not a plural. -->
     <string name="import_stickers_used_subtitle" tools:ignore="PluralsCandidate">%1$d of %2$d used</string>
     <string name="import_stickers_empty_title">No stickers in this pack</string>
-    <!-- Klipy and GIPHY are the names of two sticker services. -->
-    <string name="import_stickers_empty_subtitle">Add stickers from your photos, or press and hold a Klipy or GIPHY sticker in the keyboard</string>
+    <!-- KLIPY and GIPHY are the names of two sticker services. -->
+    <string name="import_stickers_empty_subtitle">Add stickers from your photos, or press and hold a KLIPY or GIPHY sticker in the keyboard</string>
     <!-- Read out for a sticker that has no name of its own. -->
     <string name="import_sticker_desc_fallback">Sticker</string>
     <string name="import_sticker_pack_missing">The app cannot find this pack.</string>
@@ -277,8 +507,10 @@
 
     <string name="import_sticker_edit_title">Edit sticker</string>
     <string name="import_name_label">Name</string>
-    <string name="import_sticker_search_words_label">Search words</string>
-    <string name="import_sticker_search_words_hint">The keyboard finds this sticker by any of these words. Put a space between them, for example: cat 😂 happy</string>
+    <string name="import_sticker_title_label">Title</string>
+    <string name="import_sticker_title_hint">When you type the full title in a chat, the keyboard offers this sticker.</string>
+    <string name="import_sticker_keywords_label">Keywords</string>
+    <string name="import_sticker_keywords_hint">Other words or emoji that also offer this sticker. Put a comma between words. Emoji need nothing between them. For example: cat, good night, 😂🐱</string>
     <string name="import_sticker_move_up">Move up</string>
     <string name="import_sticker_move_down">Move down</string>
     <string name="import_sticker_move_pack">Move to another pack</string>
@@ -288,21 +520,29 @@
 
     <string name="import_sticker_editor_title">Edit image</string>
     <string name="import_sticker_editor_subtitle">Crop the image, remove the background, and add a border</string>
-    <string name="import_sticker_editor_caption">The keyboard saves a 512 by 512 sticker. Move and pinch the image to select the part to keep, then remove the background and add a border. The app keeps this image on the phone, so you can edit the sticker again later.</string>
+    <string name="import_sticker_editor_shape_caption">The sticker keeps the shape and size of the part that you select, up to 1024 pixels on the longest side. Drag the edges and the corners of the frame to select the part to keep, then remove the background and add a border. WhatsApp and Messenger get a 512 by 512 copy when you send. The app keeps this image on the phone, so you can edit the sticker again later.</string>
     <string name="import_sticker_editor_resumed_caption">The app opened the image that you made this sticker from, with your crop, your erasures and your border on it. Continue where you stopped. The sticker changes only after you save.</string>
     <string name="import_sticker_editor_original_caption">This is the image that you made the sticker from. The app kept it on this phone for edits like this one. Your crop, your erasures and your border are not in it. The sticker changes only after you save.</string>
     <string name="import_sticker_editor_crop_action">Crop</string>
-    <string name="import_sticker_editor_crop_hint">Drag to move the image. Pinch to make it larger.</string>
+    <string name="import_sticker_editor_frame_hint">Drag an edge or a corner to change the frame. Drag in the frame to move it.</string>
     <string name="import_sticker_editor_erase_action">Erase</string>
     <string name="import_sticker_editor_restore_action">Restore</string>
     <string name="import_sticker_editor_border_action">Border</string>
     <string name="import_sticker_editor_cutout_action">Remove the background</string>
     <string name="import_sticker_editor_cutout_subtitle">Find the subject and erase all of the other parts</string>
     <string name="import_sticker_editor_cutout_download_subtitle">Get the background remover from Google Play services first</string>
+    <string name="import_sticker_editor_cutout_download_own_subtitle">Get the background remover first. It is a 5 MB download.</string>
     <string name="import_sticker_editor_cutout_progress">The app removes the background…</string>
     <string name="import_sticker_editor_cutout_download_progress">The app gets the background remover…</string>
     <string name="import_sticker_editor_cutout_none_error">The app found no subject in this image. Use the eraser.</string>
     <string name="import_sticker_editor_cutout_error">The app cannot remove the background now.</string>
+    <string name="import_sticker_editor_upscale_action">Upscale</string>
+    <string name="import_sticker_editor_upscale_subtitle">Redraw it sharp at %1$d times the size: %2$s</string>
+    <string name="import_sticker_editor_upscale_download_subtitle">Redraw it sharp at a larger size: %1$s. Get the upscaler first. It is a %2$s download.</string>
+    <string name="import_sticker_editor_upscale_size">%1$d × %2$d → %3$d × %4$d</string>
+    <string name="import_sticker_editor_upscale_progress">The app upscales the sticker…</string>
+    <string name="import_sticker_editor_upscale_download_progress">The app gets the upscaler…</string>
+    <string name="import_sticker_editor_upscale_error">The app cannot upscale this sticker now.</string>
     <string name="import_sticker_editor_brush_size_label">Brush size</string>
     <string name="import_sticker_editor_border_width_label">Border width</string>
     <!-- Caption over the choice of border color. -->
@@ -314,6 +554,48 @@
     <string name="import_sticker_editor_recrop_body">A new crop removes the parts that you erased.</string>
     <string name="import_sticker_editor_save_error">The app cannot save this sticker.</string>
     <string name="import_sticker_editor_edit_action">Edit the image</string>
+
+    <!-- ==== Choosing which stickers of a pack to import (#965), and
+         selecting stickers in a pack to delete them together. ==== -->
+    <string name="import_stickers_select_none">Select none</string>
+    <!-- %1$d is how many stickers are ticked. %2$d is how many there are. -->
+    <plurals name="import_stickers_chosen">
+        <item quantity="one">%1$d of %2$d chosen</item>
+        <item quantity="other">%1$d of %2$d chosen</item>
+    </plurals>
+    <!-- The button that imports the ticked stickers. %1$d is how many. -->
+    <plurals name="import_stickers_add_chosen">
+        <item quantity="one">Add %1$d sticker</item>
+        <item quantity="other">Add %1$d stickers</item>
+    </plurals>
+    <string name="import_stickers_pick_caption">Untick the stickers you do not want. The app converts only the ticked ones, so leaving out animated stickers makes the import faster.</string>
+    <string name="import_stickers_reading">Reading the pack…</string>
+    <string name="import_stickers_adding_progress" tools:ignore="PluralsCandidate">Adding %1$d of %2$d</string>
+    <!-- %1$d is how many stickers are selected. -->
+    <plurals name="import_stickers_selected">
+        <item quantity="one">%1$d selected</item>
+        <item quantity="other">%1$d selected</item>
+    </plurals>
+    <string name="import_stickers_delete_selected">Delete the selected stickers</string>
+    <string name="import_stickers_move_selected">Move the selected stickers to another pack</string>
+    <string name="import_stickers_copy_selected">Copy the selected stickers to another pack</string>
+    <!-- %1$d is how many stickers are selected. -->
+    <plurals name="import_stickers_move_title">
+        <item quantity="one">Move %1$d sticker to</item>
+        <item quantity="other">Move %1$d stickers to</item>
+    </plurals>
+    <!-- %1$d is how many stickers are selected. -->
+    <plurals name="import_stickers_copy_title">
+        <item quantity="one">Copy %1$d sticker to</item>
+        <item quantity="other">Copy %1$d stickers to</item>
+    </plurals>
+    <!-- %1$d is how many stickers are selected. -->
+    <plurals name="import_stickers_delete_selected_title">
+        <item quantity="one">Delete %1$d sticker?</item>
+        <item quantity="other">Delete %1$d stickers?</item>
+    </plurals>
+    <string name="import_stickers_delete_selected_body">The app deletes them from this pack and from your device. To keep a copy, export the pack first.</string>
+    <string name="import_stickers_select_hint">Press and hold a sticker to select several and delete them together.</string>
 
     <!-- Opening a .wmvocab.json vocabulary pack from a file manager. -->
     <plurals name="import_vocab_title">

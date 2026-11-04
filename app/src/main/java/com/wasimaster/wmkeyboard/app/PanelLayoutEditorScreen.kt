@@ -8,25 +8,20 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Redo
-import androidx.compose.material.icons.automirrored.outlined.Undo
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Refresh
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.Redo
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.Undo
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Add
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Refresh
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -58,7 +53,6 @@ import com.wasimaster.wmkeyboard.core.layout.KeyAction
 import com.wasimaster.wmkeyboard.core.layout.KeyboardLayout
 import com.wasimaster.wmkeyboard.core.layout.LayerSpec
 import com.wasimaster.wmkeyboard.core.layout.LayoutAppearance
-import com.wasimaster.wmkeyboard.core.layout.LayoutMessage
 import com.wasimaster.wmkeyboard.core.layout.LayoutSeverity
 import com.wasimaster.wmkeyboard.core.layout.MaxRowHeightScale
 import com.wasimaster.wmkeyboard.core.layout.MinRowHeightScale
@@ -67,6 +61,8 @@ import com.wasimaster.wmkeyboard.core.layout.PanelKind
 import com.wasimaster.wmkeyboard.core.layout.PanelLayoutCodec
 import com.wasimaster.wmkeyboard.core.layout.PanelLayoutSpec
 import com.wasimaster.wmkeyboard.core.layout.fitRowToGrid
+import com.wasimaster.wmkeyboard.core.layout.hasFlicks
+import com.wasimaster.wmkeyboard.core.layout.json.LayoutJsonRoot
 import com.wasimaster.wmkeyboard.core.layout.gridWeightOf
 import com.wasimaster.wmkeyboard.core.layout.isAllowedOnPanel
 import com.wasimaster.wmkeyboard.core.layout.panelFlexRows
@@ -74,14 +70,29 @@ import com.wasimaster.wmkeyboard.core.layout.panelRowTops
 import com.wasimaster.wmkeyboard.core.layout.repair
 import com.wasimaster.wmkeyboard.core.layout.resolvePanelLayout
 import com.wasimaster.wmkeyboard.core.layout.rowScaledKeyHeight
+import com.wasimaster.wmkeyboard.core.layout.secondaryLayouts
 import com.wasimaster.wmkeyboard.core.layout.spanRowWidths
 import com.wasimaster.wmkeyboard.core.layout.validatePanelLayout
 import com.wasimaster.wmkeyboard.core.settings.KeyboardSettings
 import com.wasimaster.wmkeyboard.core.settings.SettingsRepository
 import com.wasimaster.wmkeyboard.core.settings.TextEditAction
+import com.wasimaster.wmkeyboard.core.settings.ToolbarTool
+import com.wasimaster.wmkeyboard.core.settings.isSupportedTool
+import com.wasimaster.wmkeyboard.core.settings.isUsableTool
 import com.wasimaster.wmkeyboard.ime.ui.KbTheme
 import com.wasimaster.wmkeyboard.ime.ui.keyShape
 import kotlinx.coroutines.launch
+import com.wasimaster.wmkeyboard.core.ui.ScrollRail
+import com.wasimaster.wmkeyboard.core.ui.rememberScrollRailState
+
+/**
+ * One panel's layout editor, as flights name it.
+ *
+ * The navigation route with its argument filled in, which is what a flight is
+ * keyed on: the pattern (`panel_edit/{panel}`) is the same string for every
+ * panel and would hang one key on all of them.
+ */
+internal fun panelEditRoute(kind: PanelKind): String = "panel_edit/${kind.name}"
 
 /**
  * The panel layouts (issue #63): the emoji, clipboard and text-editing panels
@@ -98,10 +109,14 @@ import kotlinx.coroutines.launch
 @StringRes
 internal fun panelTitleRes(kind: PanelKind): Int = when (kind) {
     PanelKind.EMOJI -> R.string.panel_name_emoji
+    PanelKind.GIF -> R.string.panel_name_gif
+    PanelKind.STICKER -> R.string.panel_name_sticker
     PanelKind.CLIPBOARD -> R.string.panel_name_clipboard
     PanelKind.TEXT_EDIT -> R.string.panel_name_text_edit
     PanelKind.TRACKPAD -> R.string.panel_name_trackpad
     PanelKind.NUMPAD -> R.string.panel_name_numpad
+    PanelKind.HANDWRITING -> R.string.panel_name_handwriting
+    PanelKind.EMOJI_MIX -> R.string.panel_name_emoji_mix
 }
 
 /** A component's name, in the picker, the preview cell and the reorder dialog. */
@@ -110,10 +125,16 @@ internal fun fieldTitleRes(kind: PanelFieldKind): Int = when (kind) {
     PanelFieldKind.EMOJI_TABS -> R.string.field_name_emoji_tabs
     PanelFieldKind.EMOJI_SEARCH -> R.string.field_name_emoji_search
     PanelFieldKind.EMOJI_GRID -> R.string.field_name_emoji_grid
+    PanelFieldKind.MEDIA_TABS -> R.string.field_name_media_tabs
     PanelFieldKind.CLIPBOARD_SEARCH -> R.string.field_name_clipboard_search
     PanelFieldKind.CLIPBOARD_ENTITIES -> R.string.field_name_clipboard_entities
     PanelFieldKind.CLIPBOARD_LIST -> R.string.field_name_clipboard_list
+    PanelFieldKind.CLIPBOARD_VIEW -> R.string.field_name_clipboard_view
     PanelFieldKind.TRACKPAD -> R.string.field_name_trackpad
+    PanelFieldKind.GIF_BROWSER -> R.string.field_name_gif_browser
+    PanelFieldKind.STICKER_BROWSER -> R.string.field_name_sticker_browser
+    PanelFieldKind.HANDWRITING_CANVAS -> R.string.field_name_handwriting_canvas
+    PanelFieldKind.EMOJI_MIX_BROWSER -> R.string.field_name_emoji_mix_browser
     PanelFieldKind.UNKNOWN -> R.string.field_name_unknown
 }
 
@@ -140,19 +161,25 @@ internal fun textEditActionTitle(op: TextEditAction): Int = when (op) {
     TextEditAction.COPY -> R.string.textedit_action_copy
     TextEditAction.PASTE -> R.string.textedit_action_paste
     TextEditAction.BACKSPACE -> R.string.textedit_action_backspace
+    TextEditAction.FORWARD_DELETE -> R.string.textedit_action_forward_delete
     TextEditAction.DOC_START -> R.string.textedit_action_doc_start
     TextEditAction.DOC_END -> R.string.textedit_action_doc_end
     TextEditAction.CUT -> R.string.textedit_action_cut
+    TextEditAction.RETYPE_WORD -> R.string.textedit_action_retype_word
+    TextEditAction.NO_SPACE -> R.string.textedit_action_no_space
+    TextEditAction.NO_SPACE_NEXT -> R.string.textedit_action_no_space_next
+    TextEditAction.DELETE_WORD -> R.string.textedit_action_delete_word
+    TextEditAction.DELETE_WORD_FORWARD -> R.string.textedit_action_delete_word_forward
 }
 
 /** The components a layout of [kind] may place; empty for the keys-only pad. */
 internal fun fieldKindsFor(kind: PanelKind): List<PanelFieldKind> =
-    PanelFieldKind.entries.filter { it.isReal && it.panel == kind }
+    PanelFieldKind.entries.filter { it.isReal && it.isOn(kind) }
 
 /**
  * The actions a panel key may take: the panel's own component first, then
- * every typing action the panel repair accepts. Shift, caps lock, Fn and the
- * chorded keys are left out because `repair` would drop them anyway.
+ * every typing action the panel repair accepts — which since issue #183 is
+ * every action of the key catalog but the two `isAllowedOnPanel` names.
  */
 internal fun panelKeyActionCatalog(kind: PanelKind): List<KeyActionOption> {
     val kinds = fieldKindsFor(kind)
@@ -183,10 +210,12 @@ internal fun PanelLayoutsGroup(custom: List<PanelLayoutSpec>, onNavigate: (Strin
                 val isCustom = custom.any { it.panel == kind }
                 WmRow(
                     title = name,
+                    icon = SettingsRowIcons[panelTitleRes(kind)],
                     subtitle = stringResource(
                         if (isCustom) R.string.panel_layout_value_custom else R.string.panel_layout_value_default,
                     ),
-                    onClick = { onNavigate("panel_edit/${kind.name}") },
+                    flightTo = panelEditRoute(kind),
+                    onClick = { onNavigate(panelEditRoute(kind)) },
                 )
             }
         }
@@ -196,7 +225,7 @@ internal fun PanelLayoutsGroup(custom: List<PanelLayoutSpec>, onNavigate: (Strin
 @Composable
 internal fun PanelLayoutEditorScreen(
     repository: SettingsRepository,
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     kind: PanelKind,
     onNavigate: (String) -> Unit,
 ) {
@@ -210,7 +239,6 @@ internal fun PanelLayoutEditorScreen(
     val isCustom = stored.any { it.panel == kind }
 
     var selection by remember(kind) { mutableStateOf<KeyRef?>(null) }
-    var sheetOpen by remember(kind) { mutableStateOf(false) }
     var actualSize by rememberSaveable(kind) { mutableStateOf(false) }
     var confirmReset by remember(kind) { mutableStateOf(false) }
 
@@ -250,8 +278,9 @@ internal fun PanelLayoutEditorScreen(
     fun editGridCoalesced(transform: (LayerSpec) -> LayerSpec) =
         editCoalesced { it.copy(grid = transform(it.grid)) }
 
-    val (compiled, previewHeightsDp) = remember(spec, settings.keyHeightDp, actualSize) {
-        panelPreview(kind, spec.grid, spec.appearance, settings, actualSize, themeId = spec.grid.themeId)
+    val keyHeightDp = settings.watch { it.keyHeightDp }
+    val (compiled, previewHeightsDp) = remember(spec, keyHeightDp, actualSize) {
+        panelPreview(kind, spec.grid, spec.appearance, keyHeightDp, actualSize, themeId = spec.grid.themeId)
     }
 
     SectionHeaderPublic(
@@ -304,18 +333,24 @@ internal fun PanelLayoutEditorScreen(
         onSelect = { ref ->
             selection = ref
             stepPushed = false
-            sheetOpen = true
         },
         rowHeightsDp = previewHeightsDp,
+        // A drop is one edit and one undo step, through the same guarded move
+        // the sheet's arrows use.
+        onKeyDragged = { from, to ->
+            editGrid { it.copy(rows = moveKeyIn(it.rows, from, to)) }
+            selection = to
+            stepPushed = false
+        },
     )
+
+    if (selection == null) CaptionText(stringResource(R.string.layout_editor_drag_caption))
 
     PanelEditorBody(
         kind = kind,
         grid = spec.grid,
         selection = selection,
         onSelectionChange = { selection = it },
-        sheetOpen = sheetOpen,
-        onSheetOpenChange = { sheetOpen = it },
         actualSize = actualSize,
         onActualSizeChange = { actualSize = it },
         editGrid = ::editGrid,
@@ -332,6 +367,23 @@ internal fun PanelLayoutEditorScreen(
             null
         },
     )
+
+    // The switch to GIFs and stickers draws nothing while neither of their
+    // tools is on: a switch with only the emoji panel in it goes nowhere. A
+    // grid that places it says so here, or the cell reads as broken (#856).
+    val switchIdle = settings.watch { !mediaSwitchReachable(it) }
+    if (switchIdle && spec.grid.rows.any { row -> row.any { (it.action as? KeyAction.Field)?.kind == PanelFieldKind.MEDIA_TABS } }) {
+        SettingsGroup(stringResource(R.string.panel_layout_media_tabs_idle_group)) {
+            item {
+                NavRow(
+                    title = R.string.panel_layout_media_tabs_idle_title,
+                    subtitle = stringResource(R.string.panel_layout_media_tabs_idle_body),
+                    route = toolRoute(ToolbarTool.GIF),
+                    onClick = { onNavigate(toolRoute(ToolbarTool.GIF)) },
+                )
+            }
+        }
+    }
 
     val findings = validatePanelLayout(spec)
     if (findings.isNotEmpty()) {
@@ -380,6 +432,16 @@ internal fun PanelLayoutEditorScreen(
 }
 
 /**
+ * Whether the emoji panel's switch has somewhere to go: the GIF or the Sticker
+ * tool switched on and usable. The keyboard's own test (`mediaTabs`) lives in
+ * the IME module; this is the same rule for the editor.
+ */
+internal fun mediaSwitchReachable(settings: KeyboardSettings): Boolean =
+    listOf(ToolbarTool.GIF, ToolbarTool.STICKER, ToolbarTool.EMOJI_MIX).any { tool ->
+        tool in settings.enabledTools && isSupportedTool(tool) && isUsableTool(tool, settings)
+    }
+
+/**
  * The panel's grid as the preview draws it, with the row heights the keyboard
  * would give it: key rows at key height, component rows over the rest, four
  * key rows' worth in all — which is what the key area is on the shipped
@@ -393,7 +455,7 @@ internal fun panelPreview(
     kind: PanelKind,
     grid: LayerSpec,
     appearance: LayoutAppearance?,
-    settings: KeyboardSettings,
+    keyHeightDp: Int,
     actualSize: Boolean,
     themeId: String? = null,
 ): Pair<KeyboardLayout, List<Int>> {
@@ -409,7 +471,7 @@ internal fun panelPreview(
         ).takeUnless { it.isEmpty },
         themeId = themeId,
     )
-    val baseHeightDp = if (actualSize) settings.keyHeightDp else settings.keyHeightDp.coerceIn(38, 56)
+    val baseHeightDp = if (actualSize) keyHeightDp else keyHeightDp.coerceIn(38, 56)
     val heights = if (rows.isEmpty()) {
         emptyList()
     } else {
@@ -432,8 +494,8 @@ internal class ResetRow(
 )
 
 /**
- * Everything under a panel's preview grid: the row tools for the selected
- * row, the group of layout-wide rows, and the key sheet. Owned by neither
+ * Everything under a panel's preview grid: the selected key's section, the row
+ * tools for its row, and the group of layout-wide rows. Owned by neither
  * screen that shows it — the panel's own screen edits the shared panel layout
  * through the repository, the layout editor edits a layout's own copy through
  * its undo stack — so every edit goes out through [editGrid] and
@@ -445,8 +507,6 @@ internal fun PanelEditorBody(
     grid: LayerSpec,
     selection: KeyRef?,
     onSelectionChange: (KeyRef?) -> Unit,
-    sheetOpen: Boolean,
-    onSheetOpenChange: (Boolean) -> Unit,
     actualSize: Boolean,
     onActualSizeChange: (Boolean) -> Unit,
     editGrid: ((LayerSpec) -> LayerSpec) -> Unit,
@@ -455,7 +515,7 @@ internal fun PanelEditorBody(
     onNavigate: (String) -> Unit,
     reset: ResetRow?,
     /** For the theme row: the picker lists this user's themes. */
-    settings: KeyboardSettings,
+    settings: LiveSettings,
 ) {
     val context = LocalContext.current
     val rows = grid.rows
@@ -475,6 +535,68 @@ internal fun PanelEditorBody(
             if (rowIndex in list.indices) list[rowIndex] = value
             ls.copy(rowHeights = if (list.all { it == 1f }) null else list.toList())
         }
+    }
+
+    // The selected key first, then its row (issue #769): on the page under
+    // the grid rather than in a sheet over it.
+    val ref = selection
+    if (ref != null && selectedKey != null) {
+        KeyEditSheet(
+            key = selectedKey,
+            ref = ref,
+            rowSize = rows[ref.row].size,
+            rowCount = rows.size,
+            gridWeight = gridWeightOf(rows),
+            otherWidthsInRow = spanRowWidths(rows)[ref.row] - selectedKey.width,
+            onChange = { change ->
+                editGridCoalesced { ls ->
+                    ls.copy(
+                        rows = ls.rows.mapIndexed { r, row ->
+                            if (r != ref.row) row else row.mapIndexed { c, k -> if (c == ref.col) change(k) else k }
+                        },
+                    )
+                }
+            },
+            onMove = { delta ->
+                val target = ref.col + delta
+                if (target in rows[ref.row].indices) {
+                    editRows { r ->
+                        r.mapIndexed { i, row ->
+                            if (i != ref.row) row else row.toMutableList().apply { add(target, removeAt(ref.col)) }
+                        }
+                    }
+                    onSelectionChange(ref.copy(col = target))
+                }
+            },
+            onMoveRow = { delta ->
+                // The key layers' rule, on a panel: the same guarded helper the
+                // preview's drag lands through.
+                rowMoveTarget(rows, ref, delta)?.let { to ->
+                    editRows { moveKeyIn(it, ref, to) }
+                    onSelectionChange(to)
+                }
+            },
+            onDuplicate = {
+                editRows { r ->
+                    r.mapIndexed { i, row ->
+                        if (i != ref.row) row else row.subList(0, ref.col + 1) + row[ref.col] + row.drop(ref.col + 1)
+                    }
+                }
+            },
+            onDelete = {
+                editRows { r ->
+                    r.mapIndexed { i, row -> if (i != ref.row) row else row.filterIndexed { c, _ -> c != ref.col } }
+                }
+                onSelectionChange(null)
+            },
+            onDismiss = { onSelectionChange(null) },
+            catalog = panelKeyActionCatalog(kind),
+            fieldKinds = fieldKindsFor(kind).takeIf { it.isNotEmpty() },
+            // An "open a layout" key on a panel names a secondary layout the
+            // same way one on a typing grid does.
+            secondaryLayouts = secondaryLayouts(settings.watch { it.customLayouts }),
+            keyboardModes = settings.watch { it.keyboardModes },
+        )
     }
 
     selection?.let { ref ->
@@ -531,6 +653,7 @@ internal fun PanelEditorBody(
         item {
             ReorderSetting(
                 title = stringResource(R.string.layout_editor_reorder_rows_title),
+                icon = SettingsRowIcons[R.string.layout_editor_reorder_rows_title],
                 dialogTitle = stringResource(R.string.layout_editor_row_order_dialog_title),
                 items = rows.indices.toList(),
                 label = { i -> rowReorderLabel(context, i + 1, rows[i].size) },
@@ -541,21 +664,20 @@ internal fun PanelEditorBody(
             }
         }
         selection?.let { ref ->
-            if (ref.row in rows.indices && rows[ref.row].size > 1) {
-                item {
-                    ReorderSetting(
-                        title = stringResource(R.string.layout_editor_reorder_keys_title, ref.row + 1),
-                        dialogTitle = stringResource(R.string.layout_editor_key_order_dialog_title),
-                        items = rows[ref.row].indices.toList(),
-                        label = { keyReorderLabel(context, rows[ref.row][it]) },
-                    ) { order ->
-                        editRows { r ->
-                            r.mapIndexed { i, row ->
-                                if (i == ref.row && order.size == row.size) order.map { row[it] } else row
-                            }
+            item(visible = ref.row in rows.indices && rows[ref.row].size > 1) {
+                ReorderSetting(
+                    title = stringResource(R.string.layout_editor_reorder_keys_title, ref.row + 1),
+                    icon = SettingsRowIcons[R.string.layout_editor_reorder_keys_title],
+                    dialogTitle = stringResource(R.string.layout_editor_key_order_dialog_title),
+                    items = rows[ref.row].indices.toList(),
+                    label = { keyReorderLabel(context, rows[ref.row][it]) },
+                ) { order ->
+                    editRows { r ->
+                        r.mapIndexed { i, row ->
+                            if (i == ref.row && order.size == row.size) order.map { row[it] } else row
                         }
-                        onSelectionChange(null)
                     }
+                    onSelectionChange(null)
                 }
             }
         }
@@ -577,6 +699,18 @@ internal fun PanelEditorBody(
                 info = stringResource(R.string.panel_layout_persist_info),
             ) { on -> editGrid { it.copy(persistent = on) } }
         }
+        // Issue #588 on a panel: the Numpad's flick arms, over the setting.
+        if (rows.any { row -> row.any { k -> k.hasFlicks() } }) {
+            item {
+                val global = settings.watch { it.layoutBehavior.flickHints }
+                ToggleSetting(
+                    R.string.layout_editor_flick_hints_title,
+                    stringResource(R.string.layout_editor_flick_hints_subtitle),
+                    grid.flickHints ?: global,
+                    info = stringResource(R.string.layout_editor_flick_hints_info),
+                ) { on -> editGrid { it.copy(flickHints = on.takeIf { value -> value != global }) } }
+            }
+        }
         item {
             // A theme of the panel's own (issue #61 on a panel): the board
             // draws in it while this panel is open, over the layout's theme
@@ -584,6 +718,7 @@ internal fun PanelEditorBody(
             val clearLabel = stringResource(CommonR.string.common_clear)
             WmRow(
                 title = stringResource(R.string.layout_editor_panel_theme_title),
+                icon = SettingsRowIcons[R.string.layout_editor_panel_theme_title],
                 subtitle = grid.themeId?.let { themeDisplayName(settings, it) }
                     ?: stringResource(R.string.layout_editor_panel_theme_inherit_subtitle),
                 trailing = {
@@ -631,55 +766,6 @@ internal fun PanelEditorBody(
                 editGrid { it.copy(themeId = id) }
             },
             onDismiss = { themePickerOpen = false },
-        )
-    }
-
-    val ref = selection
-    if (sheetOpen && ref != null && selectedKey != null) {
-        KeyEditSheet(
-            key = selectedKey,
-            ref = ref,
-            rowSize = rows[ref.row].size,
-            rowCount = rows.size,
-            gridWeight = gridWeightOf(rows),
-            otherWidthsInRow = spanRowWidths(rows)[ref.row] - selectedKey.width,
-            onChange = { change ->
-                editGridCoalesced { ls ->
-                    ls.copy(
-                        rows = ls.rows.mapIndexed { r, row ->
-                            if (r != ref.row) row else row.mapIndexed { c, k -> if (c == ref.col) change(k) else k }
-                        },
-                    )
-                }
-            },
-            onMove = { delta ->
-                val target = ref.col + delta
-                if (target in rows[ref.row].indices) {
-                    editRows { r ->
-                        r.mapIndexed { i, row ->
-                            if (i != ref.row) row else row.toMutableList().apply { add(target, removeAt(ref.col)) }
-                        }
-                    }
-                    onSelectionChange(ref.copy(col = target))
-                }
-            },
-            onDuplicate = {
-                editRows { r ->
-                    r.mapIndexed { i, row ->
-                        if (i != ref.row) row else row.subList(0, ref.col + 1) + row[ref.col] + row.drop(ref.col + 1)
-                    }
-                }
-            },
-            onDelete = {
-                editRows { r ->
-                    r.mapIndexed { i, row -> if (i != ref.row) row else row.filterIndexed { c, _ -> c != ref.col } }
-                }
-                onSelectionChange(null)
-                onSheetOpenChange(false)
-            },
-            onDismiss = { onSheetOpenChange(false) },
-            catalog = panelKeyActionCatalog(kind),
-            fieldKinds = fieldKindsFor(kind).takeIf { it.isNotEmpty() },
         )
     }
 }
@@ -748,12 +834,16 @@ internal fun TextEditActionPickerDialog(
     onDismiss: () -> Unit,
     onPick: (TextEditAction) -> Unit,
 ) {
+    val rail = rememberScrollRailState()
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.layout_editor_edit_picker_title)) },
         text = {
-            LazyColumn(modifier = Modifier.heightIn(max = 420.dp)) {
-                items(TextEditAction.entries, key = { it.name }) { op ->
+            // Twenty operations behind a 420 dp window, and the same complaint
+            // the action picker got (issue #202): a plain column with a rail
+            // beside it, since twenty rows are not worth a lazy list.
+            ScrollRail(state = rail, modifier = Modifier.heightIn(max = 420.dp)) {
+                for (op in TextEditAction.entries) {
                     WmRow(
                         title = stringResource(textEditActionTitle(op)),
                         leading = { RadioButton(selected = current == op, onClick = { onPick(op) }) },
@@ -766,6 +856,57 @@ internal fun TextEditActionPickerDialog(
             TextButton(onClick = onDismiss) { Text(stringResource(CommonR.string.common_cancel)) }
         },
     )
+}
+
+/**
+ * Builds a run of text-editing operations for one press (#985): what is in it,
+ * each with a way out, and a row that asks for one more. [onPick] takes the run.
+ */
+@Composable
+internal fun TextEditSequenceDialog(
+    current: List<TextEditAction>,
+    onDismiss: () -> Unit,
+    onPick: (List<TextEditAction>) -> Unit,
+) {
+    var ops by remember { mutableStateOf(current) }
+    var adding by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.layout_editor_sequence_title)) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                ops.forEachIndexed { index, op ->
+                    WmRow(
+                        title = "${index + 1}. ${stringResource(textEditActionTitle(op))}",
+                        onClick = { ops = ops.filterIndexed { i, _ -> i != index } },
+                    )
+                }
+                WmRow(
+                    title = stringResource(R.string.layout_editor_sequence_add),
+                    subtitle = stringResource(R.string.layout_editor_sequence_add_subtitle),
+                    onClick = { adding = true },
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = ops.isNotEmpty(), onClick = { onPick(ops) }) {
+                Text(stringResource(CommonR.string.common_done))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(CommonR.string.common_cancel)) }
+        },
+    )
+    if (adding) {
+        TextEditActionPickerDialog(
+            current = null,
+            onDismiss = { adding = false },
+            onPick = { op ->
+                adding = false
+                ops = ops + op
+            },
+        )
+    }
 }
 
 /** Picks which component a cell hosts. */
@@ -804,62 +945,30 @@ internal fun FieldKindPickerDialog(
 @Composable
 internal fun PanelLayoutJsonScreen(
     repository: SettingsRepository,
+    settings: LiveSettings,
     kind: PanelKind,
     onDone: () -> Unit,
 ) {
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
     val custom by repository.customPanelLayouts.collectAsStateWithLifecycle(null)
     val stored = custom ?: return
-    var text by rememberSaveable(kind) {
-        mutableStateOf(PanelLayoutCodec.encodeForEditing(resolvePanelLayout(kind, stored)))
-    }
-    var error by remember { mutableStateOf<String?>(null) }
-    var repairs by remember { mutableStateOf<List<LayoutMessage>>(emptyList()) }
-    val invalidJsonMessage = stringResource(R.string.layout_editor_json_invalid_error)
-
-    CaptionText(stringResource(R.string.layout_editor_json_caption))
-
-    OutlinedTextField(
-        value = text,
-        onValueChange = { text = it; error = null },
-        label = { Text(stringResource(R.string.layout_editor_json_field_label)) },
-        isError = error != null,
-        supportingText = error?.let { { Text(it) } },
-        visualTransformation = rememberJsonSyntaxHighlighter(),
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 240.dp, max = 420.dp)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-    )
-
-    if (repairs.isNotEmpty()) {
-        SettingsGroup(stringResource(R.string.layout_editor_json_applied_title)) {
-            for (note in repairs) {
-                item { WmRow(title = note.format(context.resources)) }
-            }
-        }
-    }
-
-    Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Spacer(Modifier.weight(1f))
-        Button(
-            enabled = text.isNotBlank(),
-            onClick = {
-                val parsed = PanelLayoutCodec.decode(text)
-                if (parsed == null) {
-                    error = invalidJsonMessage
-                    return@Button
-                }
+    LayoutJsonEditorScreen(
+        title = stringResource(R.string.panel_layout_json_title),
+        documentKey = "panel:${kind.name}",
+        root = LayoutJsonRoot.PANEL,
+        settings = settings,
+        initialText = { PanelLayoutCodec.encodeForEditing(resolvePanelLayout(kind, stored)) },
+        onApply = { text ->
+            val parsed = PanelLayoutCodec.decode(text)
+            if (parsed == null) {
+                JsonApplyOutcome.Invalid
+            } else {
                 // The panel named in the text is ignored: this screen edits one
                 // panel, and honouring a pasted one would overwrite another.
                 val repaired = parsed.copy(panel = kind).repair()
-                repairs = repaired.repairNotes
-                scope.launch {
-                    repository.upsertPanelLayout(repaired.spec)
-                    if (repaired.repairNotes.isEmpty()) onDone()
-                }
-            },
-        ) { Text(stringResource(R.string.layout_editor_apply_action)) }
-    }
+                repository.upsertPanelLayout(repaired.spec)
+                JsonApplyOutcome.Applied(repaired.repairNotes)
+            }
+        },
+        onBack = onDone,
+    )
 }

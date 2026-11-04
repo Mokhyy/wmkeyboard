@@ -1,5 +1,9 @@
 package com.wasimaster.wmkeyboard.ime.ui
 
+import android.annotation.SuppressLint
+import android.content.Context
+import android.os.Build
+import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,26 +16,28 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.OpenWith
-import androidx.compose.material.icons.outlined.RestartAlt
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Check
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.OpenWith
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.RestartAlt
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,13 +46,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.wasimaster.wmkeyboard.core.debug.DebugLog
 import com.wasimaster.wmkeyboard.core.settings.ScreenVariant
 import com.wasimaster.wmkeyboard.core.settings.SettingsRepository
 import com.wasimaster.wmkeyboard.core.settings.SidePadScaleRange
@@ -88,7 +98,9 @@ internal data class ResizeValues(
  * in this session (every height at its ceiling, padding at its ceiling). The
  * docked frame reserves that much extra on entry — see [resizeHeadroom] — and
  * [reservedPx] latches the resulting frame height on the first layout, so the
- * keyboard grows and shrinks inside a frame that never moves.
+ * keyboard grows and shrinks inside a frame that never moves. [entryPx] is the
+ * keyboard's own height at that latch and [keyboardPx] its height now; the two
+ * place the band the app stays laid out under ([windowBandPx]).
  */
 @Immutable
 internal class ResizeSession(
@@ -100,6 +112,8 @@ internal class ResizeSession(
     val onCommit: (ResizeValues?) -> Unit,
 ) {
     val reservedPx: MutableIntState = mutableIntStateOf(0)
+    val entryPx: MutableIntState = mutableIntStateOf(0)
+    val keyboardPx: MutableIntState = mutableIntStateOf(0)
 }
 
 /**
@@ -238,13 +252,18 @@ private class ResizeFrameMetrics {
 /**
  * Reserves the resize mode's headroom on the docked frame: a minimum height
  * latched on the session's first layout ([ResizeSession.reservedPx]), so the
- * frame — and with it the IME window's content inset and the host app's
- * layout — is settled once on entry and then holds still while the keyboard
- * grows and shrinks inside it.
+ * frame — and with it the IME window — is settled once on entry and then holds
+ * still while the keyboard grows and shrinks inside it.
  *
  * This is what makes a drag smooth. Without it every previewed dp re-laid
  * out the host app and moved the input view under the finger, and a drag
  * that moves its own origin every frame is a drag that fights itself.
+ *
+ * The reserved band is window, not keyboard: it is reported to the service
+ * ([windowBandPx]), which keeps it out of the app's insets. Counted in them,
+ * as it was, the app was squeezed into whatever the band left of the screen,
+ * up to 80% of it gone, and its content jumped up by the
+ * band on entry (issue #643).
  *
  * A measure-scope read of the latch: a change re-measures this node and
  * recomposes nothing.
@@ -260,19 +279,109 @@ internal fun Modifier.resizeHeadroom(session: ResizeSession): Modifier = layout 
  * Latches the frame's reserved height from the keyboard's own height on the
  * session's first layout: the keyboard as it stood on entry plus every dp it
  * could still grow, capped at [maxPx] so a tall keyboard on a short screen
- * leaves the host app some room.
+ * leaves the host app some room, and so the window can hold it at all (see
+ * [rememberImeWindowMaxHeightPx]).
  */
 internal fun ResizeSession.latchReserved(keyboardHeightPx: Int, headroomPx: Int, maxPx: Int) {
+    keyboardPx.intValue = keyboardHeightPx
     if (reservedPx.intValue != 0) return
+    entryPx.intValue = keyboardHeightPx
     reservedPx.intValue = (keyboardHeightPx + headroomPx)
         .coerceAtMost(maxPx)
         .coerceAtLeast(keyboardHeightPx)
 }
 
 /**
+ * The tallest the keyboard's window can ever be: the display less the status
+ * bar and any cutout across its top, which an input method's window never
+ * covers.
+ *
+ * The resize mode's reserved frame has to fit under it with everything else
+ * the window holds (#669). Capped only at 80% of the display, the frame plus
+ * the key-preview band above it asked for 2310px of a window that can be
+ * 2293px at most (CPH2481, measured): the window did not grow at all, and the
+ * frame was drawn from the top of the keyboard's old window, its held band
+ * filling where the keys had been and the keys below the screen's edge, only
+ * the toolbar left showing over the navigation bar.
+ */
+@Composable
+internal fun rememberImeWindowMaxHeightPx(): Int {
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    return remember(context, configuration) { imeWindowMaxHeightPx(context) }
+}
+
+@SuppressLint("DiscouragedApi", "InternalInsetResource")
+private fun imeWindowMaxHeightPx(context: Context): Int = runCatching {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        val metrics = context.getSystemService(WindowManager::class.java).currentWindowMetrics
+        val top = metrics.windowInsets.getInsetsIgnoringVisibility(
+            android.view.WindowInsets.Type.statusBars() or android.view.WindowInsets.Type.displayCutout(),
+        ).top
+        metrics.bounds.height() - top
+    } else {
+        val resources = context.resources
+        val id = resources.getIdentifier("status_bar_height", "dimen", "android")
+        val statusBar = if (id == 0) 0 else resources.getDimensionPixelSize(id)
+        resources.displayMetrics.heightPixels - statusBar
+    }
+}.getOrDefault(Int.MAX_VALUE)
+
+/**
+ * Holds the reserved frame to the window the system actually gives, whatever
+ * [rememberImeWindowMaxHeightPx] predicted (#724).
+ *
+ * The prediction is the display less the status bar, and the #669 fix capped
+ * the frame there. Some phones still let the window have less (seen on a
+ * Galaxy S25 Ultra): the window then does not grow at all, the frame is drawn
+ * from the top of the old window, and only the toolbar shows, on the
+ * navigation bar, with the keys below the screen's edge. [StableMeasureFrame]
+ * sees that as the keyboard measured taller than the window it was let have,
+ * and the reserved band gives up exactly that much, down to the keyboard's own
+ * height, so the keys are back on screen with whatever headroom fits.
+ */
+@Composable
+internal fun ResizeWindowFit(session: ResizeSession) {
+    val view = LocalView.current
+    val frame = remember(view) {
+        generateSequence(view.parent) { it.parent }.filterIsInstance<StableMeasureFrame>().firstOrNull()
+    } ?: return
+    LaunchedEffect(session, frame) {
+        snapshotFlow { frame.overflowPx.intValue }.collect { session.fitWindow(it) }
+    }
+}
+
+/** Takes [overflowPx] the window could not hold off the reserved band; see [ResizeWindowFit]. */
+internal fun ResizeSession.fitWindow(overflowPx: Int) {
+    val reserved = reservedPx.intValue
+    if (overflowPx <= 0 || reserved == 0) return
+    val fitted = (reserved - overflowPx).coerceAtLeast(keyboardPx.intValue)
+    if (fitted == reserved) return
+    DebugLog.i("window", "resize frame ${reserved}px over the window by ${overflowPx}px, held at ${fitted}px")
+    reservedPx.intValue = fitted
+}
+
+/**
+ * How much of the frame's top is window rather than keyboard: from the frame's
+ * top edge down to where the keyboard's top stood on entry. The app stays laid
+ * out down to that line for the whole session, so entering moves nothing under
+ * it, and a keyboard dragged taller than it entered grows over the app, dimmed
+ * behind [ResizeHeadroomScrim], rather than shoving the app up a frame at a
+ * time. Past the reserved height (the screen-share cap) the frame grows with
+ * the keyboard, and the line is still the entry top.
+ */
+internal fun ResizeSession.windowBandPx(): Int {
+    val reserved = reservedPx.intValue
+    if (reserved == 0) return 0
+    return (maxOf(reserved, keyboardPx.intValue) - entryPx.intValue).coerceAtLeast(0)
+}
+
+/**
  * The dimmed, touch-eating band that fills the reserved headroom above the
- * keyboard. Drawn *under* the keyboard box (which is opaque), so it only ever
- * shows in the space the keyboard has not grown into yet.
+ * keyboard, with the app showing through it. Drawn *under* the keyboard box
+ * (which is opaque), so it only ever shows in the space the keyboard has not
+ * grown into yet. The service keeps the whole window touchable in resize mode
+ * so this band, and a top handle dragged up into it, get their touches.
  */
 @Composable
 internal fun BoxScope.ResizeHeadroomScrim() {
@@ -309,7 +418,10 @@ internal fun BoxScope.ResizeOverlay(
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
     val current = session.preview.value ?: session.entry
-    val arrangement = dockedWidthArrangement(state.settings)
+    val arrangement = dockedWidthArrangement(
+        state.settings,
+        state.fieldAlignment ?: state.settings.keyboardAlignment,
+    )
     // What the height drags measure against: the key grid as it stands right
     // now. Captured into the gesture at drag start (not per frame) via
     // rememberUpdatedState so the pointerInput lambdas never go stale across
@@ -360,8 +472,8 @@ internal fun BoxScope.ResizeOverlay(
         modifier = Modifier
             .matchParentSize()
             .onSizeChanged { metrics.widthPx = it.width }
-            .navigationBarsPadding()
-            .padding(bottom = state.settings.bottomPaddingDp.dp),
+            .windowInsetsPadding(navigationBarInsets())
+            .padding(bottom = bottomPaddingDp(state.settings).dp),
     ) {
         if (arrangement.leftSlack > 0.001f) {
             Spacer(modifier = Modifier.weight(arrangement.leftSlack))

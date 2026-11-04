@@ -1,6 +1,6 @@
 package com.wasimaster.wmkeyboard.core.prediction
 
-import java.text.Normalizer
+import com.wasimaster.wmkeyboard.core.text.Nfc
 
 /**
  * The one spelling a word is stored and looked up under.
@@ -29,9 +29,15 @@ import java.text.Normalizer
  * Applying it on both sides of every store is what makes it safe — a store
  * written through here and read through here cannot disagree with itself.
  *
- * Cost is a quick-check per word: a table lookup per character that exits on
- * the first ASCII one, and no allocation at all unless a word really is
- * mis-composed.
+ * Cost is one pass over the characters. A word made only of characters below
+ * U+0300 returns at once: nothing there composes with anything, which is the
+ * same boundary ICU's own NFC quick check starts from. Everything else goes
+ * through [Nfc], whose quick check reads ICU's tables in place. It used to be
+ * `java.text.Normalizer.isNormalized`, which on Android wraps the same ICU but
+ * allocates on every call — measured at about a third of a megabyte per twenty
+ * keystrokes when it ran for every n-gram lookup, Latin words included. The
+ * shortcut above took Latin out of that, but every Bengali or Hindi lookup
+ * still paid it until the quick check replaced the call.
  */
 object WordKey {
 
@@ -47,10 +53,11 @@ object WordKey {
      */
     fun surface(word: String): String = normalize(word)
 
-    private fun normalize(word: String): String =
-        if (Normalizer.isNormalized(word, Normalizer.Form.NFC)) {
-            word
-        } else {
-            Normalizer.normalize(word, Normalizer.Form.NFC)
-        }
+    private fun normalize(word: String): String {
+        if (word.all { it < FIRST_COMPOSING }) return word
+        return Nfc.normalize(word)
+    }
+
+    /** The combining grave accent: the first code point NFC can do anything with. */
+    private const val FIRST_COMPOSING = '̀'
 }

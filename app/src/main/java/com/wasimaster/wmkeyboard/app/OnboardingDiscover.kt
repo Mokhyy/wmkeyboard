@@ -15,18 +15,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.TextSnippet
-import androidx.compose.material.icons.outlined.Apps
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Bolt
-import androidx.compose.material.icons.outlined.Calculate
-import androidx.compose.material.icons.outlined.ContentPaste
-import androidx.compose.material.icons.outlined.Mic
-import androidx.compose.material.icons.outlined.Pin
-import androidx.compose.material.icons.outlined.TextFormat
-import androidx.compose.material.icons.outlined.ToggleOn
-import androidx.compose.material.icons.outlined.Wallpaper
-import androidx.compose.material.icons.outlined.Widgets
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.TextSnippet
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Apps
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.AutoAwesome
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Bolt
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Calculate
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.ContentPaste
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Mic
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Pin
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.TextFormat
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Wallpaper
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Widgets
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -43,13 +42,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.wasimaster.wmkeyboard.BuildConfig
 import com.wasimaster.wmkeyboard.R
 import com.wasimaster.wmkeyboard.core.media.hasNotificationAccess
 import com.wasimaster.wmkeyboard.core.settings.KeyboardSettings
 import com.wasimaster.wmkeyboard.core.settings.OnboardingSettings
 import com.wasimaster.wmkeyboard.core.settings.PersonaDepth
-import com.wasimaster.wmkeyboard.core.settings.PersonaPrivacy
 import com.wasimaster.wmkeyboard.core.settings.SettingsRepository
 import com.wasimaster.wmkeyboard.core.settings.ToolbarTool
 import com.wasimaster.wmkeyboard.core.settings.isSupportedTool
@@ -198,14 +195,14 @@ private val Whisper = DiscoverFeature(
 )
 
 /**
- * A switch rather than a tour stop, and shown to everyone (issue #41).
+ * A switch rather than a tour stop, and shown on every depth path (issue #41).
  *
  * Modes are the one feature here that changes the keyboard *without being
  * asked* — walk into another app and the emoji row and pinned tools are
  * different. That reads as the keyboard having lost the settings you just
- * chose unless you already know the feature exists, so setup says what it is
- * and offers the switch, rather than filing it under "power users only" where
- * the people it surprises never see it.
+ * chose, so the feature ships off and this card is where it is offered:
+ * every persona sees it, never trimmed by a cap, rather than it being filed
+ * under "power users only" where most people would never learn it exists.
  */
 private val Modes = DiscoverFeature(
     id = "modes",
@@ -220,27 +217,6 @@ private val Modes = DiscoverFeature(
 )
 
 /**
- * Incognito and the autocorrect toggle in one card: the point is not either
- * switch but that both live on the toolbar, flippable while typing, without a
- * settings trip.
- */
-private val QuickToggles = DiscoverFeature(
-    id = "quick_toggles",
-    title = R.string.onboarding_discover_quick_toggles_title,
-    pitch = R.string.onboarding_discover_quick_toggles_pitch,
-    icon = Icons.Outlined.ToggleOn,
-    accent = Color(0xFFEF5350),
-    kind = DiscoverKind.TOGGLE,
-    isOn = {
-        ToolbarTool.INCOGNITO in it.enabledTools && ToolbarTool.AUTOCORRECT in it.enabledTools
-    },
-    setOn = { repo, on ->
-        repo.setToolEnabled(ToolbarTool.INCOGNITO, on)
-        repo.setToolEnabled(ToolbarTool.AUTOCORRECT, on)
-    },
-)
-
-/**
  * How many cards each depth answer gets; enough to be a tour, never a wall.
  *
  * Both went up by one when the modes card moved to the head of the list
@@ -252,28 +228,21 @@ private const val DISCOVER_CAP_BALANCED = 8
 
 /**
  * The card list for a persona, in pitch order. Power users see everything,
- * strict-privacy users see the keyboard-side toggles first (theirs is the
- * persona that reaches for incognito) with the network-adjacent AI card moved
- * last, and everyone else gets the head of the list.
+ * and everyone else gets the head of the list.
  */
 internal fun discoverFeatures(
     persona: OnboardingSettings,
     whisperAvailable: Boolean,
     isToolSupported: (ToolbarTool) -> Boolean,
 ): List<DiscoverFeature> {
-    // Modes sits second, right behind the chips: it is the one card here that
-    // exists to warn as much as to sell, so every persona gets it and it is
-    // never the one a cap trims off.
+    // Modes sits second, right behind the chips: the feature ships off and
+    // this card is its opt-in, so every persona gets it and it is never the
+    // one a cap trims off.
     val base = mutableListOf(
         Chips, Modes, Hotwords, Toolbox, Photos, Clipboard, Snippets, Otp, Fancy, Ai,
     )
     if (persona.personaDepth == PersonaDepth.POWER) {
         base += Whisper
-    }
-    if (persona.personaPrivacy == PersonaPrivacy.STRICT) {
-        base.remove(Ai)
-        base += Ai
-        base.add(0, QuickToggles)
     }
     val available = base.filter { feature ->
         (feature.requiresTool?.let(isToolSupported) != false) &&
@@ -297,13 +266,14 @@ internal fun discoverFeatures(
  * screen — which is exactly the thing nobody scrolls to the bottom of.
  */
 @Composable
-internal fun DiscoverPage(repository: SettingsRepository, settings: KeyboardSettings) {
+internal fun DiscoverPage(repository: SettingsRepository, settings: LiveSettings) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val features = remember(settings.onboarding) {
+    val persona = settings.watch { it.onboarding }
+    val features = remember(persona) {
         discoverFeatures(
-            persona = settings.onboarding,
-            whisperAvailable = BuildConfig.ENABLE_WHISPER,
+            persona = persona,
+            whisperAvailable = com.wasimaster.wmkeyboard.core.settings.isWhisperEnabled(),
             isToolSupported = ::isSupportedTool,
         )
     }
@@ -347,7 +317,7 @@ private const val OTP_FEATURE_ID = "otp"
 @Composable
 private fun DiscoverCard(
     feature: DiscoverFeature,
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     modifier: Modifier = Modifier,
     onToggle: (Boolean) -> Unit,
 ) {
@@ -361,7 +331,7 @@ private fun DiscoverCard(
         DiscoverPreview(
             id = feature.id,
             accent = feature.accent,
-            animate = !settings.reduceMotion,
+            animate = !settings.watch { it.reduceMotion },
         )
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -399,7 +369,7 @@ private fun DiscoverCard(
         if (feature.kind == DiscoverKind.TOGGLE) {
             Spacer(Modifier.height(4.dp))
             Switch(
-                checked = feature.isOn(settings),
+                checked = settings.watch { feature.isOn(it) },
                 onCheckedChange = onToggle,
                 modifier = Modifier.align(Alignment.End),
             )

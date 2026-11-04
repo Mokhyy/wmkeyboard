@@ -19,9 +19,17 @@ class DataSaverSettingsTest {
     }
 
     @Test
-    fun `the default follows the meter`() {
+    fun `the default never turns on by itself`() {
         val config = DataSaverSettings()
-        assertEquals(DataSaverTrigger.METERED, config.trigger)
+        assertEquals(DataSaverTrigger.OFF, config.trigger)
+        assertFalse(config.appliesTo(wifi))
+        assertFalse(config.appliesTo(abroad))
+        assertFalse(config.appliesTo(abroad.copy(systemDataSaver = true)))
+    }
+
+    @Test
+    fun `the metered trigger follows the meter`() {
+        val config = DataSaverSettings(trigger = DataSaverTrigger.METERED)
         assertFalse(config.appliesTo(wifi))
         assertTrue(config.appliesTo(mobile))
         assertFalse(
@@ -53,6 +61,16 @@ class DataSaverSettingsTest {
     }
 
     @Test
+    fun `what you tap for is allowed by default, and only real data asks`() {
+        val stock = DataSaverStatus(active = true, settings = DataSaverSettings())
+        assertEquals(MeteredDecision.ALLOWED, stock.decide(MeteredFeature.MEDIA_SEARCH))
+        assertEquals(MeteredDecision.ALLOWED, stock.decide(MeteredFeature.WEB_SEARCH))
+        assertEquals(MeteredDecision.ALLOWED, stock.decide(MeteredFeature.CLOUD_AI))
+        assertEquals(MeteredDecision.ASK, stock.decide(MeteredFeature.DOWNLOADS))
+        assertEquals(MeteredDecision.ASK, stock.decide(MeteredFeature.ANIMATED_EMOJI))
+    }
+
+    @Test
     fun `the defaults hold something back`() {
         assertTrue(DataSaverSettings().restrictsAnything)
         assertFalse(
@@ -68,6 +86,12 @@ class DataSaverSettingsTest {
                 animatedEmoji = MeteredPolicy.ALLOW,
                 downloads = MeteredPolicy.ALLOW,
                 cloudAi = MeteredPolicy.ALLOW,
+                cloudVoice = MeteredPolicy.ALLOW,
+                fileSend = MeteredPolicy.ALLOW,
+                cloudGrammar = MeteredPolicy.ALLOW,
+                cloudMusic = MeteredPolicy.ALLOW,
+                vocabAudio = MeteredPolicy.ALLOW,
+                speedTest = MeteredPolicy.ALLOW,
             ).restrictsAnything,
         )
     }
@@ -90,7 +114,11 @@ class DataSaverSettingsTest {
 
     @Test
     fun `a grant lasts for the session`() {
-        val status = DataSaverStatus(active = true, settings = DataSaverSettings())
+        // Asked for explicitly: the stock answer for a search is allow now.
+        val status = DataSaverStatus(
+            active = true,
+            settings = DataSaverSettings(mediaSearch = MeteredPolicy.ASK),
+        )
         assertEquals(MeteredDecision.ASK, status.decide(MeteredFeature.MEDIA_SEARCH))
         val granted = status.granting(MeteredFeature.MEDIA_SEARCH)
         assertTrue(granted.allows(MeteredFeature.MEDIA_SEARCH))
@@ -112,14 +140,14 @@ class DataSaverSettingsTest {
     @Test
     fun `the view takes the background fetches out of the settings`() {
         val settings = KeyboardSettings(
-            qrScanLinkPreviews = true,
+            scanner = ScannerSettings(qrScanLinkPreviews = true),
             dictionaryAutoLookup = true,
             clipboard = ClipboardSettings(linkPreviews = true),
             photoBackground = PhotoBackgroundSettings(fetchOnMetered = true),
             smartChips = SmartChipSettings(weather = true),
         ).onMeteredNetwork()
         assertFalse(settings.clipboard.linkPreviews)
-        assertFalse(settings.qrScanLinkPreviews)
+        assertFalse(settings.scanner.qrScanLinkPreviews)
         assertFalse(settings.dictionaryAutoLookup)
         assertFalse(settings.photoBackground.fetchOnMetered)
         assertFalse(settings.smartChips.weather)
@@ -132,7 +160,7 @@ class DataSaverSettingsTest {
         val stock = KeyboardSettings()
         val metered = stock.onMeteredNetwork()
         assertEquals(stock.emoji.animated, metered.emoji.animated)
-        assertEquals(stock.gifResultLimit, metered.gifResultLimit)
+        assertEquals(stock.gif.resultLimit, metered.gif.resultLimit)
         assertEquals(stock.ai.provider, metered.ai.provider)
     }
 

@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -34,7 +35,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.core.content.edit
 import androidx.core.net.toUri
 import com.wasimaster.wmkeyboard.common.R
 
@@ -69,7 +69,18 @@ data class PermissionDisclosure(
     @StringRes val titleRes: Int,
     /** What is read, why, where it goes, and that the feature is optional. */
     @StringRes val bodyRes: Int,
-)
+    /**
+     * Permissions Android must be asked for in the same request. Location is
+     * the case: from Android 12 a request for precise location alone is
+     * ignored, and the dialog that offers "Precise" or "Approximate" appears
+     * only when both are asked for together. Any one of them granted counts as
+     * a grant; the feature reads which it got.
+     */
+    val alsoRequests: List<String> = emptyList(),
+) {
+    /** Everything one request asks for, [permission] first. */
+    val requested: Array<String> get() = (listOf(permission) + alsoRequests).toTypedArray()
+}
 
 /** The disclosure copy for every runtime permission this app asks for. */
 object PermissionDisclosures {
@@ -86,10 +97,42 @@ object PermissionDisclosures {
         bodyRes = R.string.common_permission_camera_body,
     )
 
+    /**
+     * The Location tool (#350), and "Use my location" for the weather and
+     * compass tools. Precise is the one asked for, with approximate alongside
+     * so Android 12 draws its choice between the two; a user who picks
+     * approximate still gets a working tool.
+     */
+    val LOCATION = PermissionDisclosure(
+        permission = Manifest.permission.ACCESS_FINE_LOCATION,
+        titleRes = R.string.common_permission_location_title,
+        bodyRes = R.string.common_permission_location_body,
+        alsoRequests = listOf(Manifest.permission.ACCESS_COARSE_LOCATION),
+    )
+
     val CALENDAR = PermissionDisclosure(
         permission = Manifest.permission.READ_CALENDAR,
         titleRes = R.string.common_permission_calendar_title,
         bodyRes = R.string.common_permission_calendar_body,
+    )
+
+    /**
+     * Writing to the calendar: the calendar tool's Save, Edit and Delete, and
+     * the AI's "add it directly" for events (#698). Read is asked for
+     * alongside, since choosing which calendar to add to means listing them.
+     */
+    val CALENDAR_WRITE = PermissionDisclosure(
+        permission = Manifest.permission.WRITE_CALENDAR,
+        titleRes = R.string.common_permission_calendar_write_title,
+        bodyRes = R.string.common_permission_calendar_write_body,
+        alsoRequests = listOf(Manifest.permission.READ_CALENDAR),
+    )
+
+    /** The calendar tool's guest row: typing a name offers that contact's address. */
+    val CONTACT_GUESTS = PermissionDisclosure(
+        permission = Manifest.permission.READ_CONTACTS,
+        titleRes = R.string.common_permission_contact_guests_title,
+        bodyRes = R.string.common_permission_contact_guests_body,
     )
 
     val CONTACT_NAMES = PermissionDisclosure(
@@ -102,6 +145,13 @@ object PermissionDisclosures {
         permission = Manifest.permission.READ_CONTACTS,
         titleRes = R.string.common_permission_contact_emails_title,
         bodyRes = R.string.common_permission_contact_emails_body,
+    )
+
+    /** The call/message chip (#656): names and phone numbers. */
+    val CONTACT_PHONES = PermissionDisclosure(
+        permission = Manifest.permission.READ_CONTACTS,
+        titleRes = R.string.common_permission_contact_phones_title,
+        bodyRes = R.string.common_permission_contact_phones_body,
     )
 
     /**
@@ -120,6 +170,71 @@ object PermissionDisclosures {
     )
 
     /**
+     * The gallery tool's photos and videos (#708). From Android 13 they are
+     * two permissions, asked for together; from 14 the system dialog also
+     * offers "Select photos", which the keyboard honours as a partial grant.
+     * Asking again with only part granted is how the user picks more.
+     */
+    val GALLERY = PermissionDisclosure(
+        permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.READ_MEDIA_IMAGES
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        },
+        titleRes = R.string.common_permission_gallery_title,
+        bodyRes = R.string.common_permission_gallery_body,
+        alsoRequests = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> listOf(
+                Manifest.permission.READ_MEDIA_VIDEO,
+                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+            )
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> listOf(Manifest.permission.READ_MEDIA_VIDEO)
+            else -> emptyList()
+        },
+    )
+
+    /**
+     * The Send files tool's direct link (#729): a Wi-Fi this phone opens for
+     * another, or the other's joined. Android 13 has a permission for exactly
+     * that; before it, Wi-Fi Direct and the hotspot sit behind location, which
+     * is why the copy says so plainly. No position is read or kept.
+     */
+    val NEARBY_WIFI = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        PermissionDisclosure(
+            permission = Manifest.permission.NEARBY_WIFI_DEVICES,
+            titleRes = R.string.common_permission_nearby_title,
+            bodyRes = R.string.common_permission_nearby_body,
+        )
+    } else {
+        PermissionDisclosure(
+            permission = Manifest.permission.ACCESS_FINE_LOCATION,
+            titleRes = R.string.common_permission_nearby_title,
+            bodyRes = R.string.common_permission_nearby_body_location,
+            alsoRequests = listOf(Manifest.permission.ACCESS_COARSE_LOCATION),
+        )
+    }
+
+    /**
+     * The shade. Not a data permission at all — nothing is read, only posted —
+     * but it goes through the same disclosure as the rest so there stays
+     * exactly one way this app asks Android for anything, and so the user
+     * learns what will arrive before they say yes to it.
+     *
+     * Null below API 33, where notifications need no grant and the dialog
+     * would be a dialog about nothing.
+     */
+    val NOTIFICATIONS: PermissionDisclosure? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            PermissionDisclosure(
+                permission = Manifest.permission.POST_NOTIFICATIONS,
+                titleRes = R.string.common_permission_notifications_title,
+                bodyRes = R.string.common_permission_notifications_body,
+            )
+        } else {
+            null
+        }
+
+    /**
      * Save-to-gallery below API 29. The old permission covers reading as well as
      * writing, which the copy admits rather than glossing over.
      */
@@ -128,71 +243,95 @@ object PermissionDisclosures {
         titleRes = R.string.common_permission_storage_title,
         bodyRes = R.string.common_permission_storage_body,
     )
+
+    /**
+     * The file manager on Android 7 to 10: the old storage pair, which covers
+     * all of shared storage. From Android 11 it is [SpecialAccess.ALL_FILES].
+     */
+    val FILES = PermissionDisclosure(
+        permission = Manifest.permission.READ_EXTERNAL_STORAGE,
+        titleRes = R.string.common_special_access_all_files_title,
+        bodyRes = R.string.common_special_access_all_files_body,
+        alsoRequests = listOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
+    )
+
+    /**
+     * AnkiDroid's own permission (#765): the Look up card adds a word to a
+     * deck. AnkiDroid defines it; the grant covers its whole collection, which
+     * the copy says rather than claiming the card only ever adds.
+     */
+    val ANKIDROID = PermissionDisclosure(
+        permission = "com.ichi2.anki.permission.READ_WRITE_DATABASE",
+        titleRes = R.string.common_permission_ankidroid_title,
+        bodyRes = R.string.common_permission_ankidroid_body,
+    )
+
+    /**
+     * OpenTasks' own pair (#920): the To-do list syncs with the one task list
+     * the user picks, which DAVx5 keeps in step with a CalDAV server. The
+     * grant covers every list in the app, which the copy says.
+     */
+    val TASKS_OPENTASKS = PermissionDisclosure(
+        permission = "org.dmfs.permission.READ_TASKS",
+        titleRes = R.string.common_permission_tasks_opentasks_title,
+        bodyRes = R.string.common_permission_tasks_body,
+        alsoRequests = listOf("org.dmfs.permission.WRITE_TASKS"),
+    )
+
+    /** Tasks.org's copy of the same provider, under its own permissions. */
+    val TASKS_TASKS_ORG = PermissionDisclosure(
+        permission = "org.tasks.permission.READ_TASKS",
+        titleRes = R.string.common_permission_tasks_tasks_org_title,
+        bodyRes = R.string.common_permission_tasks_body,
+        alsoRequests = listOf("org.tasks.permission.WRITE_TASKS"),
+    )
 }
 
 /**
- * Where a permission stands, from the point of view of asking for it again.
+ * Tells a refusal the user made apart from one Android made on their behalf.
  *
- * The distinction that matters is [BLOCKED]: after two refusals Android stops
- * showing the dialog at all and `requestPermissions` returns "denied" without
- * anything appearing on screen. A button that silently does nothing is worse
- * than no button, so that case sends the user to the app's permission settings
- * instead of firing a request that cannot be seen.
- */
-enum class PermissionState {
-    /** Already held; nothing to ask for. */
-    GRANTED,
-
-    /** Never asked, or refused once — the system dialog will still appear. */
-    ASKABLE,
-
-    /** Refused for good (or restricted by policy): only Settings can grant it now. */
-    BLOCKED,
-}
-
-/**
- * Remembers which permissions have been asked for at least once.
+ * After two refusals Android stops drawing the permission dialog, and
+ * `requestPermissions` comes straight back "denied" with nothing on screen. A
+ * button that silently does nothing is worse than no button, so that case has
+ * to end at the app's page in Settings instead.
  *
- * `shouldShowRequestPermissionRationale` cannot tell "never asked" from
- * "permanently denied" — both answer false — so the ask has to be recorded
- * somewhere to distinguish them. Device-protected storage, so this works in
- * the same direct-boot window the keyboard itself runs in; the contents are one
- * boolean per permission and nothing private.
+ * Nothing an app can read *before* asking separates that case from one where
+ * the dialog will still appear. `shouldShowRequestPermissionRationale` answers
+ * false for "denied for good", but also for "never asked" and — the case that
+ * matters most — for every permission set to **Ask every time** (issue #351):
+ * both that Settings choice and the expiry of an "Only this time" grant clear
+ * the platform's USER_SET flag, which is all the rationale call reads. A guess
+ * made up front would send one-time users to a Settings page that has no
+ * one-time option, forever.
+ *
+ * So the request always goes out first, and only its answer decides: a denial
+ * that arrives faster than anyone could read and answer a dialog, for a
+ * permission Android no longer wants a rationale for, was never shown.
  */
-private object PermissionAsks {
+internal class PermissionProbe {
 
-    private const val PREFS = "permission_asks"
+    private var launchedAt = 0L
 
-    private fun prefs(context: Context) =
-        context.createDeviceProtectedStorageContext()
-            .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-
-    fun mark(context: Context, permission: String) {
-        runCatching { prefs(context).edit { putBoolean(permission, true) } }
+    /** Call right before `launch()`. */
+    fun launched() {
+        launchedAt = SystemClock.elapsedRealtime()
     }
 
-    fun asked(context: Context, permission: String): Boolean =
-        runCatching { prefs(context).getBoolean(permission, false) }.getOrDefault(false)
-}
+    /** Whether a denial for [permission] was Android's answer, not the user's. */
+    fun silentlyRefused(activity: Activity, permission: String): Boolean =
+        launchedAt != 0L &&
+            SystemClock.elapsedRealtime() - launchedAt < SILENT_REFUSAL_MS &&
+            !activity.shouldShowRequestPermissionRationale(permission)
 
-/**
- * Whether [permission] can still be asked for, or only granted from Settings.
- *
- * One known imprecision: revoking a granted permission from Settings (or
- * Android's auto-reset for unused apps) clears the platform's own "don't ask
- * again" flag while the ask is still recorded here, so the next attempt routes
- * to Settings even though the prompt would have worked. That errs toward a
- * screen that always works rather than one that may silently do nothing, which
- * is the right way round.
- */
-fun permissionState(activity: Activity, permission: String): PermissionState = when {
-    activity.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED ->
-        PermissionState.GRANTED
-    // Refused once: Android still shows the dialog, and wants a reason first.
-    activity.shouldShowRequestPermissionRationale(permission) -> PermissionState.ASKABLE
-    // Never asked: the first request always reaches the user.
-    !PermissionAsks.asked(activity, permission) -> PermissionState.ASKABLE
-    else -> PermissionState.BLOCKED
+    private companion object {
+        /**
+         * The auto-denial is a same-process activity round trip, well under
+         * this; a person reading the dialog and pressing a button is well over.
+         * Erring long only means a very fast "Don't allow" also gets the
+         * Settings offer, which the user can wave off with "Not now".
+         */
+        const val SILENT_REFUSAL_MS = 500L
+    }
 }
 
 /** The app's own page in system Settings, where a blocked permission can still be granted. */
@@ -269,23 +408,40 @@ fun PermissionDisclosureDialog(
  * Settings-app entry point: returns a lambda that shows the disclosure and, if
  * the user continues, asks Android for the permission. [onGranted] runs only on
  * a grant, so the caller can flip its setting on there and nowhere else.
+ *
+ * [disclosure] is nullable for the permissions that do not exist on every
+ * Android version — notifications, below API 33. A null one has nothing to ask
+ * for, so the returned lambda reports the grant it already has. Nullable
+ * rather than left to the caller because the caller would have to branch
+ * around a composable call, which is the one thing a composable may not do.
  */
 @Composable
 fun rememberDisclosedPermissionRequest(
-    disclosure: PermissionDisclosure,
+    disclosure: PermissionDisclosure?,
     onGranted: () -> Unit,
 ): () -> Unit {
     val context = LocalContext.current
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted -> if (granted) onGranted() }
+    val probe = remember { PermissionProbe() }
     var showing by remember { mutableStateOf(false) }
-    if (showing) {
-        // Read at show time, not at composition time: the user may have changed
-        // the permission in Settings since this screen was drawn.
+    // Only ever set by the answer to a request: see [PermissionProbe].
+    var blocked by remember { mutableStateOf(false) }
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { results ->
+        val granted = results.values.any { it }
         val activity = context.findActivity()
-        val blocked = activity != null &&
-            permissionState(activity, disclosure.permission) == PermissionState.BLOCKED
+        when {
+            granted -> onGranted()
+            disclosure != null && activity != null &&
+                probe.silentlyRefused(activity, disclosure.permission) -> {
+                // Android refused without drawing anything; bring the
+                // disclosure back, now pointing at Settings.
+                blocked = true
+                showing = true
+            }
+        }
+    }
+    if (showing && disclosure != null) {
         PermissionDisclosureDialog(
             disclosure = disclosure,
             blocked = blocked,
@@ -294,14 +450,21 @@ fun rememberDisclosedPermissionRequest(
                 if (blocked) {
                     runCatching { context.startActivity(appSettingsIntent(context)) }
                 } else {
-                    PermissionAsks.mark(context, disclosure.permission)
-                    launcher.launch(disclosure.permission)
+                    probe.launched()
+                    launcher.launch(disclosure.requested)
                 }
             },
             onDismiss = { showing = false },
         )
     }
-    return { showing = true }
+    return {
+        if (disclosure == null) {
+            onGranted()
+        } else {
+            blocked = false
+            showing = true
+        }
+    }
 }
 
 /** The Activity behind a Compose context, for the calls that only Activity has. */
@@ -330,18 +493,40 @@ abstract class PermissionRequestActivity : ComponentActivity() {
     /** The permission to ask for, or null when this build/API needs none. */
     protected abstract val disclosure: PermissionDisclosure?
 
+    /**
+     * Whether there is nothing left to ask for, which closes the trampoline
+     * at once. By default the main permission alone; a feature whose grant is
+     * several permissions says when it has all it needs.
+     */
+    protected open fun alreadyGranted(disclosure: PermissionDisclosure): Boolean =
+        checkSelfPermission(disclosure.permission) == PackageManager.PERMISSION_GRANTED
+
+    private val probe = PermissionProbe()
+
+    // Only ever set by the answer to a request: see [PermissionProbe].
+    private var blocked by mutableStateOf(false)
+
     private val request =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { finish() }
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+            val granted = results.values.any { it }
+            val permission = disclosure?.permission
+            if (!granted && permission != null && probe.silentlyRefused(this, permission)) {
+                // Android refused without drawing anything. The disclosure is
+                // still on screen behind where the dialog would have been;
+                // it now says so and offers Settings instead.
+                blocked = true
+            } else {
+                finish()
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val disclosure = disclosure
-        val state = disclosure?.let { permissionState(this, it.permission) }
-        if (disclosure == null || state == PermissionState.GRANTED) {
+        if (disclosure == null || alreadyGranted(disclosure)) {
             finish()
             return
         }
-        val blocked = state == PermissionState.BLOCKED
         setContent {
             DisclosureTheme {
                 PermissionDisclosureDialog(
@@ -349,17 +534,13 @@ abstract class PermissionRequestActivity : ComponentActivity() {
                     blocked = blocked,
                     onContinue = {
                         if (blocked) {
-                            // The system dialog would never appear; the app's
+                            // The system dialog will not appear; the app's
                             // settings page is the only place left to grant it.
                             runCatching { startActivity(appSettingsIntent(this)) }
                             finish()
                         } else {
-                            // Marked before the launch, not in the result callback:
-                            // these trampolines are android:noHistory, so the
-                            // callback may never arrive once the system dialog
-                            // covers them.
-                            PermissionAsks.mark(this, disclosure.permission)
-                            request.launch(disclosure.permission)
+                            probe.launched()
+                            request.launch(disclosure.requested)
                         }
                     },
                     onDismiss = { finish() },

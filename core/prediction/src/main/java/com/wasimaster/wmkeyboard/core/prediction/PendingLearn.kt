@@ -1,5 +1,6 @@
 package com.wasimaster.wmkeyboard.core.prediction
 
+import com.wasimaster.wmkeyboard.core.util.SnapshotFile
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -43,6 +44,7 @@ class PendingLearn(private val storageFile: File?) {
     private val declined = HashSet<String>()
     private var generation = 0L
     private var dirty = false
+    private val snapshotFile = storageFile?.let(::SnapshotFile)
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -65,6 +67,9 @@ class PendingLearn(private val storageFile: File?) {
     fun sight(word: String, langId: String = "", weight: Int = 1): Int {
         val key = WordKey.of(word)
         if (key.length < 2 || key.length > MAX_WORD_LENGTH || weight <= 0) return 0
+        // The waiting room takes what the lexicon would (#185): a token with
+        // a symbol glued on is not a candidate however often it is seen.
+        if (!WordContext.isLearnableWord(key)) return 0
         if (key in declined) return 0
         val existing = words[key]
         val count = ((existing?.count ?: 0) + weight).coerceAtMost(MAX_COUNT)
@@ -121,32 +126,40 @@ class PendingLearn(private val storageFile: File?) {
         declined.clear()
         // The delete is the write; if it failed the file still holds what this
         // call was meant to wipe, so stay dirty and overwrite on the next save.
-        dirty = storageFile?.delete() == false
+        dirty = snapshotFile?.delete() == false
     }
 
     @Synchronized
     fun reload() {
+        snapshotFile?.supersede()
         words.clear()
         declined.clear()
         load()
         dirty = false
     }
 
-    @Synchronized
     fun save() {
-        val file = storageFile ?: return
-        if (!dirty) return
-        generation++
-        expire()
-        val snapshot = Snapshot(
-            words = words.toMap(),
-            declined = declined.toSet(),
-            generation = generation,
-        )
-        runCatching {
-            file.parentFile?.mkdirs()
-            file.writeText(json.encodeToString(snapshot))
-        }.onSuccess { dirty = false }
+        val file = snapshotFile ?: return
+        val (ticket, snapshot) = synchronized(this) {
+            if (!dirty) return
+            generation++
+            expire()
+            dirty = false
+            file.ticket() to Snapshot(
+                words = words.toMap(),
+                declined = declined.toSet(),
+                generation = generation,
+            )
+        }
+        // Encoded and written outside the lock, so the store stays usable while
+        // the file goes to disk. A failed write makes the store dirty again, so
+        // the next save retries rather than assuming it landed.
+        if (!file.write(ticket) { json.encodeToString(snapshot) }) markUnsaved()
+    }
+
+    @Synchronized
+    private fun markUnsaved() {
+        dirty = true
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.wasimaster.wmkeyboard.core.input.composer
 
+import com.wasimaster.wmkeyboard.core.engine.NativeHandles
 import kotlin.math.ln
 
 /**
@@ -32,6 +33,11 @@ import kotlin.math.ln
  * plausible *first* words below it, each re-ranked by how well the rest of the
  * buffer comes out behind it. Per-word alternatives under a sentence would need
  * the segment-narrowing UI a desktop IME has, which this keyboard does not.
+ *
+ * The search itself runs in Rust (`native/wm-engine/src/cjk/lattice.rs`), one
+ * crossing per decode, with the tables and what the user taught it behind
+ * handles. What stays here is the composers' language for asking. The Kotlin
+ * search it replaced is the reference `NativeCjkParityTest` compares against.
  */
 object Lattice {
 
@@ -50,6 +56,24 @@ object Lattice {
         val options: Array<Array<String>>,
         /** Parallel to [options]: 0.0 for the as-typed reading, negative for a guess. */
         val penalties: Array<DoubleArray>,
+        /**
+         * Per unit, the index in [options] from which the readings are
+         * *abbreviations* — the unit spells only the start of its syllable
+         * (jianpin `h` for hao/hen/hua…) rather than a complete reading that
+         * might have been misspelled. Defaults to `options[i].size`: no
+         * abbreviations. The distinction matters to [Opts.maxAmbiguousSpan],
+         * which caps guesses but must never cap deliberate abbreviation.
+         */
+        val partialFrom: IntArray = IntArray(options.size) { options[it].size },
+        /**
+         * Per unit, readings that cover this unit *and the next one* as a single
+         * syllable — jianpin's `z` + `h` read as the digraph initial `zh…`, so
+         * `zhg` still reaches 中国 while `sh` also reads as `s` + `h` (上海).
+         * Empty by default. These are always abbreviations, never capped.
+         */
+        val merged: Array<Array<String>> = Array(options.size) { emptyArray() },
+        /** Parallel to [merged]. */
+        val mergedPenalties: Array<DoubleArray> = Array(options.size) { DoubleArray(0) },
     ) {
         val units: Int get() = options.size
     }
@@ -74,9 +98,82 @@ object Lattice {
         )
     }
 
+    /**
+     * One reading a stretch of the buffer could spell, from one node of a
+     * [Graph] to a later one.
+     */
+    class Arc(
+        val to: Int,
+        val reading: String,
+        /** 0.0 for what was typed, negative for a guess or an abbreviation. */
+        val penalty: Double = 0.0,
+        /**
+         * A spelling *guess* (a fuzzy variant, a mistyped key), held to
+         * [Opts.maxAmbiguousSpan]. Never an abbreviation: see that option for
+         * why those must stay uncapped.
+         */
+        val guess: Boolean = false,
+        /**
+         * A repair of what was typed (a mistyped, swapped, missing or extra
+         * key) rather than a spelling the user chose. Fuzzy Pinyin is not one:
+         * the user switched it on. A reading built through a repair is offered
+         * only while it scores near the best one built without any
+         * ([Opts.correctionMargin]), the way libime holds its corrections to
+         * within ten times the clean answer.
+         */
+        val correction: Boolean = false,
+    )
+
+    /**
+     * A buffer as a graph rather than one row of units: [Input] fixes where
+     * every boundary falls, and a graph does not have to.
+     *
+     * That is the whole difference, and it is what Pinyin needs (#580). `xian`
+     * is one syllable (先) *and* two (西安); `nine` is `nin`+`e` (您饿) *and*
+     * `ni`+`ne` (你呢). A single segmentation picks one of those before the
+     * decoder has seen a word, and whatever it picked is the only reading the
+     * strip can offer. A graph carries every split worth considering as arcs
+     * between shared nodes, so the language model chooses between them.
+     *
+     * Nodes are positions; [consumed] says how many input chars each one is
+     * past, which is what a candidate ending there commits.
+     */
+    class Graph(
+        /** Per node, input chars consumed by reaching it. Node 0 is the start, the last node the end. */
+        val consumed: IntArray,
+        /** Per node, the arcs leaving it. The first arc of a node is its as-typed reading. */
+        val arcs: Array<List<Arc>>,
+    ) {
+        val end: Int get() = consumed.size - 1
+    }
+
+    /** [input] as a [Graph] whose nodes are its unit boundaries. */
+    fun graph(input: Input): Graph {
+        val n = input.units
+        val arcs = Array(n + 1) { i ->
+            if (i == n) return@Array emptyList<Arc>()
+            val out = ArrayList<Arc>(input.options[i].size + input.merged[i].size)
+            for ((oi, reading) in input.options[i].withIndex()) {
+                // Past the ambiguity cap only the as-typed reading and the
+                // abbreviations are tried; a spelling guess is not worth the fan-out.
+                val guess = oi > 0 && oi < input.partialFrom[i]
+                out.add(Arc(i + 1, reading, input.penalties[i].getOrElse(oi) { 0.0 }, guess))
+            }
+            // Two units read as one syllable (`z` + `h` → `zh…`): the arc lands
+            // past both, but spells one syllable towards the word-length test.
+            if (i + 1 < n) {
+                for ((mi, reading) in input.merged[i].withIndex()) {
+                    out.add(Arc(i + 2, reading, input.mergedPenalties[i].getOrElse(mi) { 0.0 }))
+                }
+            }
+            out
+        }
+        return Graph(input.boundaries, arcs)
+    }
+
     /** Decoder bounds and weights. Defaults suit Chinese; Japanese overrides one. */
     class Opts(
-        /** Longest word, in units. Beyond ~6 syllables a "word" is really a phrase. */
+        /** Longest word, in syllables. Beyond ~6 a "word" is really a phrase. */
         val maxWordUnits: Int = 6,
         /**
          * Spans longer than this use only each unit's first reading.
@@ -92,6 +189,10 @@ object Lattice {
          * the exact alphabetical bias the lattice replaced: `726726726` would
          * offer nothing beginning `san`. Cost there is bounded by the dictionary
          * prune instead, which is what it is for.
+         *
+         * Abbreviations ([Input.partialFrom]) are exempt for the same reason: a
+         * jianpin `zgrm` is four deliberately ambiguous units, and pinning the
+         * third to `ra` would make 中国人民 untypeable.
          */
         val maxAmbiguousSpan: Int = 2,
         /**
@@ -126,6 +227,80 @@ object Lattice {
         val charPerUnit: Boolean = true,
         /** Charged per character by which a word overruns its span's unit count. */
         val overLengthPenalty: Double = -1.2,
+        /**
+         * How many extra whole-buffer readings made of *several* words to offer
+         * beyond the single best path, best first (issue #405). 0 offers none,
+         * which is right for every buffer the user spelled out in full.
+         *
+         * These exist because the language model here is a unigram over words,
+         * and a unigram cannot compare readings that split the buffer
+         * differently: each extra word costs another `ln(totalFreq)`, so a
+         * two-word reading loses to any single dictionary word covering the same
+         * span by about fifteen nats whatever the words are. That is an artifact
+         * of the normaliser, not a judgement — and it is exactly the readings
+         * jianpin is for. `wdmm` is 我的妈妈, two of whose three words
+         * (我, 的) are not a dictionary entry together, so the decoder answered
+         * 味道妈妈 and the right reading appeared nowhere at all.
+         *
+         * So they are *offered*, not promoted: the unbiased best path keeps rank
+         * 0 and these follow it, found with [stitchBonus] standing in for the
+         * missing word-insertion term. Picking one teaches [CjkLearning] the
+         * whole reading, after which it leads on its own.
+         */
+        val stitch: Int = 0,
+        /**
+         * The per-word bonus the [stitch] search runs with — the word-insertion
+         * term a unigram model lacks. Measured against the shipped CC-CEDICT
+         * pack: at 8.0 `wdmm` finds 我的妈妈 and `wbxhni` finds 我不喜欢你,
+         * which is what the issue asked for; much above it the decoder stops
+         * preferring phrases at all (`wdmm` → 我的们们) and much below it finds
+         * nothing new. It never touches the ranking the strip leads with.
+         */
+        val stitchBonus: Double = 8.0,
+        /**
+         * Order the list by how much of the buffer each candidate covers (#580):
+         * every reading of the whole buffer first, then the best readings of
+         * each shorter stretch from the start, longest first, down to the
+         * single first words.
+         *
+         * Off, the list is the best sentence and then *first words*, each
+         * ranked by how well the rest of the buffer works out behind it. That
+         * cannot offer `我不想` for `wbxh`: it is neither the whole buffer nor
+         * one word. Nor can it keep a single word that happens to have been
+         * picked before from jumping above every reading of the whole buffer,
+         * since a first word is what that order is made of.
+         */
+        val coverageOrder: Boolean = false,
+        /** Under [coverageOrder], multi-word readings of one stretch, beyond its single words. */
+        val pathsPerStretch: Int = 4,
+        /**
+         * Under [coverageOrder], how far behind the best clean reading of a
+         * stretch a reading built through a repaired key ([Arc.correction])
+         * may score and still be offered, in nats: ln 10, so a repair has to
+         * be at least a tenth as likely as what was typed. Where nothing clean
+         * reads the stretch at all, every repair is offered.
+         */
+        val correctionMargin: Double = ln(10.0),
+        /**
+         * Charge each word for its characters by [HanLevels.penalty], which
+         * sinks characters outside the common standard set (#633's 琌 and 硂)
+         * below the ones people write. The Chinese composers turn this on.
+         */
+        val hanLevels: Boolean = false,
+        /**
+         * Under [coverageOrder], how far behind the best reading of a stretch a
+         * multi-word one may score and still be offered, in nats. Its single
+         * words are always all offered — they are the characters to pick from
+         * — but a path is a guess at a sentence, and one that loses to a
+         * dictionary word for the same letters is never offered at all.
+         */
+        val pathMargin: Double = 5.0,
+        /**
+         * Under [coverageOrder], how many candidates each stretch shorter than
+         * the buffer adds, except the shortest, which adds all of its words:
+         * that one is the list of characters to pick one at a time from.
+         */
+        val stretchCap: Int = 4,
     )
 
     /** A decoded candidate: what to commit, how much of the buffer it eats. */
@@ -134,232 +309,187 @@ object Lattice {
         val consumed: Int,
         val score: Double,
         val reading: String,
+        /** Built through a repaired key ([Arc.correction]). */
+        val corrected: Boolean = false,
     )
 
     /**
-     * How much the word's own frequency within its reading counts against the
-     * language model. Normalized inside the reading's run, so it is always ≤ 0 and
-     * exactly 0 for the run's most frequent word. Matters little in Chinese and a
-     * lot in Japanese, where 行 is a common word under several unrelated readings.
+     * One reading space's history, as the decoder reads it: what was picked for
+     * each reading, which words were written after which, and what the
+     * candidate menu said. A snapshot in Rust; [CjkUserHistory] makes a new one
+     * after a change rather than the decoder asking it per word.
      */
-    private const val BETA = 0.5
+    class UserData private constructor(internal val handle: Long) {
+        init {
+            NativeHandles.track(this, handle, CjkNative::userClose)
+        }
 
-    /** Score of committing a unit as its raw reading. */
-    private val UNK_LOG = ln(1e-9)
+        companion object {
+            private const val SEP = '\u0001'
 
-    /** One dictionary word spanning `[from, to)` units, with its context-free score. */
-    private class Edge(
-        val from: Int,
-        val to: Int,
-        val text: String,
-        val reading: String,
-        /** Everything but the language model: emission, penalties, bonuses. */
-        val emission: Double,
-        val freq: Int,
-        /**
-         * A raw-reading edge rather than a dictionary word. These keep the lattice
-         * connected across a syllable nothing is written with, so a path always
-         * exists — but they are never offered as candidates. A strip that answered
-         * `si` with "si" would be claiming a conversion it does not have; the raw
-         * reading already commits through `composeBuffer` when the buffer is
-         * flushed, which is where that fallback belongs.
-         */
-        val fallback: Boolean = false,
-    )
+            /** Null when there is nothing to say. */
+            fun of(
+                picks: Map<String, Map<String, Int>>?,
+                adjust: WordAdjust?,
+                pairs: Map<String, Map<String, Int>>?,
+            ): UserData? {
+                if (picks.isNullOrEmpty() && pairs.isNullOrEmpty() && adjust == null) return null
+                val (pickText, pickCounts) = flatten(picks.orEmpty())
+                val (pairText, pairCounts) = flatten(pairs.orEmpty())
+                val bias = adjust?.bias.orEmpty().entries.toList()
+                val handle = CjkNative.userOpen(
+                    pickText,
+                    pickCounts,
+                    pairText,
+                    pairCounts,
+                    adjust?.blocked.orEmpty().joinToString(SEP.toString()),
+                    bias.joinToString(SEP.toString()) { it.key },
+                    IntArray(bias.size) { bias[it].value },
+                )
+                return UserData(handle)
+            }
 
-    /** A live path: the word just committed, its running score, and where it came from. */
-    private class Path(val word: String?, val score: Double, val prev: Path?, val edge: Edge?)
+            private fun flatten(table: Map<String, Map<String, Int>>): Pair<String, IntArray> {
+                val text = StringBuilder()
+                val counts = ArrayList<Int>()
+                for ((key, words) in table) {
+                    for ((word, count) in words) {
+                        if (counts.isNotEmpty()) text.append(SEP)
+                        text.append(key).append(SEP).append(word)
+                        counts.add(count)
+                    }
+                }
+                return text.toString() to counts.toIntArray()
+            }
+        }
+    }
+
+    /** How much of a [UserData] a composer's decode reads; the menu's answers always count. */
+    enum class UserScope(internal val bits: Int) {
+        MENU(0),
+
+        /** Picks too, which steer the words paths are built out of. */
+        PICKS(1),
+
+        /** Picks, phrases the user taught, and their word pairs. */
+        ALL(3),
+    }
 
     /**
      * Decodes [input], best first.
      *
      * Rank 0 is the whole-buffer sentence when the best path uses more than one
      * word; the rest are first words, ranked by their own score plus the best the
-     * remainder can do behind them ([suffixScores]). Always returns something for
-     * a non-empty input — every unit has a raw-reading fallback edge, so no buffer
-     * can trap the user with an empty strip.
+     * remainder can do behind them. Always returns something for a non-empty
+     * input with words in it: no buffer can trap the user with an empty strip.
      */
+    @Suppress("LongParameterList")
     fun decode(
         input: Input,
         dict: ConversionDictionary,
         ngrams: CjkNgrams,
         opts: Opts = Opts(),
-    ): List<Cand> {
-        val n = input.units
-        if (n == 0) return emptyList()
-        val edges = buildEdges(input, dict, opts)
-        val suffix = suffixScores(edges, dict, ngrams, n)
-        val out = LinkedHashMap<String, Cand>()
-
-        // Rank 0: the decoded sentence — but only when every step of it is a real
-        // word. A path patched together with raw readings is not a conversion.
-        val best = bestPath(edges, dict, ngrams, opts, n)
-        if (best.size >= 2 && best.none { it.fallback }) {
-            val text = best.joinToString("") { it.text }
-            val reading = best.joinToString("") { it.reading }
-            out[text] = Cand(text, input.boundaries[n], best.sumOf { it.emission }, reading)
-        }
-
-        // Then every plausible first word, scored with the rest of the buffer
-        // behind it rather than on its own length.
-        val firsts = edges[0]
-            .filterNot { it.fallback }
-            .map { e -> e to ngrams.logProbability(null, e.text, e.freq, dict.totalFreq) + e.emission + suffix[e.to] }
-            .sortedByDescending { it.second }
-        for ((edge, score) in firsts) {
-            if (out.size >= opts.limit) break
-            out.getOrPut(edge.text) {
-                Cand(edge.text, input.boundaries[edge.to], score, edge.reading)
-            }
-        }
-        return out.values.toList()
-    }
+        user: UserData? = null,
+        scope: UserScope = UserScope.MENU,
+        context: String? = null,
+    ): List<Cand> =
+        if (input.units == 0) emptyList() else decode(graph(input), dict, ngrams, opts, user, scope, context)
 
     /**
-     * Every word that starts at each unit position, plus a raw-reading fallback so
-     * a complete path always exists.
-     */
-    private fun buildEdges(
-        input: Input,
-        dict: ConversionDictionary,
-        opts: Opts,
-    ): Array<MutableList<Edge>> {
-        val n = input.units
-        val out = Array(n) { mutableListOf<Edge>() }
-        for (i in 0 until n) {
-            if (!dict.isEmpty) extend(i, i, "", 0 until dict.size, 0.0, input, dict, opts, out)
-            val raw = input.options[i].firstOrNull().orEmpty()
-            out[i].add(Edge(i, i + 1, raw, raw, UNK_LOG, 0, fallback = true))
-        }
-        return out
-    }
-
-    /**
-     * Walks forward from unit [start], extending the reading one unit at a time
-     * and narrowing the candidate rows with it. Recursion depth is bounded by
-     * [Opts.maxWordUnits], so it cannot outrun the stack.
-     */
-    private fun extend(
-        start: Int,
-        unit: Int,
-        prefix: String,
-        range: IntRange,
-        penalty: Double,
-        input: Input,
-        dict: ConversionDictionary,
-        opts: Opts,
-        out: Array<MutableList<Edge>>,
-    ) {
-        if (unit >= input.units || unit - start >= opts.maxWordUnits) return
-        val options = input.options[unit]
-        val ambiguous = unit - start < opts.maxAmbiguousSpan
-        val last = if (ambiguous) options.size - 1 else 0
-        for (oi in 0..minOf(last, options.size - 1)) {
-            val reading = prefix + options[oi]
-            // The prune that makes per-unit ambiguity affordable: no word starts
-            // this way, so nothing longer can either.
-            val sub = dict.prefixRange(reading, range)
-            if (sub.isEmpty()) continue
-            val cost = penalty + input.penalties[unit].getOrElse(oi) { 0.0 }
-            emitSpan(start, unit + 1, reading, cost, dict, opts, out)
-            extend(start, unit + 1, reading, sub, cost, input, dict, opts, out)
-        }
-    }
-
-    /** Adds the best [Opts.spanCandCap] words read exactly [reading] over the span. */
-    private fun emitSpan(
-        start: Int,
-        end: Int,
-        reading: String,
-        penalty: Double,
-        dict: ConversionDictionary,
-        opts: Opts,
-        out: Array<MutableList<Edge>>,
-    ) {
-        val rows = dict.rowsFor(reading)
-        if (rows.isEmpty()) return
-        val units = end - start
-        val usable = if (opts.charPerUnit) rows.filter { dict.wordLength(it) >= units } else rows.toList()
-        if (usable.isEmpty()) return
-        val cap = maxOf(opts.spanCandCap, opts.limit)
-        val kept = usable.sortedByDescending { dict.frequency(it) }.take(cap)
-        val maxFreq = dict.frequency(kept.first()).coerceAtLeast(1)
-        for (row in kept) {
-            val freq = dict.frequency(row).coerceAtLeast(1)
-            var emission = BETA * (ln(freq.toDouble()) - ln(maxFreq.toDouble())) + penalty
-            if (opts.charPerUnit) {
-                emission += opts.overLengthPenalty * (dict.wordLength(row) - units)
-            }
-            out[start].add(Edge(start, end, dict.word(row), reading, emission, dict.frequency(row)))
-        }
-    }
-
-    /**
-     * Best score from each unit position to the end, scored without context.
+     * [decode] over a [Graph], for a buffer whose boundaries are themselves ambiguous.
      *
-     * A deliberate approximation: it drops the bigram conditioning across the
-     * boundary between a candidate first word and the remainder. Getting that
-     * exactly right needs k-best backtrace over (position, last word) states, for
-     * a difference nobody can perceive below rank two.
+     * [context] is the word written just before the buffer, when there is one:
+     * the first word of every reading is scored as following it, which is how
+     * 他 after 我爱 and 她 after 她说 can come out differently for the same `ta`.
      */
-    private fun suffixScores(
-        edges: Array<MutableList<Edge>>,
+    @Suppress("LongParameterList")
+    fun decode(
+        graph: Graph,
         dict: ConversionDictionary,
         ngrams: CjkNgrams,
-        n: Int,
-    ): DoubleArray {
-        val best = DoubleArray(n + 1) { Double.NEGATIVE_INFINITY }
-        best[n] = 0.0
-        for (p in n - 1 downTo 0) {
-            for (e in edges[p]) {
-                val rest = best[e.to]
-                if (rest == Double.NEGATIVE_INFINITY) continue
-                val score = ngrams.logProbability(null, e.text, e.freq, dict.totalFreq) + e.emission + rest
-                if (score > best[p]) best[p] = score
+        opts: Opts = Opts(),
+        user: UserData? = null,
+        scope: UserScope = UserScope.MENU,
+        context: String? = null,
+    ): List<Cand> {
+        if (graph.end <= 0) return emptyList()
+        val total = graph.arcs.sumOf { it.size }
+        val arcStart = IntArray(graph.arcs.size + 1)
+        val arcTo = IntArray(total)
+        val arcFlags = IntArray(total)
+        val arcPenalty = DoubleArray(total)
+        val readings = StringBuilder()
+        var a = 0
+        for ((node, arcs) in graph.arcs.withIndex()) {
+            arcStart[node] = a
+            for (arc in arcs) {
+                if (a > 0) readings.append(SEP)
+                readings.append(arc.reading)
+                arcTo[a] = arc.to
+                arcFlags[a] = (if (arc.guess) ARC_GUESS else 0) or (if (arc.correction) ARC_CORRECTION else 0)
+                arcPenalty[a] = arc.penalty
+                a++
             }
         }
-        return best
+        arcStart[graph.arcs.size] = a
+        val consumed = IntArray(opts.limit)
+        val scores = DoubleArray(opts.limit)
+        val text = CjkNative.decode(
+            dict.handle,
+            ngrams.handle,
+            if (opts.hanLevels) HanLevels.table.handle else 0L,
+            user?.handle ?: 0L,
+            scope.bits,
+            graph.consumed,
+            arcStart,
+            arcTo,
+            arcFlags,
+            arcPenalty,
+            readings.toString(),
+            intArrayOf(
+                opts.maxWordUnits,
+                opts.maxAmbiguousSpan,
+                opts.spanCandCap,
+                opts.beam,
+                opts.limit,
+                if (opts.charPerUnit) 1 else 0,
+                opts.stitch,
+                if (opts.coverageOrder) 1 else 0,
+                opts.pathsPerStretch,
+                opts.stretchCap,
+            ),
+            doubleArrayOf(
+                opts.overLengthPenalty,
+                opts.stitchBonus,
+                opts.correctionMargin,
+                opts.pathMargin,
+                CjkNgrams.bigramWeight,
+            ),
+            context,
+            consumed,
+            scores,
+        )
+        if (text.isEmpty()) return emptyList()
+        val parts = text.split(SEP)
+        return List(parts.size / 2) { i ->
+            Cand(parts[2 * i], consumed[i] ushr 1, scores[i], parts[2 * i + 1], consumed[i] and 1 != 0)
+        }
     }
 
-    /** Viterbi over the lattice, carrying the previous word so bigrams can apply. */
-    private fun bestPath(
-        edges: Array<MutableList<Edge>>,
-        dict: ConversionDictionary,
-        ngrams: CjkNgrams,
-        opts: Opts,
-        n: Int,
-    ): List<Edge> {
-        val live = arrayOfNulls<MutableList<Path>>(n + 1)
-        live[0] = mutableListOf(Path(null, 0.0, null, null))
-        for (p in 0..n) {
-            val here = live[p] ?: continue
-            // One path per distinct previous word — anything worse with the same
-            // word can never win, since only the word conditions what follows.
-            val bestByWord = LinkedHashMap<String?, Path>()
-            for (path in here) {
-                val cur = bestByWord[path.word]
-                if (cur == null || path.score > cur.score) bestByWord[path.word] = path
-            }
-            val pruned = bestByWord.values.sortedByDescending { it.score }.take(opts.beam)
-            live[p] = pruned.toMutableList()
-            if (p == n) break
-            for (path in pruned) {
-                for (e in edges[p]) {
-                    val lm = ngrams.logProbability(path.word, e.text, e.freq, dict.totalFreq)
-                    val next = live[e.to] ?: mutableListOf<Path>().also { live[e.to] = it }
-                    next.add(Path(e.text, path.score + lm + e.emission, path, e))
-                }
-            }
-        }
-        val end = live[n]?.maxByOrNull { it.score } ?: return emptyList()
-        val path = ArrayList<Edge>()
-        var cur: Path? = end
-        while (cur != null) {
-            val edge = cur.edge ?: break
-            path.add(edge)
-            cur = cur.prev
-        }
-        path.reverse()
-        return path
-    }
+    private const val SEP = '\u0001'
+    private const val ARC_GUESS = 1
+    private const val ARC_CORRECTION = 2
+}
+
+/**
+ * What the user said about words from the candidate menu (#580), for one reading
+ * space: words never to offer, and how many steps up or down each other one was
+ * moved. A snapshot, read without a lock for a whole decode.
+ */
+class WordAdjust(
+    val blocked: Set<String> = emptySet(),
+    /** Word → steps; negative is lower. */
+    val bias: Map<String, Int> = emptyMap(),
+) {
+    val isEmpty: Boolean get() = blocked.isEmpty() && bias.isEmpty()
 }

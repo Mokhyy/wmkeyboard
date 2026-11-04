@@ -1,6 +1,22 @@
 package com.wasimaster.wmkeyboard.ime.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateRectAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -31,8 +47,15 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * One favoured letter's claimed touch area, the key cell it grew out of, and
- * how much bigger the one is than the other.
+ * One favoured letter's key [cell] grown by the ground the bias won it, and how
+ * much bigger the one is than the other.
+ *
+ * [area] is the cell plus that gain rather than the claimed region outright,
+ * because on a grid whose keys differ in width the two are not the same
+ * rectangle. The hit test is nearest-centre, so the line between a wide key and
+ * a narrow one already falls *inside* the wide key: measured against its own
+ * cell, a favoured letter on such a row reads as having shrunk. What the
+ * drawing is for is the difference the bias made, and that is what this holds.
  *
  * [scale] is the smaller of the two side ratios, so a label drawn at it stays
  * inside the area on both axes.
@@ -102,9 +125,17 @@ internal const val AutopilotIdleMs = 3_500L
  * nearest neighbour on that side — which is what the user sees as "the edge
  * moved". A side with no neighbour grows against a plain unfavoured one.
  *
- * The result is the area the finger is judged against, not a decoration: a
- * letter squeezed by a likelier neighbour comes back *smaller* than its cell,
- * and is dropped by the growth floor rather than drawn as a shrunken key.
+ * Every edge is worked out twice: once with this letter's weight, and once as
+ * if the word list had said nothing at all. The difference is the ground the
+ * bias won, and a letter that won none of it — because its neighbours are as
+ * likely as it is, or likelier — is dropped rather than drawn.
+ *
+ * The plain claim is the baseline rather than the drawn key, and that
+ * distinction is the whole of issue #76's "wrong letters": the hit test is
+ * nearest-centre, so on a row of mixed key widths the plain boundary already
+ * sits inside the wider key. Measured against the cell, every letter beside a
+ * narrow key looked shrunken and was thrown away — leaving whichever letters
+ * happened to have same-width neighbours, not the likeliest ones.
  *
  * [bounds] and [centers] are both in the key grid's own space. Letters missing
  * from either are skipped — the two maps are filled by the same positioning
@@ -165,25 +196,43 @@ internal fun autopilotAreas(
         }
         // The share of the gap this letter's weight claims. With no neighbour
         // on that side the gap is the one an identical key would sit across.
-        fun side(gap: Float, half: Float, neighbour: Float): Float {
+        fun claim(gap: Float, half: Float, neighbour: Float): Float {
             val span = if (gap > 0f) gap else half * 2f
             val other = if (gap > 0f) neighbour else 1f
             return (span * own / (own + other)).coerceAtMost(reach)
         }
+        // The same edge with nothing favoured anywhere: the plain nearest-centre
+        // boundary, which is the midpoint of the gap whatever the two keys
+        // measure. This, not the cell, is what growth is judged against.
+        fun plain(gap: Float, half: Float) = if (gap > 0f) gap / 2f else half
         val halfW = cell.width / 2f
         val halfH = cell.height / 2f
+        val claimL = claim(left, halfW, leftW)
+        val claimR = claim(right, halfW, rightW)
+        val claimU = claim(up, halfH, upW)
+        val claimD = claim(down, halfH, downW)
+        val plainL = plain(left, halfW)
+        val plainR = plain(right, halfW)
+        val plainU = plain(up, halfH)
+        val plainD = plain(down, halfH)
+        // Nothing won on an axis means nothing to draw: the neighbours are as
+        // likely as this letter, or likelier, and the boundary stayed put or
+        // moved the wrong way.
+        if (claimL + claimR <= plainL + plainR) continue
+        if (claimU + claimD <= plainU + plainD) continue
+        // Drawn as the key plus what the bias won it, so a favoured letter is
+        // never drawn smaller than the key the user is looking at.
         val area = Rect(
-            left = center.x - side(left, halfW, leftW),
-            top = center.y - side(up, halfH, upW),
-            right = center.x + side(right, halfW, rightW),
-            bottom = center.y + side(down, halfH, downW),
+            left = cell.left - (claimL - plainL).coerceAtLeast(0f),
+            top = cell.top - (claimU - plainU).coerceAtLeast(0f),
+            right = cell.right + (claimR - plainR).coerceAtLeast(0f),
+            bottom = cell.bottom + (claimD - plainD).coerceAtLeast(0f),
         )
-        val grown = minOf(area.width / cell.width, area.height / cell.height)
-        // A letter hemmed in by likelier neighbours has lost ground rather than
-        // gained it. There is nothing to show, and drawing it smaller than its
-        // own key would read as a fault in the board.
-        if (grown < 1f) continue
-        areas[ch] = AutopilotArea(area, cell, grown)
+        areas[ch] = AutopilotArea(
+            area = area,
+            cell = cell,
+            scale = minOf(area.width / cell.width, area.height / cell.height),
+        )
     }
     // Ranked by how likely the letter is, not by how much room it won. The two
     // part company on a crowded row — the likeliest letter can be boxed in by
@@ -270,15 +319,34 @@ internal fun BoxScope.AutopilotOverlay(
     // the user never asked to see the workings of — neither should light the
     // grid up. Read here, in the leaf, so a keystroke stamp does not invalidate
     // the board on its way past.
-    if (glideActive) return
-    if (SystemClock.uptimeMillis() - lastKeyPress.longValue > AutopilotIdleMs) return
-    val claimed = autopilotAreas(centers, bounds, bias, strength, keyWidth)
-    if (claimed.isEmpty()) return
+    val idle = SystemClock.uptimeMillis() - lastKeyPress.longValue > AutopilotIdleMs
+    val claimed = if (glideActive || idle) {
+        emptyMap()
+    } else {
+        autopilotAreas(centers, bounds, bias, strength, keyWidth)
+    }
     // The exaggeration and the clamp are applied once, here, because the face
     // and the outline below have to agree down to the pixel.
     val areas = claimed.mapValues {
         it.value.drawnAt(visualScale).clampedTo(boardSize.width, boardSize.height)
     }
+    // Typing › Autopilot › Animate: the areas ease to their new size and the
+    // letters fade as they gain and lose favour, instead of jumping per key.
+    if (kb.motion.autopilot) {
+        AnimatedAutopilotAreas(
+            areas = areas,
+            // A stroke takes the board at once; only typing eases.
+            instant = glideActive,
+            label = label,
+            settings = settings,
+            palette = palette,
+            kb = kb,
+            showEffect = showEffect,
+            outline = outline,
+        )
+        return
+    }
+    if (areas.isEmpty()) return
     val density = LocalDensity.current
     val gapH = keyGapH(settings)
     val gapV = keyGapV(settings)
@@ -312,7 +380,7 @@ internal fun BoxScope.AutopilotOverlay(
                 Text(
                     text = label(ch),
                     fontSize = (LetterLabelSp * settings.fontScale * grown.scale).sp,
-                    fontWeight = if (settings.boldKeyLabels) FontWeight.Bold else FontWeight.Medium,
+                    fontWeight = if (settings.accessibility.boldLabels) FontWeight.Bold else FontWeight.Medium,
                     color = palette.keyText,
                     maxLines = 1,
                     softWrap = false,
@@ -343,3 +411,160 @@ internal fun BoxScope.AutopilotOverlay(
         }
     }
 }
+
+/**
+ * [AutopilotOverlay] with motion: every favoured letter's area springs to its
+ * new size and place as the bias moves, and a letter fades in as it gains
+ * favour and out as it loses it.
+ *
+ * The same rectangle, inset and outline as the still drawing, drawn by boxes
+ * that take no touches: the hit test reads the bias, never these, so easing the
+ * drawing changes nothing a press lands on. The rectangle is read in the layout
+ * and draw passes only, so a frame of the spring re-lays out a box rather than
+ * recomposing the overlay.
+ */
+@Composable
+private fun AnimatedAutopilotAreas(
+    areas: Map<Char, AutopilotArea>,
+    instant: Boolean,
+    label: (Char) -> String,
+    settings: KeyboardSettings,
+    palette: KeyPalette,
+    kb: KbTheme,
+    showEffect: Boolean,
+    outline: Boolean,
+) {
+    val motion = remember { AutopilotMotion() }
+    val shown = motion.settle(areas, instant)
+    if (shown.isEmpty()) return
+    val gapH = keyGapH(settings)
+    val gapV = keyGapV(settings)
+    val shape = kb.keyShape(bleedDp = gapH.value)
+    for (entry in shown) {
+        key(entry.char) {
+            val target = entry.target
+            val leaving = entry.leaving
+            val rect = animateRectAsState(
+                target.area,
+                animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = AutopilotSpringStiffness),
+                label = "autopilotArea",
+            )
+            // Born at nothing, so a letter gaining favour never shows whole for
+            // a frame before it fades in.
+            val fade = remember { Animatable(0f) }
+            LaunchedEffect(leaving) {
+                fade.animateTo(if (leaving) 0f else 1f, tween(AutopilotFadeMs))
+                if (leaving) motion.drop(entry)
+            }
+            Box(
+                modifier = Modifier
+                    .clearAndSetSemantics { }
+                    .offset { IntOffset(rect.value.left.roundToInt(), rect.value.top.roundToInt()) }
+                    .layout { measurable, _ ->
+                        val r = rect.value
+                        val width = r.width.roundToInt().coerceAtLeast(0)
+                        val height = r.height.roundToInt().coerceAtLeast(0)
+                        val placeable = measurable.measure(Constraints.fixed(width, height))
+                        layout(width, height) { placeable.place(0, 0) }
+                    }
+                    .graphicsLayer {
+                        alpha = fade.value
+                        compositingStrategy = CompositingStrategy.ModulateAlpha
+                    }
+                    .padding(horizontal = gapH, vertical = gapV)
+                    .then(
+                        if (showEffect) {
+                            Modifier
+                                .background(palette.key, shape)
+                                .then(
+                                    kb.keyBorder
+                                        ?.takeIf { kb.keyBorderWidthDp > 0f }
+                                        ?.let { Modifier.border(kb.keyBorderWidthDp.dp, it, shape) }
+                                        ?: Modifier,
+                                )
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .then(
+                        if (outline) {
+                            Modifier.drawWithContent {
+                                drawContent()
+                                drawRect(color = kb.accent, style = Stroke(width = 1.dp.toPx()))
+                            }
+                        } else {
+                            Modifier
+                        },
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (showEffect) {
+                    Text(
+                        text = label(entry.char),
+                        // Laid out at the key's own size and scaled with the
+                        // area as it moves, so the letter grows with its box
+                        // rather than stepping a size per keystroke.
+                        fontSize = (LetterLabelSp * settings.fontScale).sp,
+                        fontWeight = if (settings.accessibility.boldLabels) FontWeight.Bold else FontWeight.Medium,
+                        color = palette.keyText,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.graphicsLayer {
+                            val r = rect.value
+                            val cell = target.cell
+                            if (cell.width > 0f && cell.height > 0f) {
+                                val grown = minOf(r.width / cell.width, r.height / cell.height)
+                                scaleX = grown
+                                scaleY = grown
+                            }
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** One letter's area on screen, and whether it is on its way out. */
+private class AutopilotEntry(val char: Char, var target: AutopilotArea) {
+    var leaving = false
+}
+
+/**
+ * The letters drawn, including the ones fading out. Plain fields worked out in
+ * composition, so running it twice with the same areas changes nothing;
+ * [version] is bumped when a letter has finished fading, to drop it.
+ */
+private class AutopilotMotion {
+    private val entries = LinkedHashMap<Char, AutopilotEntry>()
+    private var version by mutableIntStateOf(0)
+
+    fun settle(areas: Map<Char, AutopilotArea>, instant: Boolean): List<AutopilotEntry> {
+        // Read, so a letter finishing its fade recomposes the overlay.
+        check(version >= 0)
+        if (instant) entries.clear()
+        for ((ch, area) in areas) {
+            val entry = entries.getOrPut(ch) { AutopilotEntry(ch, area) }
+            entry.target = area
+            entry.leaving = false
+        }
+        for (entry in entries.values) {
+            if (entry.char !in areas) entry.leaving = true
+        }
+        return entries.values.toList()
+    }
+
+    fun drop(entry: AutopilotEntry) {
+        if (entry.leaving && entries[entry.char] === entry) {
+            entries.remove(entry.char)
+            version++
+        }
+    }
+}
+
+/** Snappy enough to settle in about 120 ms, with no overshoot. */
+private const val AutopilotSpringStiffness = 2_500f
+
+/** A letter fading in as it gains favour, or out as it loses it. */
+private const val AutopilotFadeMs = 120

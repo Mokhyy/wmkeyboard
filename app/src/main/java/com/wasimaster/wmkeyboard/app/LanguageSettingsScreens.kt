@@ -5,20 +5,19 @@ import android.net.ConnectivityManager
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material.icons.outlined.ArrowDropDown
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Search
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Close
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Delete
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Search
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.SwapHoriz
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -34,42 +33,72 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.wasimaster.wmkeyboard.R
 import com.wasimaster.wmkeyboard.common.R as CommonR
+import com.wasimaster.wmkeyboard.core.layout.resolveLayoutKeyman
+import com.wasimaster.wmkeyboard.core.layout.resolveLayoutName
+import com.wasimaster.wmkeyboard.core.transliteration.BijoyAnsi
+import com.wasimaster.wmkeyboard.core.transliteration.KhiproSpecs
+import com.wasimaster.wmkeyboard.core.dictionaries.AvroDictionaryDownloads
 import com.wasimaster.wmkeyboard.core.dictionaries.DictionaryCatalog
 import com.wasimaster.wmkeyboard.core.dictionaries.DictionaryEntry
 import com.wasimaster.wmkeyboard.core.dictionaries.DictionaryStore
+import com.wasimaster.wmkeyboard.core.dictionaries.DivvunSpellerDownloads
 import com.wasimaster.wmkeyboard.core.dictionaries.NgramPackCatalog
 import com.wasimaster.wmkeyboard.core.dictionaries.NgramPackDownloadManager
 import com.wasimaster.wmkeyboard.core.dictionaries.NgramPackEntry
+import com.wasimaster.wmkeyboard.core.dictionaries.VoikkoDictionaryDownloads
 import com.wasimaster.wmkeyboard.core.dictionaries.WordlistDownloadManager
 import com.wasimaster.wmkeyboard.core.emoji.EmojiDictCatalog
 import com.wasimaster.wmkeyboard.core.emoji.EmojiDictDownloadManager
 import com.wasimaster.wmkeyboard.core.emoji.EmojiDictEntry
 import com.wasimaster.wmkeyboard.core.emoji.EmojiDictStore
-import com.wasimaster.wmkeyboard.core.emoji.EmojiKeywordPacks
-import com.wasimaster.wmkeyboard.core.settings.keywordsEnabledFor
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.wasimaster.wmkeyboard.core.input.composer.CjkDictCatalog
+import com.wasimaster.wmkeyboard.core.input.composer.FlexLanguagePack
+import com.wasimaster.wmkeyboard.core.input.BrailleContracted
+import com.wasimaster.wmkeyboard.core.input.composer.ArabicTashkeel
+import com.wasimaster.wmkeyboard.core.input.composer.HebrewNikud
+import com.wasimaster.wmkeyboard.core.input.composer.KoreanSpacing
+import com.wasimaster.wmkeyboard.core.modules.FeatureModules
+import com.wasimaster.wmkeyboard.core.modules.ModuleState
 import com.wasimaster.wmkeyboard.core.input.composer.CjkDictDownloadManager
 import com.wasimaster.wmkeyboard.core.input.composer.CjkDictPack
+import com.wasimaster.wmkeyboard.core.input.composer.CjkDictStore
+import com.wasimaster.wmkeyboard.core.input.composer.DoublePinyin
+import com.wasimaster.wmkeyboard.core.input.composer.DoublePinyinProfile
 import com.wasimaster.wmkeyboard.core.input.composer.DoublePinyinScheme
 import com.wasimaster.wmkeyboard.core.input.composer.PinyinFuzzy
 import com.wasimaster.wmkeyboard.core.input.composer.HanVariant
+import com.wasimaster.wmkeyboard.core.input.rime.RimeSchemaCatalog
 import com.wasimaster.wmkeyboard.core.layout.AssetLayouts
 import com.wasimaster.wmkeyboard.core.layout.BuiltInLayouts
+import com.wasimaster.wmkeyboard.core.layout.InputMethodKind
 import com.wasimaster.wmkeyboard.core.layout.KeymanBinding
 import com.wasimaster.wmkeyboard.core.layout.composerType
 import com.wasimaster.wmkeyboard.core.layout.language
+import com.wasimaster.wmkeyboard.core.layout.isShippedLayoutId
 import com.wasimaster.wmkeyboard.core.layout.resolveLayout
-import com.wasimaster.wmkeyboard.core.prediction.BengaliSpellingMap
+import com.wasimaster.wmkeyboard.core.netlog.InternetPermission
+import com.wasimaster.wmkeyboard.core.prediction.DivvunRuntime
+import com.wasimaster.wmkeyboard.core.prediction.PhoneticSchemes
+import com.wasimaster.wmkeyboard.core.prediction.HunspellRuntime
+import com.wasimaster.wmkeyboard.core.prediction.VoikkoRuntime
+import com.wasimaster.wmkeyboard.core.prediction.PhoneticStripSource
+import com.wasimaster.wmkeyboard.core.prediction.PhoneticCandidateList
+import com.wasimaster.wmkeyboard.core.prediction.SpellingMap
 import com.wasimaster.wmkeyboard.core.script.ComposerType
 import com.wasimaster.wmkeyboard.core.script.DeviceLocales
 import com.wasimaster.wmkeyboard.core.script.FancyStyles
@@ -77,16 +106,19 @@ import com.wasimaster.wmkeyboard.core.script.LanguageDef
 import com.wasimaster.wmkeyboard.core.script.LanguageRegistry
 import com.wasimaster.wmkeyboard.core.script.LanguageSuggestions
 import com.wasimaster.wmkeyboard.core.script.NumeralSystem
+import com.wasimaster.wmkeyboard.core.script.RomanizedSpeech
 import com.wasimaster.wmkeyboard.core.script.ScriptId
 import com.wasimaster.wmkeyboard.core.script.ScriptRegistry
 import com.wasimaster.wmkeyboard.core.script.SuggestedLanguage
 import com.wasimaster.wmkeyboard.core.script.SuggestionReason
 import com.wasimaster.wmkeyboard.core.script.resolveNumeralDigits
+import com.wasimaster.wmkeyboard.core.settings.DefaultSpaceAfterSuggestionOffLangs
 import com.wasimaster.wmkeyboard.core.settings.KeyboardSettings
-import com.wasimaster.wmkeyboard.core.settings.MeteredDecision
+import com.wasimaster.wmkeyboard.core.settings.ReadingOnSwitch
 import com.wasimaster.wmkeyboard.core.settings.SettingsDefaults
 import com.wasimaster.wmkeyboard.core.settings.SettingsRepository
 import com.wasimaster.wmkeyboard.core.settings.TransliterationHintMode
+import com.wasimaster.wmkeyboard.core.xlit.IndicXlitModels
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.io.File
@@ -154,7 +186,7 @@ internal class LanguageSearchKey(language: LanguageDef) {
      */
     private val layouts = language.layoutIds.flatMap { layoutId ->
         listOfNotNull(
-            (BuiltInLayouts.byId(layoutId) ?: AssetLayouts.byId(layoutId))?.name?.lowercase(),
+            (BuiltInLayouts.byId(layoutId)?.name ?: AssetLayouts.nameOf(layoutId))?.lowercase(),
             layoutId.substringAfter('_').lowercase(),
         )
     }
@@ -171,11 +203,10 @@ internal class LanguageSearchKey(language: LanguageDef) {
 
 /**
  * Every registry language paired with its search key. The registry is a
- * constant, but the asset layouts' names arrive only once their JSON finishes
- * parsing off the main thread — so the index is memoised on
- * [AssetLayouts.generation] rather than built once, the same way
- * `resolveLayouts` is: an index built before the load would file every asset
- * layout under no name at all, forever.
+ * constant, but the asset layouts' names arrive only once their index is read
+ * off the main thread — so the index is memoised on [AssetLayouts.generation]
+ * rather than built once: an index built before the load would file every
+ * asset layout under no name at all, forever.
  */
 private object LanguageSearchIndex {
     class Entry(val generation: Int, val index: List<Pair<LanguageDef, LanguageSearchKey>>)
@@ -213,8 +244,8 @@ internal fun searchLanguages(query: String): List<LanguageDef> =
  * someone typing in eight languages does not need all eight recited at them.
  */
 @Composable
-internal fun enabledLanguagesSummary(settings: KeyboardSettings): String {
-    val names = settings.enabledLanguages.map { it.displayName.substringBefore(" · ") }
+internal fun enabledLanguagesSummary(settings: LiveSettings): String {
+    val names = settings.watch { s -> s.enabledLanguages.map { it.displayName.substringBefore(" · ") } }
     val shown = names.take(LANGUAGE_SUMMARY_LIMIT).joinToString()
     val rest = names.size - LANGUAGE_SUMMARY_LIMIT
     return when {
@@ -237,12 +268,12 @@ private const val LANGUAGE_SUMMARY_LIMIT = 3
  */
 @Composable
 internal fun rememberSuggestedLanguages(
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     limit: Int = LanguageSuggestions.DEFAULT_LIMIT,
 ): List<SuggestedLanguage> {
     val context = LocalContext.current
     val signals = remember(context) { DeviceLocales.read(context) }
-    val enabled = settings.enabledLanguages.mapTo(HashSet()) { it.id }
+    val enabled = settings.watch { s -> s.enabledLanguages.mapTo(HashSet()) { it.id } }
     return remember(signals, enabled, limit) {
         LanguageSuggestions.suggest(signals, exclude = enabled, limit = limit)
     }
@@ -278,14 +309,13 @@ internal fun suggestionReasonLabel(suggestion: SuggestedLanguage): String = when
 @Composable
 internal fun AddLanguageScreen(
     repository: SettingsRepository,
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     onOpenLanguage: (String) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
-    val enabledLangIds = remember(settings.enabledLanguages) {
-        settings.enabledLanguages.mapTo(HashSet()) { it.id }
-    }
+    // Decides the order the list is in, as well as each row's label.
+    val enabledLangIds = settings.watch { s -> s.enabledLanguages.mapTo(HashSet()) { it.id } }
     val q = query.trim().lowercase()
     // Both remembered on the query: this whole screen recomposes on every
     // letter typed into the search box, and re-running the filter over 843
@@ -301,7 +331,7 @@ internal fun AddLanguageScreen(
         // Nothing is enabled until the dialog is answered, so its Cancel really
         // is a cancel and has nothing to undo.
         prompt.ask(lang) {
-            addLanguage(scope, repository, settings, lang, onPaired = { pairs ->
+            addLanguage(scope, repository, settings.value, lang, onPaired = { pairs ->
                 // One toast even if several links landed: the first pair is
                 // the one the user just caused, and the detail screen lists
                 // the full truth.
@@ -438,44 +468,70 @@ private fun conjunctSample(script: ScriptId): String? = when (script) {
     ScriptId.SOGDIAN, ScriptId.SORA_SOMPENG, ScriptId.SOYOMBO, ScriptId.SUNDANESE, ScriptId.SYLOTI_NAGRI, ScriptId.TAGALOG,
     ScriptId.TAGBANWA, ScriptId.TAI_THAM, ScriptId.TAI_VIET, ScriptId.TAKRI, ScriptId.TIRHUTA, ScriptId.TODHRI, ScriptId.TOTO,
     ScriptId.UGARITIC, ScriptId.VITHKUQI, ScriptId.YEZIDI, ScriptId.YI, ScriptId.ZANABAZAR_SQUARE, ScriptId.MUSIC, ScriptId.BRAILLE,
+    ScriptId.PIQAD,
     -> null
 }
 
 /**
- * What a language can download: its word list, its emoji keywords and its
- * n-gram pack, with a rough size for all three together. Any of them may be
- * missing — most languages have a word list, only 125 have keywords, and two
- * so far have an n-gram pack.
+ * What a language can download: its word list, its emoji keywords, its
+ * n-gram pack and the conversion packs its layouts type through, with a rough
+ * size for all of it together. Any of them may be missing — most languages
+ * have a word list, only 125 have keywords, two so far have an n-gram pack,
+ * and only Chinese, Cantonese and Japanese convert.
+ *
+ * [cjkPacks] is the one a language cannot do without: a word list makes typing
+ * better, but Pinyin with no pack never offers a single character.
  */
 internal data class LanguageData(
     val wordlist: DictionaryEntry?,
     val emojiDict: EmojiDictEntry?,
     val ngram: NgramPackEntry?,
     val bytes: Long,
+    val cjkPacks: List<CjkDictPack> = emptyList(),
 ) {
-    val isEmpty: Boolean get() = wordlist == null && emojiDict == null && ngram == null
+    val isEmpty: Boolean get() = wordlist == null && emojiDict == null && ngram == null && cjkPacks.isEmpty()
+
+    /** Roughly what fetching all of it costs, with the word list at [size]. */
+    fun approxBytes(size: DictionaryCatalog.DictionarySize): Long =
+        (wordlist?.let { entryBytes(it, size) } ?: 0L) +
+            (emojiDict?.approxGzBytes ?: 0L) + (ngram?.approxGzBytes ?: 0L) +
+            cjkPacks.sumOf { it.sizeBytes }
 }
+
+/**
+ * The conversion packs [langId]'s own layouts need, one per table however many
+ * layouts share it (Pinyin, T9 and Zhuyin all read the pinyin pack), with what
+ * comes along with each (the pinyin word pairs). The Traditional phrase pack is
+ * an improvement nobody asked for yet, and stays a row on the language's page.
+ */
+internal fun requiredCjkPacks(langId: String): List<CjkDictPack> =
+    LanguageRegistry.byId(langId).layoutIds
+        .mapNotNull { id -> CjkDictCatalog.forComposer(resolveLayout(emptyList(), id).composerType()) }
+        .filter { it.available }
+        .flatMap { CjkDictCatalog.withCompanions(it) }
+        .distinctBy { it.id }
+
+/**
+ * Roughly what [entry] transfers at [size]. The catalogue sizes the whole
+ * file, and a capped download stops partway through it, so this scales by the
+ * share of the list actually read.
+ */
+internal fun entryBytes(entry: DictionaryEntry, size: DictionaryCatalog.DictionarySize): Long =
+    entry.approxGzBytes * DictionaryCatalog.wordCap(entry, size) / entry.totalWordCount.coerceAtLeast(1)
 
 /** Everything downloadable for [langId], sized for a prompt. */
 internal fun languageData(langId: String): LanguageData {
-    val lists = DictionaryCatalog.forLanguage(langId)
-    // Where a language has several lists (Portuguese), the one whose id is the
-    // language itself is its default; the other is the regional variant.
-    val wordlist = lists.firstOrNull { it.id == langId } ?: lists.firstOrNull()
+    val wordlist = DictionaryCatalog.preferred(langId)
     val emojiDict = EmojiDictCatalog.forLanguage(langId)
     val ngram = NgramPackCatalog.forLanguage(langId)
-    // The catalogue sizes the whole file, and a capped download stops partway
-    // through it, so scale by the share of the list actually read.
-    val wordlistBytes = wordlist?.let {
-        val cap = DictionaryCatalog.wordCap(it, AUTO_DOWNLOAD_SIZE)
-        it.approxGzBytes * cap / it.totalWordCount.coerceAtLeast(1)
-    } ?: 0L
-    return LanguageData(
+    val data = LanguageData(
         wordlist = wordlist,
         emojiDict = emojiDict,
         ngram = ngram,
-        bytes = wordlistBytes + (emojiDict?.approxGzBytes ?: 0L) + (ngram?.approxGzBytes ?: 0L),
+        bytes = 0L,
+        cjkPacks = requiredCjkPacks(langId),
     )
+    return data.copy(bytes = data.approxBytes(AUTO_DOWNLOAD_SIZE))
 }
 
 
@@ -486,19 +542,58 @@ internal fun languageData(langId: String): LanguageData {
  * the platform errs: a wrong "metered" would block a download on a connection
  * that costs nothing, and the user has no way to see why.
  */
-internal fun isMeteredNow(context: Context): Boolean =
-    context.getSystemService(ConnectivityManager::class.java)?.isActiveNetworkMetered ?: false
+internal fun isMeteredNow(context: Context): Boolean = runCatching {
+    context.getSystemService(ConnectivityManager::class.java)?.isActiveNetworkMetered
+}.getOrNull() ?: false
 
 /**
- * Fetches everything [data] offers, as the prompt's Download does.
+ * Fetches everything [data] offers, as the prompt's Download does, with the
+ * word list at [size].
  *
- * All three managers queue internally and skip what is already on disk, so
- * this is safe to call for a language that is half downloaded already.
+ * The word list is fetched again even when one is on disk, so callers that
+ * may meet a half-downloaded language pass only what is missing.
  */
-internal fun startLanguageDataDownload(filesDir: File, data: LanguageData) {
-    data.wordlist?.let { WordlistDownloadManager.start(filesDir, it, AUTO_DOWNLOAD_SIZE) }
-    data.emojiDict?.let { EmojiDictDownloadManager.start(filesDir, it) }
+internal fun startLanguageDataDownload(
+    context: Context,
+    data: LanguageData,
+    notify: DownloadNotifier? = null,
+    size: DictionaryCatalog.DictionarySize = AUTO_DOWNLOAD_SIZE,
+) {
+    val filesDir = context.filesDir
+    data.wordlist?.let { entry ->
+        WordlistDownloadManager.start(filesDir, entry, size)
+        notify?.invoke(
+            entry.id,
+            context.getString(
+                R.string.notify_download_wordlist,
+                LanguageRegistry.byId(entry.languageId).displayName,
+            ),
+            DownloadProgressFlows.wordlist(context, entry.id),
+        )
+    }
+    data.emojiDict?.let { entry ->
+        EmojiDictDownloadManager.start(filesDir, entry)
+        notify?.invoke(
+            entry.languageId,
+            context.getString(
+                R.string.notify_download_emoji_names,
+                LanguageRegistry.byId(entry.languageId).displayName,
+            ),
+            DownloadProgressFlows.emojiDict(context, entry.languageId),
+        )
+    }
+    // The n-gram pack has no per-language progress to follow — the manager
+    // publishes completions and nothing else — so it downloads unannounced.
     data.ngram?.let { NgramPackDownloadManager.start(filesDir, it.languageId) }
+    // Only the packs not already here: one on disk would otherwise come up in
+    // the shade as a download that finished before it started.
+    val packs = data.cjkPacks.filterNot { CjkDictStore.isDownloaded(filesDir, it) }
+    if (packs.isNotEmpty()) {
+        CjkDictDownloadManager.startAll(filesDir, packs)
+        for (pack in packs) {
+            notify?.invoke(pack.id, context.getString(pack.displayNameRes), DownloadProgressFlows.cjkDict(context, pack.id))
+        }
+    }
 }
 
 /**
@@ -509,9 +604,43 @@ internal fun startLanguageDataDownload(filesDir: File, data: LanguageData) {
 private val AUTO_DOWNLOAD_SIZE = DictionaryCatalog.DictionarySize.LARGE
 
 /** Bytes a language's downloaded files are taking up right now. */
-private fun downloadedLanguageBytes(filesDir: File, langId: String): Long =
-    DictionaryStore.downloadedFile(filesDir, langId).length() +
-        EmojiDictStore.packFile(filesDir, langId).length()
+internal fun downloadedLanguageBytes(context: Context, settings: KeyboardSettings, langId: String): Long =
+    languageDataFiles(context, settings, langId).sumOf { file ->
+        file.walkBottomUp().filter { it.isFile }.sumOf { it.length() }
+    }
+
+/**
+ * Every downloaded file only [langId] uses, which is what removing it may
+ * delete: its word list and phonetic index, emoji keywords, word pairs, CJK
+ * dictionaries, spellers and Bangla's Avro dictionary. The neural model is
+ * shared, so it counts only when no other language left on would still use
+ * it. One list, so the question, the size it quotes and the delete cannot
+ * disagree about what goes.
+ */
+private fun languageDataFiles(context: Context, settings: KeyboardSettings, langId: String): List<File> = buildList {
+    val filesDir = context.filesDir
+    add(DictionaryStore.downloadedFile(filesDir, langId))
+    add(DictionaryStore.phoneticFile(filesDir, langId))
+    add(EmojiDictStore.packFile(filesDir, langId))
+    add(NgramPackDownloadManager.packFile(filesDir, langId))
+    add(DivvunRuntime.bhfstFile(filesDir, langId))
+    add(DivvunRuntime.zhfstFile(filesDir, langId))
+    add(VoikkoRuntime.dictionaryDir(filesDir, langId))
+    CjkDictCatalog.forLang(langId).forEach { add(CjkDictStore.packDir(filesDir, it)) }
+    if (langId == PhoneticSchemes.BENGALI.languageId) add(AvroDictionaryDownloads.file(filesDir))
+}.filter(File::exists) + listOfNotNull(orphanedNeuralModel(context, settings, langId))
+
+/** IndicXlit's directory when [langId] is the last language on that has neural suggestions. */
+private fun orphanedNeuralModel(context: Context, settings: KeyboardSettings, langId: String): File? {
+    val neural = settings.suggestionStrip.neuralPhoneticLangs
+    if (langId !in neural) return null
+    val othersUsing = settings.enabledLayoutIds
+        .map { resolveLayout(settings.customLayouts, it).language().id }
+        .any { it != langId && it in neural }
+    if (othersUsing) return null
+    // The pack's own directory, which holds nothing else.
+    return IndicXlitModels.NATIVE.dir(context.noBackupFilesDir).parentFile?.takeIf { it.exists() }
+}
 
 /**
  * The download prompt, hoisted so every screen that can add a language asks the
@@ -523,7 +652,8 @@ private fun downloadedLanguageBytes(filesDir: File, langId: String): Long =
  */
 @Composable
 internal fun rememberLanguageDataPrompt(): LanguageDataPrompt {
-    val filesDir = LocalContext.current.filesDir
+    val context = LocalContext.current
+    val notifyDownload = rememberDownloadNotifier()
     val prompt = remember { LanguageDataPrompt() }
     prompt.pending?.let { (language, proceed) ->
         val data = remember(language.id) { languageData(language.id) }
@@ -536,7 +666,7 @@ internal fun rememberLanguageDataPrompt(): LanguageDataPrompt {
                 proceed()
             },
             onDownload = {
-                startLanguageDataDownload(filesDir, data)
+                startLanguageDataDownload(context, data, notifyDownload)
                 prompt.dismiss()
                 proceed()
             },
@@ -624,9 +754,53 @@ private fun LanguageDataDownloadDialog(
     )
 }
 
+/** Whether [langId] has anything downloaded that removing it could leave behind. */
+internal fun hasLanguageData(context: Context, settings: KeyboardSettings, langId: String): Boolean =
+    languageDataFiles(context, settings, langId).isNotEmpty()
+
+/** Deletes what [languageDataFiles] lists, each through its own store so its screen hears of it. */
+internal suspend fun deleteLanguageData(
+    context: Context,
+    repository: SettingsRepository,
+    settings: KeyboardSettings,
+    langId: String,
+) {
+    val filesDir = context.filesDir
+    val neural = orphanedNeuralModel(context, settings, langId) != null
+    DictionaryStore.delete(filesDir, langId)
+    WordlistDownloadManager.refresh(filesDir)
+    // Leaves a "declined" mark behind, which is what stops the
+    // automatic pass fetching the keywords straight back.
+    EmojiDictDownloadManager.delete(filesDir, langId)
+    NgramPackDownloadManager.delete(filesDir, langId)
+    DivvunSpellerDownloads.delete(filesDir, langId)
+    VoikkoDictionaryDownloads.delete(filesDir, langId)
+    CjkDictCatalog.forLang(langId).forEach { CjkDictDownloadManager.delete(filesDir, it) }
+    if (langId == PhoneticSchemes.BENGALI.languageId) AvroDictionaryDownloads.delete(filesDir)
+    if (neural) deleteNeuralPhonetic(context, repository, settings)
+}
+
+/**
+ * Takes every layout of [langId] out of the enabled set. Refuses (false) when
+ * nothing would be left to type in.
+ */
+internal suspend fun removeLanguageLayouts(
+    repository: SettingsRepository,
+    settings: LiveSettings,
+    langId: String,
+): Boolean {
+    val current = settings.value
+    val next = current.enabledLayoutIds.filterNot {
+        resolveLayout(current.customLayouts, it).language().id == langId
+    }
+    if (next.isEmpty()) return false
+    repository.setEnabledLayoutIds(next.distinct())
+    return true
+}
+
 /** The mirror of [LanguageDataDownloadDialog], for a language on its way out. */
 @Composable
-private fun LanguageDataDeleteDialog(
+internal fun LanguageDataDeleteDialog(
     language: LanguageDef,
     bytes: Long,
     onKeep: () -> Unit,
@@ -663,7 +837,8 @@ private fun LanguageDataDeleteDialog(
  * is where every caller sends the user next.
  *
  * Adding is also the moment romanized languages get cross-wired with their
- * same-script company (see [RomanizedPairing]): [onPaired] fires with the new
+ * same-script company (see [RomanizedPairing]), limited to [language]'s own
+ * pairs so a link removed by hand elsewhere stays removed: [onPaired] fires with the new
  * links so the Languages screen can toast them, while onboarding leaves it at
  * its silent default.
  */
@@ -677,16 +852,10 @@ internal fun addLanguage(
     val first = language.layoutIds.firstOrNull() ?: return
     scope.launch {
         repository.setEnabledLayoutIds((settings.enabledLayoutIds + first).distinct())
-        val paired = repository.autoPairRomanizedSecondaries()
+        val paired = repository.autoPairRomanizedSecondaries(language.id)
         if (paired.isNotEmpty()) onPaired(paired)
     }
 }
-
-/**
- * The route of a language's [MoreLayoutsScreen]. One function so the row that
- * opens it and the graph that declares it cannot drift apart.
- */
-internal fun moreLayoutsRoute(langId: String): String = "language/$langId/more"
 
 /**
  * The layouts of [lang] that the detail screen sends to [MoreLayoutsScreen]:
@@ -701,65 +870,18 @@ internal fun moreLayoutsRoute(langId: String): String = "language/$langId/more"
 private fun overflowLayoutIds(lang: LanguageDef, settings: KeyboardSettings): List<String> =
     lang.layoutIds.filter { id ->
         id !in settings.enabledLayoutIds &&
-            resolveLayout(settings.customLayouts, id).keyman != null
+            resolveLayoutKeyman(settings.customLayouts, id) != null
     }
-
-/**
- * A toggle per layout, and under each converted Keyman layout the row that
- * fetches its typing rules.
- *
- * An extension on the group scope rather than a composable of its own, so the
- * detail screen and [MoreLayoutsScreen] draw the same rows into their own cards
- * without one of them owning the other's. The `keyman` test stays outside
- * `item` because an item that composes nothing still takes a slot in the card.
- */
-private fun SettingsGroupScope.layoutRows(
-    layoutIds: List<String>,
-    settings: KeyboardSettings,
-    repository: SettingsRepository,
-    scope: CoroutineScope,
-    enableGate: (String, () -> Unit) -> Unit,
-    promptForRules: (KeymanBinding, String) -> Unit,
-    rulesRefresh: Int,
-) {
-    for (layoutId in layoutIds) {
-        val spec = resolveLayout(settings.customLayouts, layoutId)
-        item {
-            ToggleSetting(
-                spec.name,
-                null,
-                layoutId in settings.enabledLayoutIds,
-                default = layoutId in SettingsDefaults.enabledLayoutIds,
-            ) { enable ->
-                fun write() {
-                    scope.launch {
-                        val next =
-                            if (enable) settings.enabledLayoutIds + layoutId
-                            else settings.enabledLayoutIds - layoutId
-                        // At least one layout must stay enabled somewhere.
-                        if (next.isNotEmpty()) repository.setEnabledLayoutIds(next.distinct())
-                    }
-                    // Asked at the moment of switching on, because that is
-                    // when the user is deciding to type in this language.
-                    // Finding out later that the keys produce Latin letters
-                    // is the outcome this exists to prevent.
-                    if (enable) spec.keyman?.let { promptForRules(it, spec.name) }
-                }
-                if (enable) enableGate(layoutId) { write() } else write()
-            }
-        }
-        // A converted Keyman layout can only type what its author wrote once
-        // its rules are on the device, so the row that fetches them sits
-        // directly under the layout it belongs to, and names it.
-        spec.keyman?.let { binding ->
-            item { KeymanRulesRow(binding, spec.name, rulesRefresh) }
-        }
-    }
-}
 
 /**
  * The Layouts group for one language: the layouts we wrote for it plus whichever
- * converted ones are switched on, and a row down to the rest.
+ * converted ones are switched on, as a row of keyboard cards (see
+ * [LayoutCarousel]) that ends on a card down to the rest.
+ *
+ * The rules row a switched-on Keyman layout needs sits under the cards, named
+ * for its layout, rather than under the layout's own card: a card is a picture
+ * of a keyboard, and a download row squeezed under one would make that card
+ * taller than its neighbours.
  *
  * Split out of [LanguageDetailScreen] rather than left inline. That function was
  * already past detekt's complexity ceiling before the Keyman rows went in, and
@@ -769,73 +891,172 @@ private fun SettingsGroupScope.layoutRows(
 @Composable
 private fun LayoutsGroup(
     lang: LanguageDef,
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     repository: SettingsRepository,
     scope: CoroutineScope,
     onNavigate: (String) -> Unit,
 ) {
-    val enableGate = rememberLayoutEnableGate(settings)
     // Bumped when the enable prompt installs rules, so the row underneath stops
     // offering to download what it just got.
     var rulesRefresh by remember { mutableStateOf(0) }
-    val promptForRules = rememberKeymanRulesPrompt { rulesRefresh++ }
+    val toggle = rememberLayoutToggle(settings, repository, scope) { rulesRefresh++ }
 
-    val overflow = overflowLayoutIds(lang, settings)
-    val listed = lang.layoutIds - overflow.toSet()
+    val overflow = settings.watch { overflowLayoutIds(lang, it) }
+    // The user's own layouts for this language sit on the same shelf as the
+    // shipped ones: a grid made in the editor or imported as a file used to be
+    // reachable only from Layout & size, and "turn it on under Languages" sent
+    // people to a screen that did not list it. Edited copies of shipped layouts
+    // keep the shipped id and are already on the shelf; secondary layouts have
+    // no on/off at all.
+    val own = settings.watch { s ->
+        s.customLayouts
+            .filter { it.langId == lang.id && !it.secondary && !isShippedLayoutId(it.id) }
+            .map { it.id }
+    }
+    val listed = (lang.layoutIds - overflow.toSet()) + own
+    val title = stringResource(R.string.languages_layouts_title)
 
-    SettingsGroup(stringResource(R.string.languages_layouts_title)) {
-        layoutRows(listed, settings, repository, scope, enableGate, promptForRules, rulesRefresh)
-        if (overflow.isNotEmpty()) {
-            item {
-                NavRow(
-                    R.string.languages_more_layouts_title,
-                    subtitle = pluralStringResource(
-                        R.plurals.languages_more_layouts_subtitle,
-                        overflow.size,
-                        overflow.size,
-                    ),
-                    route = moreLayoutsRoute(lang.id),
-                ) { onNavigate(moreLayoutsRoute(lang.id)) }
-            }
+    HighlightableRow(title, coarse = true) {
+        Column {
+            SectionHeader(
+                title,
+                info = stringResource(R.string.languages_layouts_info),
+                modifier = Modifier.padding(start = 32.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
+            )
+            LayoutCarousel(
+                layoutIds = listed,
+                settings = settings,
+                onToggle = toggle,
+                moreCount = overflow.size,
+                onMore = { onNavigate(moreLayoutsRoute(lang.id)) },
+            )
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+
+    // Which rows the group below holds; each row reads its own state.
+    val keymanListed = settings.watch { s ->
+        listed.mapNotNull { id ->
+            val spec = resolveLayout(s.customLayouts, id)
+            spec.keyman?.let { it to spec.name }
+        }
+    }
+    val named = settings.watch { s -> listed.filter { it in s.enabledLayoutIds } }
+    // #464: QWERTZ for English. The way in used to be duplicating a layout in
+    // the editor and changing its language there, which nobody found.
+    var borrowing by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    SettingsGroup {
+        // A converted Keyman layout can only type what its author wrote once
+        // its rules are on the device, so each one on the cards gets the row
+        // that fetches them, naming it.
+        for ((binding, name) in keymanListed) {
+            item { KeymanRulesRow(binding, name, rulesRefresh) }
+        }
+        // What each switched-on layout is called on the spacebar and in the
+        // switcher, and the way to call it something else.
+        for (layoutId in named) {
+            item(key = "name:$layoutId") { LayoutNameRow(layoutId, settings, repository, scope) }
+        }
+        item(level = SettingLevel.STANDARD) {
+            WmRow(
+                title = stringResource(R.string.languages_borrow_layout_title),
+                subtitle = stringResource(R.string.languages_borrow_layout_subtitle, lang.englishName),
+                leading = { Icon(Icons.Outlined.SwapHoriz, contentDescription = null) },
+                onClick = { borrowing = true },
+            )
+        }
+    }
+    if (borrowing) {
+        BorrowLayoutDialog(
+            target = lang,
+            onDismiss = { borrowing = false },
+            onPick = { picked ->
+                borrowing = false
+                borrowLayout(scope, repository, settings, lang, picked) { name ->
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.languages_borrow_layout_done, name),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            },
+        )
+    }
+}
+
+/**
+ * What a layout card does when it is tapped, for every screen that has them:
+ * switch the layout, through the validation gate on the way on and the Keyman
+ * rules prompt once it is on, and refuse, out loud, to switch off the last
+ * layout left. Answers whether the switch happened.
+ *
+ * [onRulesInstalled] fires when the prompt installs a layout's rules, so the
+ * screen can tell its rules rows to look again.
+ */
+@Composable
+internal fun rememberLayoutToggle(
+    settings: LiveSettings,
+    repository: SettingsRepository,
+    scope: CoroutineScope,
+    onRulesInstalled: () -> Unit,
+): (layoutId: String, enable: Boolean) -> Boolean {
+    val context = LocalContext.current
+    val enableGate = rememberLayoutEnableGate(settings)
+    val promptForRules = rememberKeymanRulesPrompt(onRulesInstalled)
+    val promptForPack = rememberCjkPackPrompt()
+    return { layoutId, enable ->
+        // At least one layout must stay enabled somewhere. Said out loud here,
+        // where the old switch just sprang back.
+        if (!enable && settings.value.enabledLayoutIds.all { it == layoutId }) {
+            Toast.makeText(context, R.string.languages_layout_keep_one, Toast.LENGTH_SHORT).show()
+            false
+        } else {
+            setLayoutEnabled(
+                layoutId, enable, settings.value, repository, scope, enableGate, promptForRules, promptForPack,
+            )
+            true
         }
     }
 }
 
 /**
- * One language's converted Keyman layouts, a tap off its detail screen.
- *
- * Lists every Keyman grid the language has, not only the ones the detail screen
- * left behind: this page is the catalogue, and a layout vanishing from it the
- * moment it is switched on would read as the toggle having deleted something.
- * The overlap is two rows for one setting, which both write the same value.
- *
- * Named "More layouts" rather than "Keyman layouts" because the name has to mean
- * something to a user who has never heard of Keyman, and the description says
- * where they come from for the user who has.
+ * Switches [layoutId] on or off: through the validation gate on the way on,
+ * never on the way off, and with the Keyman rules prompt at the moment a
+ * converted layout is switched on, or the conversion pack prompt at the moment
+ * a layout that converts is.
  */
-@Composable
-internal fun MoreLayoutsScreen(
-    langId: String,
-    repository: SettingsRepository,
+private fun setLayoutEnabled(
+    layoutId: String,
+    enable: Boolean,
     settings: KeyboardSettings,
+    repository: SettingsRepository,
+    scope: CoroutineScope,
+    enableGate: (String, () -> Unit) -> Unit,
+    promptForRules: (KeymanBinding, String) -> Unit,
+    promptForPack: (CjkDictPack, String) -> Unit,
 ) {
-    val scope = rememberCoroutineScope()
-    val lang = LanguageRegistry.byId(langId)
-    val enableGate = rememberLayoutEnableGate(settings)
-    var rulesRefresh by remember { mutableStateOf(0) }
-    val promptForRules = rememberKeymanRulesPrompt { rulesRefresh++ }
-
-    val layoutIds = lang.layoutIds.filter {
-        resolveLayout(settings.customLayouts, it).keyman != null
+    fun write() {
+        scope.launch {
+            val next =
+                if (enable) settings.enabledLayoutIds + layoutId
+                else settings.enabledLayoutIds - layoutId
+            // At least one layout must stay enabled somewhere.
+            if (next.isNotEmpty()) repository.setEnabledLayoutIds(next.distinct())
+        }
+        // Asked at the moment of switching on, because that is when the user
+        // is deciding to type in this language. Finding out later that the
+        // keys produce Latin letters is the outcome this exists to prevent.
+        if (enable) {
+            val spec = resolveLayout(settings.customLayouts, layoutId)
+            // From the index: a Keyman grid whose pack is still on its way
+            // resolves to the default, which has no rules to offer.
+            resolveLayoutKeyman(settings.customLayouts, layoutId)
+                ?.let { promptForRules(it, resolveLayoutName(settings.customLayouts, layoutId)) }
+            CjkDictCatalog.forComposer(spec.composerType())?.let { promptForPack(it, spec.name) }
+        }
     }
-
-    // Guarded, or a language reached with no converted layouts at all — a stale
-    // deep link, a build that dropped them — draws a description of nothing.
-    if (layoutIds.isEmpty()) return
-    CaptionText(stringResource(R.string.languages_more_layouts_body))
-    SettingsGroup(stringResource(R.string.languages_layouts_title)) {
-        layoutRows(layoutIds, settings, repository, scope, enableGate, promptForRules, rulesRefresh)
-    }
+    if (enable) enableGate(layoutId) { write() } else write()
 }
 
 /**
@@ -848,31 +1069,28 @@ internal fun MoreLayoutsScreen(
 internal fun LanguageDetailScreen(
     langId: String,
     repository: SettingsRepository,
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     onNavigate: (String) -> Unit,
     onRemoved: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    val filesDir = LocalContext.current.filesDir
+    val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
+    val filesDir = context.filesDir
+    val notifyDownload = rememberDownloadNotifier()
     val lang = LanguageRegistry.byId(langId)
     var pendingDelete by remember { mutableStateOf(false) }
 
     val removeLanguage: () -> Unit = {
         scope.launch {
-            val next = settings.enabledLayoutIds.filterNot {
-                resolveLayout(settings.customLayouts, it).language().id == langId
-            }
-            if (next.isNotEmpty()) {
-                repository.setEnabledLayoutIds(next.distinct())
-                onRemoved()
-            }
+            if (removeLanguageLayouts(repository, settings, langId)) onRemoved()
         }
     }
 
     if (pendingDelete) {
         LanguageDataDeleteDialog(
             language = lang,
-            bytes = downloadedLanguageBytes(filesDir, langId),
+            bytes = downloadedLanguageBytes(context, settings.value, langId),
             // Either answer removes the language: the dialog is about the
             // files on disk, not about the removal the user already asked for.
             onKeep = {
@@ -881,12 +1099,11 @@ internal fun LanguageDetailScreen(
             },
             onDelete = {
                 pendingDelete = false
-                DictionaryStore.delete(filesDir, langId)
-                WordlistDownloadManager.refresh(filesDir)
-                // Leaves a "declined" mark behind, which is what stops the
-                // automatic pass fetching the keywords straight back.
-                EmojiDictDownloadManager.delete(filesDir, langId)
-                removeLanguage()
+                val before = settings.value
+                scope.launch {
+                    deleteLanguageData(context, repository, before, langId)
+                    if (removeLanguageLayouts(repository, settings, langId)) onRemoved()
+                }
             },
         )
     }
@@ -896,21 +1113,100 @@ internal fun LanguageDetailScreen(
     // too. Same gate as the custom list; switching off is never gated.
     LayoutsGroup(lang, settings, repository, scope, onNavigate)
 
+    // A language can be wanted only for its words, on the keyboard of
+    // another one: Banglish on English (#473), English on Swedish (#618).
+    // Hidden, it stays on and keeps lending them, and the switcher has one
+    // stop fewer.
+    SettingsGroup(stringResource(R.string.languages_picker_hidden_group)) {
+        item(level = SettingLevel.STANDARD) {
+            ToggleSetting(
+                R.string.languages_picker_hidden_title,
+                stringResource(R.string.languages_picker_hidden_subtitle),
+                settings.watch { langId in it.layoutBehavior.pickerHiddenLanguages },
+                info = stringResource(R.string.languages_picker_hidden_info, lang.englishName),
+                default = false,
+            ) { scope.launch { repository.setLanguageHiddenFromPicker(langId, it) } }
+        }
+    }
+
+    // Autocorrect per language (#802): English corrected and romanized
+    // Bengali kept as typed, on the same phone. Hidden, group and all, while
+    // the global switch is off, which still rules every language; the row
+    // keeps its own answer for when that comes back on.
+    val autocorrectOn = settings.watch { it.correction.enabled }
+    SettingsGroup(stringResource(R.string.languages_autocorrect_group)) {
+        item(visible = autocorrectOn) {
+            ToggleSetting(
+                R.string.languages_autocorrect_title,
+                stringResource(R.string.languages_autocorrect_subtitle),
+                settings.watch { langId !in it.correction.offLanguages },
+                info = stringResource(R.string.languages_autocorrect_info, lang.englishName),
+                default = true,
+            ) { scope.launch { repository.setAutocorrectForLanguage(langId, it) } }
+        }
+    }
+
+    // The space after a picked suggestion, per language the same way (#813):
+    // Bangla words take their case markers and suffixes straight after the
+    // pick, so the space only gets in the way there.
+    val autoSpaceOn = settings.watch { it.suggestionStrip.autoSpaceAfterSuggestion }
+    SettingsGroup(stringResource(R.string.languages_spacing_group)) {
+        item(visible = autoSpaceOn, level = SettingLevel.STANDARD) {
+            ToggleSetting(
+                R.string.languages_space_after_suggestion_title,
+                stringResource(R.string.languages_space_after_suggestion_subtitle),
+                settings.watch { langId !in it.suggestionStrip.spaceAfterSuggestionOffLangs },
+                info = stringResource(R.string.languages_space_after_suggestion_info, lang.englishName),
+                default = langId !in DefaultSpaceAfterSuggestionOffLangs,
+            ) { scope.launch { repository.setAutoSpaceAfterSuggestionForLanguage(langId, it) } }
+        }
+    }
+
     // Fancy Text: the style the one fancy layout draws and types. The strip
     // over the keys switches it too; this row makes it discoverable from
     // Settings and readable as a plain list.
     if (langId == "fancy") {
         SettingsGroup(stringResource(R.string.languages_fancy_style_title)) {
-            item {
+            item(level = SettingLevel.STANDARD) {
+                // Read so the options are drawn again when a font of the
+                // user's own is added; the table itself is not snapshot state.
+                settings.watch { it.layoutBehavior.customFancyFonts }
                 ChoiceSetting(
                     R.string.languages_fancy_style_row_title,
                     subtitle = stringResource(R.string.languages_fancy_style_row_subtitle),
                     options = FancyStyles.all.map { it to it.sample },
-                    selected = FancyStyles.byId(settings.layoutBehavior.fancyStyleId)
+                    selected = FancyStyles.byId(settings.watch { it.layoutBehavior.fancyStyleId })
                         ?: FancyStyles.all.first(),
                     default = FancyStyles.byId(SettingsDefaults.layoutBehavior.fancyStyleId)
                         ?: FancyStyles.all.first(),
                 ) { scope.launch { repository.setFancyStyle(it.id) } }
+            }
+        }
+        CustomFancyFontsGroup(repository, settings)
+    }
+
+    // Vietnamese tone marking. One answer for both boards: Telex and VNI are
+    // two spellings of the same request, and someone switching between them
+    // means the same thing by both.
+    if (langId == "vi") {
+        SettingsGroup(stringResource(R.string.languages_vietnamese_tones_title)) {
+            item(level = SettingLevel.STANDARD) {
+                ToggleSetting(
+                    R.string.languages_vietnamese_strict_tones_title,
+                    stringResource(R.string.languages_vietnamese_strict_tones_subtitle),
+                    settings.watch { it.vietnamese.strictTones },
+                    info = stringResource(R.string.languages_vietnamese_strict_tones_info),
+                    default = SettingsDefaults.vietnamese.strictTones,
+                ) { scope.launch { repository.setVietnameseStrictTones(it) } }
+            }
+            item(level = SettingLevel.ADVANCED) {
+                ToggleSetting(
+                    R.string.languages_vietnamese_restore_marks_title,
+                    stringResource(R.string.languages_vietnamese_restore_marks_subtitle),
+                    settings.watch { it.vietnamese.restoreMarks },
+                    info = stringResource(R.string.languages_vietnamese_restore_marks_info),
+                    default = SettingsDefaults.vietnamese.restoreMarks,
+                ) { scope.launch { repository.setVietnameseRestoreMarks(it) } }
             }
         }
     }
@@ -921,13 +1217,13 @@ internal fun LanguageDetailScreen(
     // in the other, and a single global switch made that impossible.
     if (ScriptRegistry[lang.script].composer == ComposerType.INDIC_CLUSTER) {
         SettingsGroup(stringResource(R.string.languages_clusters_title)) {
-            item {
+            item(level = SettingLevel.STANDARD) {
                 val sample = conjunctSample(lang.script)
                     ?: stringResource(R.string.languages_conjunct_sample_fallback)
                 ToggleSetting(
                     R.string.languages_conjunct_backspace_title,
                     stringResource(R.string.languages_conjunct_backspace_subtitle, sample),
-                    langId in settings.conjunctBackspaceLanguages,
+                    settings.watch { langId in it.conjunctBackspaceLanguages },
                     info = stringResource(
                         R.string.languages_conjunct_backspace_info,
                         lang.englishName,
@@ -935,6 +1231,29 @@ internal fun LanguageDetailScreen(
                     default = langId in SettingsDefaults.conjunctBackspaceLanguages,
                 ) { scope.launch { repository.setConjunctBackspace(langId, it) } }
             }
+            // Probhat and Jatiya give a vowel key the য়-glide after another
+            // vowel; this makes a second press the independent vowel (#900).
+            if (langId == "bn") {
+                item(level = SettingLevel.ADVANCED) {
+                    ToggleSetting(
+                        R.string.languages_bengali_vowel_twice_title,
+                        stringResource(R.string.languages_bengali_vowel_twice_subtitle),
+                        settings.watch { it.suggestionStrip.bengaliVowelTwice },
+                        info = stringResource(R.string.languages_bengali_vowel_twice_info),
+                        default = SettingsDefaults.suggestionStrip.bengaliVowelTwice,
+                    ) { scope.launch { repository.setBengaliVowelTwice(it) } }
+                }
+            }
+        }
+    }
+
+    // A romanized language (Hinglish, Banglish) is dictated as the language
+    // and written back in Latin letters (#948): the model that spells the
+    // words its maps do not know is downloaded here, as well as beside
+    // neural suggestions on the native language's page.
+    if (RomanizedSpeech.spokenAs(langId)?.let(IndicXlitModels.LATIN::supports) == true) {
+        SettingsGroup(stringResource(R.string.languages_romanized_dictation_group)) {
+            item(level = SettingLevel.STANDARD) { RomanizedDictationModelRow(settings) }
         }
     }
 
@@ -943,19 +1262,48 @@ internal fun LanguageDetailScreen(
     // rather than ত্ম্র. Off is for the person who wants the letter-for-letter
     // reading and cannot otherwise get it, since the map outranks every other
     // suggestion source.
-    if (langId in BengaliSpellingMap.LANGUAGES) {
+    if (langId in SpellingMap.LANGUAGES) {
         SettingsGroup(stringResource(R.string.languages_spelling_map_title)) {
-            item {
+            item(level = SettingLevel.STANDARD) {
                 ToggleSetting(
                     R.string.languages_spelling_map_row_title,
                     stringResource(R.string.languages_spelling_map_row_subtitle),
-                    settings.suggestionStrip.spellingMapEnabledFor(langId),
+                    settings.watch { it.suggestionStrip.spellingMapEnabledFor(langId) },
                     info = stringResource(
                         R.string.languages_spelling_map_info,
                         lang.englishName,
                     ),
                     default = SettingsDefaults.suggestionStrip.spellingMapEnabledFor(langId),
                 ) { scope.launch { repository.setSpellingMapEnabled(langId, it) } }
+            }
+            // Sound-alike words from the dictionary: "asi" commits আছি. Off
+            // commits exactly what the rules spell and leaves them in the strip.
+            item(level = SettingLevel.ADVANCED) {
+                ToggleSetting(
+                    R.string.languages_phonetic_siblings_row_title,
+                    stringResource(R.string.languages_phonetic_siblings_row_subtitle),
+                    settings.watch { it.suggestionStrip.phoneticSiblingsEnabledFor(langId) },
+                    info = stringResource(
+                        R.string.languages_phonetic_siblings_info,
+                        lang.englishName,
+                    ),
+                    default = SettingsDefaults.suggestionStrip.phoneticSiblingsEnabledFor(langId),
+                ) { scope.launch { repository.setPhoneticSiblingsEnabled(langId, it) } }
+            }
+            // The words before: "kam" is کم or کام by what came before it.
+            // Reads the user's own word pairs and the language's corpus pack;
+            // off ranks a word the same anywhere in a sentence.
+            item(level = SettingLevel.ADVANCED) {
+                ToggleSetting(
+                    R.string.languages_phonetic_context_row_title,
+                    stringResource(R.string.languages_phonetic_context_row_subtitle),
+                    settings.watch { it.suggestionStrip.phoneticContextEnabledFor(langId) },
+                    info = stringResource(
+                        R.string.languages_phonetic_context_info,
+                        lang.englishName,
+                    ),
+                    default = SettingsDefaults.suggestionStrip.phoneticContextEnabledFor(langId),
+                ) { scope.launch { repository.setPhoneticContextEnabled(langId, it) } }
             }
         }
     }
@@ -969,13 +1317,28 @@ internal fun LanguageDetailScreen(
     // Gated on an *enabled* transliterating layout rather than on the language:
     // someone typing Bengali on Probhat alone has Bengali keys in front of them
     // and nothing to hint.
-    val transliterating = settings.enabledLayoutIds.any { id ->
-        val spec = resolveLayout(settings.customLayouts, id)
-        spec.langId == langId && spec.composerType() == ComposerType.TRANSLITERATE
+    //
+    // Khipro's grid is roman too, so it gets the hints; the key map and the
+    // phonetic strip below are Avro's and stay with an Avro-style layout.
+    val composers = settings.watch { s ->
+        s.enabledLayoutIds.mapNotNullTo(HashSet()) { id ->
+            resolveLayout(s.customLayouts, id).takeIf { it.langId == langId }?.composerType()
+        }
     }
+    val phonetic = ComposerType.TRANSLITERATE in composers
+    // An imported m17n method (ITRANS, InScript, Tamil99) is a roman grid too,
+    // and the hints are how it says what its keys write. Only the hints: the
+    // key map and strip below are Avro's.
+    val rulesMethod = settings.watch { s ->
+        s.enabledLayoutIds.any { id ->
+            resolveLayout(s.customLayouts, id).let { it.langId == langId && it.inputMethod?.kind == InputMethodKind.RULES }
+        }
+    }
+    val khipro = ComposerType.KHIPRO in composers || ComposerType.KHIPRO_DARK in composers
+    val transliterating = phonetic || rulesMethod || khipro || ComposerType.BORNO_PHONETIC in composers
     if (transliterating) {
         SettingsGroup(stringResource(R.string.languages_translit_hints_title)) {
-            item {
+            item(level = SettingLevel.STANDARD) {
                 ChoiceSetting(
                     R.string.languages_translit_hints_row_title,
                     subtitle = stringResource(
@@ -990,7 +1353,7 @@ internal fun LanguageDetailScreen(
                         TransliterationHintMode.CLUSTER to
                             stringResource(R.string.languages_translit_hints_cluster_label),
                     ),
-                    selected = settings.layoutBehavior.transliterationHints,
+                    selected = settings.watch { it.layoutBehavior.transliterationHints },
                     info = stringResource(
                         R.string.languages_translit_hints_info,
                         lang.englishName,
@@ -999,6 +1362,32 @@ internal fun LanguageDetailScreen(
                     detail = { mode -> ChoiceDetail(stringResource(translitHintDescRes(mode))) },
                 ) { scope.launch { repository.setTransliterationHints(it) } }
             }
+        }
+        // The whole key map, for the letters no hint can teach: a hint shows
+        // what the next key writes, never which key writes ঁ.
+        if (phonetic) PhoneticKeyMapGroup(langId) { uriHandler.openUri(it) }
+        // The strip of a phonetic layout (Avro, Hindi phonetic) can keep the
+        // word as typed and its transliteration in the first two chips, with
+        // the suggestions after them. Other transliterating layouts (Hangul,
+        // Telex) commit their composer's output directly and have no such
+        // strip, so they get no row.
+        if (phonetic && PhoneticSchemes.forLanguage(langId) != null) {
+            PhoneticStripGroup(langId, lang.englishName, settings, repository, scope)
+        }
+        // Khipro's strip has a chip of its own: the keys as pressed (#772).
+        if (khipro) {
+            SettingsGroup(stringResource(R.string.languages_phonetic_strip_title)) {
+                item(level = SettingLevel.ADVANCED) {
+                    ToggleSetting(
+                        R.string.languages_raw_keys_chip_title,
+                        stringResource(R.string.languages_raw_keys_chip_subtitle),
+                        settings.watch { it.suggestionStrip.rawKeysChipFor(langId) },
+                        info = stringResource(R.string.languages_raw_keys_chip_info),
+                        default = SettingsDefaults.suggestionStrip.rawKeysChipFor(langId),
+                    ) { scope.launch { repository.setRawKeysChip(langId, it) } }
+                }
+            }
+            KhiproSpecsGroup()
         }
     }
 
@@ -1013,7 +1402,7 @@ internal fun LanguageDetailScreen(
     if (nativeNumerals != NumeralSystem.LATIN) {
         SettingsGroup(stringResource(R.string.languages_numerals_title)) {
             item {
-                val current = settings.layoutBehavior.numeralSystemFor(langId)
+                val current = settings.watch { it.layoutBehavior.numeralSystemFor(langId) }
                 ChoiceSetting(
                     R.string.languages_numeral_system_title,
                     subtitle = stringResource(
@@ -1044,200 +1433,164 @@ internal fun LanguageDetailScreen(
         }
     }
 
-    val others = settings.enabledLanguages.filter { it.id != langId }
+    // Which groups and rows these are depends on the other languages and on
+    // which of them are picked; each row reads everything else itself.
+    val others = settings.watch { s -> s.enabledLanguages.filter { it.id != langId } }
     if (others.isNotEmpty()) {
-        val secondaries = settings.secondaryLanguages[langId].orEmpty()
+        val secondaries = settings.watch { it.secondaryLanguages[langId].orEmpty() }
         SettingsGroup(
             stringResource(R.string.languages_secondary_title),
             info = stringResource(R.string.languages_secondary_info, lang.englishName),
+            level = SettingLevel.STANDARD,
         ) {
             for (other in others) {
                 item {
                     ToggleSetting(other.displayName, null, other.id in secondaries) { on ->
                         scope.launch {
-                            val cur = settings.secondaryLanguages[langId].orEmpty()
+                            val secondaryLanguages = settings.value.secondaryLanguages
+                            val cur = secondaryLanguages[langId].orEmpty()
                             val nextList = if (on) cur + other.id else cur - other.id
                             repository.setSecondaryLanguages(
-                                settings.secondaryLanguages + (langId to nextList.distinct()),
+                                secondaryLanguages + (langId to nextList.distinct()),
                             )
                         }
                     }
                 }
             }
         }
-    }
-
-    // One tap for the whole set: the word list, the emoji keywords and the
-    // n-gram pack together. Here for the language that was added before this
-    // screen existed, and for the one added with automatic downloads off — the
-    // rows below still fetch them one at a time. The size is on the button
-    // because pressing it is the consent.
-    val downloadable = remember(langId) { languageData(langId) }
-    val downloadDecision = rememberDownloadDecision(settings)
-    var confirmMetered by remember { mutableStateOf(false) }
-    var blockedMetered by remember { mutableStateOf(false) }
-    if (!downloadable.isEmpty) {
-        SettingsGroup(
-            stringResource(R.string.languages_data_title),
-            info = stringResource(R.string.languages_data_download_all_info),
-        ) {
-            item {
-                OutlinedButton(
-                    onClick = {
-                        when (downloadDecision()) {
-                            MeteredDecision.ASK -> confirmMetered = true
-                            MeteredDecision.BLOCKED -> blockedMetered = true
-                            MeteredDecision.ALLOWED ->
-                                startLanguageDataDownload(filesDir, downloadable)
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                ) {
-                    Text(
-                        stringResource(
-                            R.string.languages_data_download_all_action,
-                            formatBytes(downloadable.bytes),
-                        ),
-                    )
+        // English typed on this language's phonetic layout (Avro, Hindi
+        // phonetic). Only with English picked just above: without it the rule
+        // has no English to weigh, and these would be switches that do nothing.
+        // Khipro has a switch of its own here (#986), shown while a Khipro
+        // layout is on.
+        val khiproEnglish = khipro && langId == "bn"
+        if ((PhoneticSchemes.forLanguage(langId) != null || khiproEnglish) && "en" in secondaries) {
+            SettingsGroup(stringResource(R.string.languages_phonetic_english_group)) {
+                if (khiproEnglish) {
+                    item(level = SettingLevel.STANDARD) {
+                        ToggleSetting(
+                            R.string.languages_khipro_english_title,
+                            stringResource(R.string.languages_khipro_english_subtitle),
+                            settings.watch { it.suggestionStrip.khiproEnglish },
+                            info = stringResource(R.string.languages_khipro_english_info),
+                            default = SettingsDefaults.suggestionStrip.khiproEnglish,
+                        ) { scope.launch { repository.setKhiproEnglish(it) } }
+                    }
+                }
+                item(level = SettingLevel.STANDARD) {
+                    ToggleSetting(
+                        R.string.languages_phonetic_english_title,
+                        stringResource(R.string.languages_phonetic_english_subtitle),
+                        settings.watch { it.suggestionStrip.phoneticEnglishFor(langId) },
+                        info = stringResource(R.string.languages_phonetic_english_info, lang.englishName),
+                        default = SettingsDefaults.suggestionStrip.phoneticEnglishFor(langId),
+                    ) { scope.launch { repository.setPhoneticEnglish(langId, it) } }
+                }
+                item(level = SettingLevel.ADVANCED) {
+                    ToggleSetting(
+                        R.string.languages_phonetic_english_switch_title,
+                        stringResource(R.string.languages_phonetic_english_switch_subtitle),
+                        settings.watch { it.suggestionStrip.phoneticEnglishSwitch },
+                        info = stringResource(R.string.languages_phonetic_english_switch_info),
+                        default = SettingsDefaults.suggestionStrip.phoneticEnglishSwitch,
+                    ) { scope.launch { repository.setPhoneticEnglishSwitch(it) } }
                 }
             }
         }
     }
-    if (confirmMetered) {
-        AlertDialog(
-            onDismissRequest = { confirmMetered = false },
-            title = { Text(stringResource(R.string.languages_metered_confirm_title)) },
-            text = {
-                Text(
-                    stringResource(
-                        R.string.languages_metered_confirm_body,
-                        formatBytes(downloadable.bytes),
-                    ),
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmMetered = false
-                    startLanguageDataDownload(filesDir, downloadable)
-                }) { Text(stringResource(CommonR.string.common_download)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmMetered = false }) {
-                    Text(stringResource(CommonR.string.common_cancel))
+
+    // Bengali written as ANSI, the encoding of Bijoy and the SutonnyMJ fonts,
+    // for fields set in one of those fonts. Allowing it puts the ANSI button
+    // on the strip of every Bengali layout, and the button turns it on.
+    if (langId == "bn") {
+        val ansiAllowed = settings.watch { it.suggestionStrip.bengaliAnsiAllowed }
+        SettingsGroup(stringResource(R.string.languages_ansi_group), level = SettingLevel.ADVANCED) {
+            item {
+                ToggleSetting(
+                    R.string.languages_ansi_allowed_title,
+                    stringResource(R.string.languages_ansi_allowed_subtitle),
+                    ansiAllowed,
+                    info = stringResource(R.string.languages_ansi_allowed_info),
+                    default = SettingsDefaults.suggestionStrip.bengaliAnsiAllowed,
+                ) { scope.launch { repository.setBengaliAnsiAllowed(it) } }
+            }
+            if (ansiAllowed) {
+                item {
+                    ChoiceSetting(
+                        R.string.languages_ansi_version_title,
+                        subtitle = stringResource(R.string.languages_ansi_version_subtitle),
+                        info = stringResource(R.string.languages_ansi_version_info),
+                        options = BijoyAnsi.Version.entries.map {
+                            it.number to stringResource(R.string.languages_ansi_version_option, it.number)
+                        },
+                        selected = BijoyAnsi.Version.of(settings.watch { it.suggestionStrip.bengaliAnsiVersion }).number,
+                        default = SettingsDefaults.suggestionStrip.bengaliAnsiVersion,
+                    ) { scope.launch { repository.setBengaliAnsiVersion(it) } }
                 }
-            },
-        )
-    }
-    if (blockedMetered) MeteredBlockedDialog { blockedMetered = false }
-
-    val wordlistEntries = DictionaryCatalog.forLanguage(langId)
-    SettingsGroup(stringResource(R.string.languages_dictionary_title)) {
-        item {
-            CaptionText(
-                stringResource(
-                    when {
-                        lang.bundledDictionary && wordlistEntries.isNotEmpty() ->
-                            R.string.languages_dictionary_bundled_more
-                        lang.bundledDictionary -> R.string.languages_dictionary_bundled
-                        wordlistEntries.isNotEmpty() ->
-                            R.string.languages_dictionary_none_download
-                        else -> R.string.languages_dictionary_none_learn
-                    },
-                ),
-            )
-        }
-        for (entry in wordlistEntries) {
-            item { WordlistRow(entry, settings.appUi.defaultWordlistSize) { chosen ->
-                scope.launch { repository.setDefaultWordlistSize(chosen) }
-            } }
-        }
-        // The word list's own switch (issue #51): the same setting the
-        // Custom dictionaries screen spells as "Use only my word lists", read
-        // the other way up, and only where there is a list to switch.
-        if (lang.bundledDictionary || DictionaryStore.isDownloaded(filesDir, langId)) {
-            item {
-                ToggleSetting(
-                    R.string.languages_dictionary_use_title,
-                    stringResource(R.string.languages_dictionary_use_subtitle),
-                    settings.suggestionStrip.shippedDictionaryEnabledFor(langId),
-                    info = stringResource(R.string.languages_dictionary_use_info),
-                    default = SettingsDefaults.suggestionStrip.shippedDictionaryEnabledFor(langId),
-                ) { scope.launch { repository.setShippedDictionaryEnabled(langId, it) } }
-            }
-        }
-        item {
-            NavRow(
-                R.string.languages_custom_dictionaries_title,
-                stringResource(R.string.languages_custom_dictionaries_subtitle),
-                route = "customdictionaries",
-            ) {
-                onNavigate("customdictionaries")
             }
         }
     }
 
-    val emojiDict = EmojiDictCatalog.forLanguage(langId)
-    SettingsGroup(stringResource(R.string.languages_emoji_title)) {
-        item {
-            CaptionText(
-                stringResource(
-                    when {
-                        emojiDict == null -> R.string.languages_emoji_keywords_unavailable
-                        settings.autoDownloadLanguageData && settings.emoji.autoDownloadKeywords ->
-                            R.string.languages_emoji_keywords_auto
-                        else -> R.string.languages_emoji_keywords_manual
-                    },
-                    lang.englishName,
-                ),
-            )
-        }
-        if (emojiDict != null) {
-            item { EmojiDictRow(emojiDict) }
-        }
-        // The keywords' own switch (issue #51), only once there is a pack —
-        // downloaded or imported — for it to switch.
-        val emojiPackOnDevice = EmojiDictStore.isDownloaded(filesDir, langId) ||
-            EmojiKeywordPacks.packs(filesDir, langId).isNotEmpty()
-        if (emojiPackOnDevice) {
-            item {
+    // Burmese written in Zawgyi, the font encoding much Burmese text is still
+    // in, the same way: allowing it puts the Zawgyi button on the strip of
+    // every Burmese layout, and the button turns it on. The key font is for
+    // the phones Zawgyi users have, whose own Myanmar font may be a Zawgyi one.
+    if (langId == "my") {
+        val zawgyiAllowed = settings.watch { it.suggestionStrip.burmeseZawgyiAllowed }
+        SettingsGroup(stringResource(R.string.languages_zawgyi_group)) {
+            item(level = SettingLevel.STANDARD) {
                 ToggleSetting(
-                    R.string.languages_emoji_keywords_use_title,
-                    stringResource(R.string.languages_emoji_keywords_use_subtitle),
-                    settings.emoji.keywordsEnabledFor(langId),
-                    info = stringResource(R.string.languages_emoji_keywords_use_info),
-                    default = SettingsDefaults.emoji.keywordsEnabledFor(langId),
-                ) { scope.launch { repository.setEmojiKeywordsEnabled(langId, it) } }
+                    R.string.languages_zawgyi_allowed_title,
+                    stringResource(R.string.languages_zawgyi_allowed_subtitle),
+                    zawgyiAllowed,
+                    info = stringResource(R.string.languages_zawgyi_allowed_info),
+                    default = SettingsDefaults.suggestionStrip.burmeseZawgyiAllowed,
+                ) { scope.launch { repository.setBurmeseZawgyiAllowed(it) } }
             }
-        }
-        item {
-            NavRow(
-                R.string.languages_emoji_keywords_title,
-                stringResource(R.string.languages_emoji_keywords_subtitle),
-                route = "emojikeywords",
-            ) {
-                onNavigate("emojikeywords")
+            if (zawgyiAllowed) {
+                item(level = SettingLevel.ADVANCED) {
+                    ToggleSetting(
+                        R.string.languages_zawgyi_key_font_title,
+                        stringResource(R.string.languages_zawgyi_key_font_subtitle),
+                        settings.watch { it.suggestionStrip.burmeseUnicodeKeyFont },
+                        info = stringResource(R.string.languages_zawgyi_key_font_info),
+                        default = SettingsDefaults.suggestionStrip.burmeseUnicodeKeyFont,
+                    ) { scope.launch { repository.setBurmeseUnicodeKeyFont(it) } }
+                }
             }
         }
     }
+
+    // The word list, emoji keywords and word pairs, one row each, with the
+    // Download all that fetches whatever of them is missing.
+    DictionariesGroup(lang, settings, repository, scope, onNavigate)
 
     // Chinese/Japanese get a downloadable large conversion dictionary; Chinese
     // also gets fuzzy + Double Pinyin, all in one "… options" group.
     if (CjkDictCatalog.forLang(langId).isNotEmpty()) {
-        CjkDictPackManager(langId, repository, settings)
+        CjkDictPackManager(langId, repository, settings, onNavigate)
+    }
+
+    // Chinese and Cantonese can convert on RIME instead (librime): the
+    // engine choice, its library, schema packs, imports and compiling.
+    if (RimeSchemaCatalog.forLang(langId).isNotEmpty()) {
+        RimeEngineGroup(langId, repository, settings)
+    }
+
+    // Japanese can convert on Mozc instead: the engine choice, its library,
+    // its dictionary and its learning.
+    if (langId == "ja") {
+        MozcEngineGroup(repository, settings)
     }
 
     // Removing the only language would leave nothing to type in, so it is only
     // offered when another language is enabled.
-    if (settings.enabledLanguages.size > 1) {
+    if (settings.watch { it.enabledLanguages.size > 1 }) {
         SettingsGroup {
             item {
                 OutlinedButton(
                     onClick = {
-                        val downloaded = DictionaryStore.isDownloaded(filesDir, langId) ||
-                            EmojiDictStore.isDownloaded(filesDir, langId)
-                        if (downloaded) pendingDelete = true else removeLanguage()
+                        if (hasLanguageData(context, settings.value, langId)) pendingDelete = true else removeLanguage()
                     },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1258,7 +1611,13 @@ internal fun LanguageDetailScreen(
  */
 @Composable
 internal fun EmojiDictRow(entry: EmojiDictEntry) {
-    val filesDir = LocalContext.current.filesDir
+    val context = LocalContext.current
+    val filesDir = context.filesDir
+    val notifyDownload = rememberDownloadNotifier()
+    val downloadName = stringResource(
+        R.string.notify_download_emoji_names,
+        LanguageRegistry.byId(entry.languageId).displayName,
+    )
     val states by EmojiDictDownloadManager.states.collectAsState()
     LaunchedEffect(entry.languageId) { EmojiDictDownloadManager.refresh(filesDir) }
     val status = states[entry.languageId]
@@ -1266,6 +1625,7 @@ internal fun EmojiDictRow(entry: EmojiDictEntry) {
 
     WmRow(
         title = stringResource(R.string.languages_emoji_keywords_title),
+        icon = SettingsRowIcons[R.string.languages_emoji_keywords_title],
         supporting = {
             Text(
                 when (status) {
@@ -1296,6 +1656,15 @@ internal fun EmojiDictRow(entry: EmojiDictEntry) {
                 },
             )
         },
+        swipeActions = if (status is EmojiDictDownloadManager.DownloadStatus.Downloaded) {
+            listOf(
+                deleteSwipeAction(stringResource(R.string.languages_emoji_dict_delete_desc)) {
+                    EmojiDictDownloadManager.delete(filesDir, entry.languageId)
+                },
+            )
+        } else {
+            emptyList()
+        },
         trailing = {
             when (status) {
                 is EmojiDictDownloadManager.DownloadStatus.Downloaded ->
@@ -1324,7 +1693,16 @@ internal fun EmojiDictRow(entry: EmojiDictEntry) {
                     }
                 EmojiDictDownloadManager.DownloadStatus.NotDownloaded,
                 is EmojiDictDownloadManager.DownloadStatus.Failed,
-                -> TextButton(onClick = { EmojiDictDownloadManager.start(filesDir, entry) }) {
+                -> if (InternetPermission.granted) TextButton(
+                    onClick = {
+                        EmojiDictDownloadManager.start(filesDir, entry)
+                        notifyDownload(
+                            entry.languageId,
+                            downloadName,
+                            DownloadProgressFlows.emojiDict(context, entry.languageId),
+                        )
+                    },
+                ) {
                     Text(
                         if (status is EmojiDictDownloadManager.DownloadStatus.Failed) {
                             stringResource(CommonR.string.common_retry)
@@ -1355,180 +1733,11 @@ internal fun EmojiDictRow(entry: EmojiDictEntry) {
 }
 
 /**
- * Download/delete row for one [DictionaryCatalog] wordlist, driven by the
- * process-level [WordlistDownloadManager] so progress survives navigation
- * (same pattern as the Whisper model rows). Before downloading, the trailing
- * dropdown picks how many of the most frequent words to keep — the choice is
- * a download parameter, not a setting; it is recorded in the file itself.
+ * The packs a FlorisBoard language pack can fill: the shape-based schemes this
+ * app has composers for. Zhengma and the rest are in those files too and have
+ * nowhere to go here.
  */
-@Composable
-private fun WordlistRow(
-    entry: DictionaryEntry,
-    defaultSize: DictionaryCatalog.DictionarySize,
-    onDefaultSizeChange: (DictionaryCatalog.DictionarySize) -> Unit,
-) {
-    val filesDir = LocalContext.current.filesDir
-    val states by WordlistDownloadManager.states.collectAsState()
-    LaunchedEffect(entry.id) { WordlistDownloadManager.refresh(filesDir) }
-    val status = states[entry.id] ?: WordlistDownloadManager.DownloadStatus.NotDownloaded
-    // Seeded from the stored default and written back on every pick, so the
-    // choice carries to the next language and survives leaving the screen. It
-    // used to be plain composition state that reset to LARGE every time.
-    var size by remember(defaultSize) { mutableStateOf(defaultSize) }
-    var sizeMenu by remember { mutableStateOf(false) }
-    val effectiveWords = DictionaryCatalog.wordCap(entry, size)
-    // Tiers past the end of a short list all keep the same words, so only the
-    // first one that reaches the whole list is worth offering.
-    val sizeOptions = remember(entry.totalWordCount) {
-        DictionaryCatalog.DictionarySize.entries.distinctBy { DictionaryCatalog.wordCap(entry, it) }
-    }
-
-    WmRow(
-        title = entry.variantRes?.let {
-            stringResource(R.string.languages_wordlist_title_variant, stringResource(it))
-        } ?: stringResource(R.string.languages_wordlist_title),
-        supporting = {
-            Text(
-                when (status) {
-                    is WordlistDownloadManager.DownloadStatus.Downloaded -> pluralStringResource(
-                        R.plurals.languages_wordlist_downloaded,
-                        status.wordCount,
-                        status.wordCount,
-                        formatBytes(status.sizeBytes),
-                    )
-                    WordlistDownloadManager.DownloadStatus.Processing ->
-                        stringResource(R.string.languages_wordlist_preparing)
-                    is WordlistDownloadManager.DownloadStatus.Downloading ->
-                        stringResource(CommonR.string.common_downloading)
-                    is WordlistDownloadManager.DownloadStatus.Failed ->
-                        if (status.messageArg.isEmpty()) stringResource(status.messageRes)
-                        else stringResource(status.messageRes, status.messageArg)
-                    WordlistDownloadManager.DownloadStatus.NotDownloaded -> pluralStringResource(
-                        R.plurals.languages_wordlist_word_count,
-                        effectiveWords,
-                        effectiveWords,
-                    )
-                },
-                color = if (status is WordlistDownloadManager.DownloadStatus.Failed) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    androidx.compose.ui.graphics.Color.Unspecified
-                },
-            )
-        },
-        trailing = {
-            when (status) {
-                is WordlistDownloadManager.DownloadStatus.Downloaded ->
-                    IconButton(onClick = { WordlistDownloadManager.delete(filesDir, entry) }) {
-                        Icon(
-                            Icons.Outlined.Delete,
-                            contentDescription = stringResource(
-                                R.string.languages_wordlist_delete_desc,
-                            ),
-                        )
-                    }
-                is WordlistDownloadManager.DownloadStatus.Downloading,
-                WordlistDownloadManager.DownloadStatus.Processing,
-                ->
-                    IconButton(onClick = { WordlistDownloadManager.cancel() }) {
-                        Icon(
-                            Icons.Outlined.Close,
-                            contentDescription = stringResource(
-                                R.string.languages_cancel_download_desc,
-                            ),
-                        )
-                    }
-                WordlistDownloadManager.DownloadStatus.NotDownloaded,
-                is WordlistDownloadManager.DownloadStatus.Failed,
-                -> Row {
-                    // Hide the size picker when the whole list fits the
-                    // smallest tier anyway.
-                    if (entry.totalWordCount > DictionaryCatalog.DictionarySize.SMALL.wordCap) {
-                        TextButton(
-                            onClick = { sizeMenu = true },
-                            enabled = !WordlistDownloadManager.isBusy,
-                        ) {
-                            Text(stringResource(size.labelRes))
-                            Icon(
-                                Icons.Outlined.ArrowDropDown,
-                                contentDescription = stringResource(
-                                    R.string.languages_wordlist_size_desc,
-                                ),
-                            )
-                        }
-                        DropdownMenu(expanded = sizeMenu, onDismissRequest = { sizeMenu = false }) {
-                            for (option in sizeOptions) {
-                                DropdownMenuItem(
-                                    text = {
-                                        val words = DictionaryCatalog.wordCap(entry, option)
-                                        Text(
-                                            pluralStringResource(
-                                                R.plurals.languages_wordlist_size_option,
-                                                words,
-                                                stringResource(option.labelRes),
-                                                words,
-                                            ),
-                                        )
-                                    },
-                                    onClick = {
-                                        size = option
-                                        onDefaultSizeChange(option)
-                                        sizeMenu = false
-                                    },
-                                )
-                            }
-                        }
-                    }
-                    TextButton(
-                        onClick = { WordlistDownloadManager.start(filesDir, entry, size) },
-                        enabled = !WordlistDownloadManager.isBusy,
-                    ) {
-                        Text(
-                            if (status is WordlistDownloadManager.DownloadStatus.Failed) {
-                                stringResource(CommonR.string.common_retry)
-                            } else {
-                                stringResource(CommonR.string.common_download)
-                            },
-                        )
-                    }
-                }
-            }
-        },
-        modifier = Modifier.padding(horizontal = 4.dp),
-    )
-    when (status) {
-        is WordlistDownloadManager.DownloadStatus.Downloading -> Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-        ) {
-            // Indeterminate on purpose: a capped download stops early, so
-            // bytes-of-total would count to a total it never reaches.
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            Text(
-                stringResource(
-                    R.string.languages_wordlist_downloaded_bytes,
-                    formatBytes(status.bytes),
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        }
-        WordlistDownloadManager.DownloadStatus.Processing -> Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-        ) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        }
-
-        // The three resting states. Nothing goes under the row for any of them:
-        // the row itself already carries the word count, the size and the retry
-        // button, so a second line here would only repeat it. Listed rather than
-        // left to an `else` so a new status has to decide whether it needs one.
-        WordlistDownloadManager.DownloadStatus.NotDownloaded,
-        is WordlistDownloadManager.DownloadStatus.Downloaded,
-        is WordlistDownloadManager.DownloadStatus.Failed,
-        -> Unit
-    }
-}
+private val FLEX_FILLABLE_PACKS = setOf("cangjie", "stroke", "wubi")
 
 /**
  * Download/delete rows for a language's [CjkDictCatalog] packs, driven by the
@@ -1537,17 +1746,62 @@ private fun WordlistRow(
  * on the next field focus). A pack with no hosting URL yet shows "Not available
  * yet" with its download disabled.
  */
+/** Languages whose packs convert nothing as you type, so the candidate rows have nothing to do. */
+private val NO_CONVERSION_LANGUAGES = setOf("ko", "braille", "he", "ar", "tr", "ru")
+
 @Composable
 private fun CjkDictPackManager(
     langId: String,
     repository: SettingsRepository,
-    settings: KeyboardSettings,
+    settings: LiveSettings,
+    onNavigate: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val filesDir = context.filesDir
     val scope = rememberCoroutineScope()
+    val notifyDownload = rememberDownloadNotifier()
     val states by CjkDictDownloadManager.states.collectAsState()
     LaunchedEffect(langId) { CjkDictDownloadManager.refresh(filesDir) }
+
+    // Whatever the last FlorisBoard language-pack import had to say, shown in
+    // place of the row's subtitle. A pack is a large file and a silent button
+    // would read as one that did nothing.
+    var flexMessage by remember { mutableStateOf<String?>(null) }
+    var flexBusy by remember { mutableStateOf(false) }
+    val flexLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        flexBusy = true
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        FlexLanguagePack.import(input, filesDir, context.cacheDir)
+                    }
+                }.getOrNull() ?: FlexLanguagePack.Result.Unreadable
+            }
+            flexBusy = false
+            flexMessage = when (result) {
+                is FlexLanguagePack.Result.Imported -> context.getString(
+                    R.string.languages_cjk_flex_import_done,
+                    result.schema,
+                    result.rows,
+                )
+                is FlexLanguagePack.Result.NoUsableTable -> context.getString(
+                    R.string.languages_cjk_flex_import_unusable,
+                    result.schemas.joinToString(", "),
+                )
+                FlexLanguagePack.Result.NotALanguagePack ->
+                    context.getString(R.string.languages_cjk_flex_import_not_a_pack)
+                FlexLanguagePack.Result.Unreadable ->
+                    context.getString(R.string.languages_cjk_flex_import_unreadable)
+            }
+            // A new pack on disk changes the state token, and the row above has
+            // to notice it without a trip out of the screen and back.
+            CjkDictDownloadManager.refresh(filesDir)
+        }
+    }
 
     // Named from the registry rather than an if-chain, so a new CJK language
     // does not silently inherit another language's heading.
@@ -1555,16 +1809,43 @@ private fun CjkDictPackManager(
         R.string.languages_cjk_options_title,
         LanguageRegistry.byId(langId).englishName,
     )
+    // What decides which rows the groups hold; each row reads its own value.
+    val traditional = settings.watch { it.cjk.traditionalOutput }
+    val fuzzyOn = settings.watch { it.cjk.pinyinFuzzy }
+    val fuzzyPairsChanged = settings.watch { it.cjk.pinyinFuzzyPairs != PinyinFuzzy.ALL_PAIRS }
     SettingsGroup(
         groupTitle,
-        info = stringResource(R.string.languages_cjk_download_info),
+        info = stringResource(
+            when (langId) {
+                "braille" -> R.string.languages_braille_download_info
+                "he" -> R.string.languages_nikud_download_info
+                "ar" -> R.string.languages_tashkeel_download_info
+                "tr" -> R.string.languages_hunspell_tr_download_info
+                "ru" -> R.string.languages_ru_yo_download_info
+                else -> R.string.languages_cjk_download_info
+            },
+        ),
     ) {
         for (pack in CjkDictCatalog.forLang(langId)) {
+            // A model for a library this phone can't have is 88 MB of nothing.
+            if (pack.id == KoreanSpacing.PACK_ID && !KoreanSpacing.supported) continue
+            if (pack.id == HebrewNikud.PACK_ID && !HebrewNikud.supported) continue
+            if (pack.id == ArabicTashkeel.PACK_ID && !ArabicTashkeel.supported) continue
             item {
                 val status = states[pack.id] ?: CjkDictDownloadManager.DownloadStatus.NotDownloaded
+                val packName = stringResource(pack.displayNameRes)
                 WmRow(
                     title = stringResource(pack.displayNameRes),
                     subtitle = packStatusLabel(pack, status),
+                    swipeActions = if (status == CjkDictDownloadManager.DownloadStatus.Downloaded) {
+                        listOf(
+                            deleteSwipeAction(stringResource(R.string.languages_cjk_delete_desc, packName)) {
+                                CjkDictDownloadManager.delete(filesDir, pack)
+                            },
+                        )
+                    } else {
+                        emptyList()
+                    },
                     trailing = {
                         when (status) {
                             is CjkDictDownloadManager.DownloadStatus.Downloading ->
@@ -1594,8 +1875,15 @@ private fun CjkDictPackManager(
                             is CjkDictDownloadManager.DownloadStatus.Paused,
                             is CjkDictDownloadManager.DownloadStatus.Failed,
                             -> TextButton(
-                                enabled = pack.available && !CjkDictDownloadManager.isBusy,
-                                onClick = { CjkDictDownloadManager.start(filesDir, pack) },
+                                enabled = pack.available && InternetPermission.granted && !CjkDictDownloadManager.isBusy,
+                                onClick = {
+                                    CjkDictDownloadManager.start(filesDir, pack)
+                                    notifyDownload(
+                                        pack.id,
+                                        packName,
+                                        DownloadProgressFlows.cjkDict(context, pack.id),
+                                    )
+                                },
                             ) {
                                 Text(
                                     if (status is CjkDictDownloadManager.DownloadStatus.Paused) {
@@ -1611,46 +1899,230 @@ private fun CjkDictPackManager(
             }
         }
 
+        // A FlorisBoard language pack holds the same shape-based tables the
+        // Cangjie, stroke and Wubi packs above do, so somebody arriving with one can
+        // fill them without a download. Only offered for the language whose
+        // packs those are.
+        item(visible = CjkDictCatalog.forLang(langId).any { it.id in FLEX_FILLABLE_PACKS }, level = SettingLevel.STANDARD) {
+            WmRow(
+                title = stringResource(R.string.languages_cjk_flex_import_title),
+                icon = SettingsRowIcons[R.string.languages_cjk_flex_import_title],
+                subtitle = flexMessage ?: stringResource(R.string.languages_cjk_flex_import_subtitle),
+                trailing = {
+                    TextButton(
+                        enabled = !flexBusy,
+                        onClick = { flexLauncher.launch(FlexLanguagePack.IMPORT_MIME_TYPES) },
+                    ) { Text(stringResource(CommonR.string.common_import)) }
+                },
+            )
+        }
+
         // Traditional output suits both Chinese (Taiwan) and Cantonese (Hong Kong),
-        // so unlike the pinyin options below it is not gated to zh.
-        item {
+        // so unlike the pinyin options below it is not gated to zh alone. Japanese
+        // candidates never pass through the conversion, and the value is shared
+        // with Chinese, so the row stays off its screen (#607).
+        val hanLang = langId == "zh" || langId == "yue"
+        item(visible = hanLang, level = SettingLevel.STANDARD) {
             ToggleSetting(
                 R.string.languages_cjk_traditional_title,
                 stringResource(R.string.languages_cjk_traditional_subtitle),
-                settings.cjk.traditionalOutput,
-                info = stringResource(R.string.languages_cjk_region_info),
+                traditional,
+                info = stringResource(R.string.languages_cjk_traditional_info),
                 default = SettingsDefaults.cjk.traditionalOutput,
             ) { on -> scope.launch { repository.setCjkTraditionalOutput(on) } }
         }
 
-        // Traditional characters are only half of writing Traditional: Taipei
-        // says 計程車 where the mainland says 出租車, and no character map
-        // reaches that. Only worth showing once the toggle above is on.
-        if (settings.cjk.traditionalOutput) {
-            item {
-                ChoiceSetting(
-                    R.string.languages_cjk_region_title,
-                    info = stringResource(R.string.languages_cjk_region_info),
-                    options = HanVariant.HanRegion.entries.map { it to stringResource(cjkRegionLabelRes(it)) },
-                    selected = settings.cjk.hanRegion,
-                    default = SettingsDefaults.cjk.hanRegion,
-                    detail = { region -> ChoiceDetail(stringResource(cjkRegionDescRes(region))) },
-                ) { region -> scope.launch { repository.setCjkHanRegion(region) } }
-            }
+        // The switch above, one tap from the keys (#962): for someone who
+        // writes in both scripts, not only in the other one.
+        item(visible = hanLang, level = SettingLevel.STANDARD) {
+            ToggleSetting(
+                R.string.languages_cjk_traditional_button_title,
+                stringResource(R.string.languages_cjk_traditional_button_subtitle),
+                settings.watch { it.cjk.traditionalButton },
+                default = SettingsDefaults.cjk.traditionalButton,
+            ) { on -> scope.launch { repository.setCjkTraditionalButton(on) } }
+        }
+
+        // #973: the reading underlined in the app's field, as Gboard and
+        // Sogou have it, or only on the strip, as fcitx5 has it. Shared by
+        // Chinese and Cantonese, like the two rows above.
+        item(visible = hanLang, level = SettingLevel.STANDARD) {
+            ToggleSetting(
+                R.string.languages_cjk_reading_in_field_title,
+                stringResource(R.string.languages_cjk_reading_in_field_subtitle),
+                settings.watch { it.cjk.readingInField },
+                info = stringResource(R.string.languages_cjk_reading_in_field_info),
+                default = SettingsDefaults.cjk.readingInField,
+            ) { on -> scope.launch { repository.setCjkReadingInField(on) } }
+        }
+
+        // #973: what a language switch does with a reading not yet converted.
+        item(visible = hanLang, level = SettingLevel.ADVANCED) {
+            ChoiceSetting(
+                R.string.languages_cjk_reading_on_switch_title,
+                options = ReadingOnSwitch.entries.map { it to stringResource(readingOnSwitchLabelRes(it)) },
+                selected = settings.watch { it.cjk.readingOnSwitch },
+                default = SettingsDefaults.cjk.readingOnSwitch,
+                detail = { choice -> ChoiceDetail(stringResource(readingOnSwitchDescRes(choice))) },
+            ) { choice -> scope.launch { repository.setCjkReadingOnSwitch(choice) } }
+        }
+
+        // Taiwan and Hong Kong each prefer some character forms of their own
+        // (為, 説). Taiwan wording also swaps vocabulary (出租車 → 計程車), so
+        // it is a separate choice and never the plain Taiwan one (#641). Only
+        // worth showing once the toggle above is on.
+        item(visible = hanLang && traditional, level = SettingLevel.ADVANCED) {
+            ChoiceSetting(
+                R.string.languages_cjk_region_title,
+                info = stringResource(R.string.languages_cjk_region_info),
+                options = HanVariant.HanRegion.entries.map { it to stringResource(cjkRegionLabelRes(it)) },
+                selected = settings.watch { it.cjk.hanRegion },
+                default = SettingsDefaults.cjk.hanRegion,
+                detail = { region -> ChoiceDetail(stringResource(cjkRegionDescRes(region))) },
+            ) { region -> scope.launch { repository.setCjkHanRegion(region) } }
         }
 
         // Cantonese-only: the sound mergers most Hong Kong speakers have, and
         // therefore spell — without this, someone who says 你 as lei5 types `lei`
         // and the dictionary (which files it under nei5) offers nothing at all.
-        if (langId == "yue") {
-            item {
-                ToggleSetting(
-                    R.string.languages_cjk_lazy_title,
-                    stringResource(R.string.languages_cjk_lazy_subtitle),
-                    settings.cjk.jyutpingLazy,
-                    default = SettingsDefaults.cjk.jyutpingLazy,
-                ) { on -> scope.launch { repository.setJyutpingLazy(on) } }
-            }
+        item(visible = langId == "yue") {
+            ToggleSetting(
+                R.string.languages_cjk_lazy_title,
+                stringResource(R.string.languages_cjk_lazy_subtitle),
+                settings.watch { it.cjk.jyutpingLazy },
+                default = SettingsDefaults.cjk.jyutpingLazy,
+            ) { on -> scope.launch { repository.setJyutpingLazy(on) } }
+        }
+
+        // Korean-only: the library behind Fix spacing, beside the model row above.
+        item(visible = langId == "ko" && KoreanSpacing.supported) {
+            val module by FeatureModules.kiwi.state.collectAsState()
+            WmRow(
+                title = stringResource(R.string.languages_kiwi_library_title),
+                subtitle = stringResource(
+                    when (module) {
+                        ModuleState.Installed -> R.string.languages_kiwi_library_ready
+                        is ModuleState.Installing -> R.string.languages_kiwi_library_installing
+                        is ModuleState.Missing -> R.string.languages_kiwi_library_missing
+                    },
+                ),
+                trailing = {
+                    if (module is ModuleState.Missing && InternetPermission.granted) {
+                        TextButton(onClick = { FeatureModules.kiwi.requestInstall() }) {
+                            Text(stringResource(CommonR.string.common_download))
+                        }
+                    }
+                },
+            )
+        }
+
+        // Korean-only: Hanja is a second writing of the word, so it is asked for
+        // rather than taking strip slots from everyone typing Hangul.
+        item(visible = langId == "ko") {
+            ToggleSetting(
+                R.string.languages_cjk_hanja_title,
+                stringResource(R.string.languages_cjk_hanja_subtitle),
+                settings.watch { it.cjk.hanjaSuggestions },
+                info = stringResource(R.string.languages_cjk_hanja_info),
+                default = SettingsDefaults.cjk.hanjaSuggestions,
+            ) { on -> scope.launch { repository.setHanjaSuggestions(on) } }
+        }
+
+        // Turkish-only: the library that reads the rules, beside their row above.
+        item(visible = langId == "tr" && HunspellRuntime.shipped) {
+            val module by HunspellRuntime.moduleState.collectAsState()
+            WmRow(
+                title = stringResource(R.string.languages_hunspell_tr_library_title),
+                subtitle = stringResource(
+                    when (module) {
+                        ModuleState.Installed -> R.string.languages_hunspell_tr_library_ready
+                        is ModuleState.Installing -> R.string.languages_kiwi_library_installing
+                        is ModuleState.Missing -> R.string.languages_hunspell_tr_library_missing
+                    },
+                ),
+                trailing = {
+                    if (module is ModuleState.Missing && InternetPermission.granted) {
+                        TextButton(onClick = { HunspellRuntime.requestModule() }) {
+                            Text(stringResource(CommonR.string.common_download))
+                        }
+                    }
+                },
+            )
+        }
+
+        // Hebrew and Arabic: the runtime behind adding their marks, beside the model row above.
+        item(visible = (langId == "he" && HebrewNikud.supported) || (langId == "ar" && ArabicTashkeel.supported)) {
+            val module by FeatureModules.onnx.state.collectAsState()
+            WmRow(
+                title = stringResource(R.string.languages_nikud_library_title),
+                subtitle = stringResource(
+                    when (module) {
+                        ModuleState.Installed ->
+                            if (langId == "ar") R.string.languages_tashkeel_library_ready else R.string.languages_nikud_library_ready
+                        is ModuleState.Installing -> R.string.languages_kiwi_library_installing
+                        is ModuleState.Missing ->
+                            if (langId == "ar") R.string.languages_tashkeel_library_missing else R.string.languages_nikud_library_missing
+                    },
+                ),
+                trailing = {
+                    if (module is ModuleState.Missing && InternetPermission.granted) {
+                        TextButton(onClick = { FeatureModules.onnx.requestInstall() }) {
+                            Text(stringResource(CommonR.string.common_download))
+                        }
+                    }
+                },
+            )
+        }
+
+        // Braille-only: which contractions a word's cells are read with.
+        item(visible = langId == "braille") {
+            val uncontracted = stringResource(R.string.languages_braille_table_uncontracted)
+            ChoiceSetting(
+                R.string.languages_braille_table_title,
+                subtitle = stringResource(R.string.languages_braille_table_subtitle),
+                options = listOf("" to uncontracted) + BrailleContracted.tables.map { it.id to it.label },
+                selected = settings.watch { it.cjk.brailleTable },
+                default = SettingsDefaults.cjk.brailleTable,
+            ) { table -> scope.launch { repository.setBrailleTable(table) } }
+        }
+
+        // Japanese-only: on the flick pad every ゛, ゜ and small kana is an extra
+        // key, so かつこう is how がっこう gets typed. Romaji never sees this.
+        item(visible = langId == "ja", level = SettingLevel.STANDARD) {
+            ToggleSetting(
+                R.string.languages_cjk_loose_marks_title,
+                stringResource(R.string.languages_cjk_loose_marks_subtitle),
+                settings.watch { it.cjk.kanaLooseMarks },
+                info = stringResource(R.string.languages_cjk_loose_marks_info),
+                default = SettingsDefaults.cjk.kanaLooseMarks,
+            ) { on -> scope.launch { repository.setKanaLooseMarks(on) } }
+        }
+
+        // Issue #341: Japanese and Chinese are spaced with the ideographic
+        // space, twice the width of an ASCII one. Per language, since the two
+        // conventions differ, and off until asked for.
+        item(visible = langId !in NO_CONVERSION_LANGUAGES, level = SettingLevel.ADVANCED) {
+            ToggleSetting(
+                R.string.languages_cjk_full_width_space_title,
+                stringResource(R.string.languages_cjk_full_width_space_subtitle),
+                settings.watch { langId in it.cjk.fullWidthSpaceLanguages },
+                info = stringResource(R.string.languages_cjk_full_width_space_info),
+                default = langId in SettingsDefaults.cjk.fullWidthSpaceLanguages,
+            ) { on -> scope.launch { repository.setFullWidthSpace(langId, on) } }
+        }
+
+        // Issue #419: Japanese IMEs step through the candidates with the space
+        // bar and type the highlighted one with Enter. Per language, and off
+        // until asked for, since space committing the top pick is the habit
+        // everyone typing here already has.
+        item(visible = langId !in NO_CONVERSION_LANGUAGES, level = SettingLevel.ADVANCED) {
+            ToggleSetting(
+                R.string.languages_cjk_space_steps_title,
+                stringResource(R.string.languages_cjk_space_steps_subtitle),
+                settings.watch { langId in it.cjk.spaceStepsCandidatesLanguages },
+                info = stringResource(R.string.languages_cjk_space_steps_info),
+                default = langId in SettingsDefaults.cjk.spaceStepsCandidatesLanguages,
+            ) { on -> scope.launch { repository.setSpaceStepsCandidates(langId, on) } }
         }
 
     }
@@ -1660,11 +2132,46 @@ private fun CjkDictPackManager(
             stringResource(R.string.languages_cjk_pinyin_group_title),
             info = stringResource(R.string.languages_cjk_double_pinyin_info),
         ) {
+            // Jianpin (简拼): the first letter of each syllable is enough, so
+            // `wm` finds 我们. Every shipping Chinese IME does this by default
+            // (#405). Under a Double Pinyin scheme a syllable is always two
+            // keys, so the switch has nothing to abbreviate there.
+            item(level = SettingLevel.STANDARD) {
+                ToggleSetting(
+                    R.string.languages_cjk_jianpin_title,
+                    stringResource(R.string.languages_cjk_jianpin_subtitle),
+                    settings.watch { it.cjk.pinyinJianpin },
+                    info = stringResource(R.string.languages_cjk_jianpin_info),
+                    default = SettingsDefaults.cjk.pinyinJianpin,
+                ) { on -> scope.launch { repository.setPinyinJianpin(on) } }
+            }
+            // 联想: once a conversion lands, the strip offers what usually
+            // comes next, from the word pairs and from the user's own habits.
             item {
+                ToggleSetting(
+                    R.string.languages_cjk_prediction_title,
+                    stringResource(R.string.languages_cjk_prediction_subtitle),
+                    settings.watch { it.cjk.pinyinPrediction },
+                    info = stringResource(R.string.languages_cjk_prediction_info),
+                    default = SettingsDefaults.cjk.pinyinPrediction,
+                ) { on -> scope.launch { repository.setPinyinPrediction(on) } }
+            }
+            // rq / sj / xq for the date, time and weekday, v + a number for
+            // Chinese numerals, the way Sogou and fcitx take them.
+            item(level = SettingLevel.STANDARD) {
+                ToggleSetting(
+                    R.string.languages_cjk_shortcuts_title,
+                    stringResource(R.string.languages_cjk_shortcuts_subtitle),
+                    settings.watch { it.cjk.pinyinShortcuts },
+                    info = stringResource(R.string.languages_cjk_shortcuts_info),
+                    default = SettingsDefaults.cjk.pinyinShortcuts,
+                ) { on -> scope.launch { repository.setPinyinShortcuts(on) } }
+            }
+            item(level = SettingLevel.STANDARD) {
                 ToggleSetting(
                     R.string.languages_cjk_fuzzy_title,
                     stringResource(R.string.languages_cjk_fuzzy_subtitle),
-                    settings.cjk.pinyinFuzzy,
+                    fuzzyOn,
                     info = stringResource(R.string.languages_cjk_fuzzy_pairs_info),
                     default = SettingsDefaults.cjk.pinyinFuzzy,
                 ) { on -> scope.launch { repository.setPinyinFuzzy(on) } }
@@ -1673,10 +2180,10 @@ private fun CjkDictPackManager(
             // they are not one preference: the nasal endings are a regional
             // accent, while n↔l costs precision on every syllable starting with
             // either. Only drawn while fuzzy is on — off, they decide nothing.
-            if (settings.cjk.pinyinFuzzy) {
+            if (fuzzyOn) {
                 for (pair in PinyinFuzzy.PAIRS) {
-                    item {
-                        val on = pair.id in settings.cjk.pinyinFuzzyPairs
+                    item(level = SettingLevel.ADVANCED) {
+                        val on = settings.watch { pair.id in it.cjk.pinyinFuzzyPairs }
                         val label = pair.members.joinToString(" ↔ ")
                         WmRow(
                             title = label,
@@ -1700,23 +2207,53 @@ private fun CjkDictPackManager(
                         )
                     }
                 }
-                if (settings.cjk.pinyinFuzzyPairs != PinyinFuzzy.ALL_PAIRS) {
-                    item {
-                        ActionRow(
-                            title = R.string.languages_cjk_fuzzy_pairs_reset_title,
-                            subtitle = null,
-                            action = stringResource(CommonR.string.common_reset),
-                        ) { scope.launch { repository.resetPinyinFuzzyPairs() } }
-                    }
+                item(visible = fuzzyPairsChanged, level = SettingLevel.ADVANCED) {
+                    ActionRow(
+                        title = R.string.languages_cjk_fuzzy_pairs_reset_title,
+                        subtitle = null,
+                        action = stringResource(CommonR.string.common_reset),
+                    ) { scope.launch { repository.resetPinyinFuzzyPairs() } }
                 }
             }
-            item {
+            item(level = SettingLevel.STANDARD) {
+                val current = settings.watch { it.cjk.pinyinDoublePinyin }
+                val customText = settings.watch { it.cjk.pinyinDoublePinyinCustom }
                 ChoiceSetting(
                     R.string.languages_cjk_double_pinyin_title,
                     options = DoublePinyinScheme.entries.map { it to stringResource(it.displayNameRes) },
-                    selected = settings.cjk.pinyinDoublePinyin,
+                    selected = current,
                     default = SettingsDefaults.cjk.pinyinDoublePinyin,
-                ) { scheme -> scope.launch { repository.setPinyinDoublePinyin(scheme) } }
+                ) { scheme ->
+                    scope.launch {
+                        if (scheme == DoublePinyinScheme.CUSTOM && customText.isBlank()) {
+                            // Nothing written yet (#502): open the editor on the
+                            // scheme the user types with now, a working table to
+                            // change, rather than on an empty page that would
+                            // leave the keyboard typing full Pinyin.
+                            val base = current.takeIf { DoublePinyin.tableFor(it) != null } ?: DoublePinyinScheme.XIAOHE
+                            val start = doublePinyinStartText(base, context.getString(base.displayNameRes)).orEmpty()
+                            repository.setPinyinDoublePinyinCustom(start, select = true)
+                            onNavigate(DOUBLE_PINYIN_CUSTOM_ROUTE)
+                        } else {
+                            repository.setPinyinDoublePinyin(scheme)
+                        }
+                    }
+                }
+            }
+            // Always offered, not only once Custom is picked: importing a scheme
+            // file is as likely a first step as choosing the entry above, and
+            // saving in the editor picks it.
+            item(level = SettingLevel.ADVANCED) {
+                val customName = settings.watch { all ->
+                    all.cjk.pinyinDoublePinyinCustom.takeIf { it.isNotBlank() }
+                        ?.let { DoublePinyinProfile.parse(it).name }
+                }
+                NavRow(
+                    R.string.languages_cjk_double_pinyin_custom_title,
+                    subtitle = stringResource(R.string.languages_cjk_double_pinyin_custom_subtitle),
+                    value = customName,
+                    route = DOUBLE_PINYIN_CUSTOM_ROUTE,
+                ) { onNavigate(DOUBLE_PINYIN_CUSTOM_ROUTE) }
             }
         }
     }
@@ -1727,7 +2264,7 @@ private fun CjkDictPackManager(
  * text follows the app's language: it is read only while the row is drawn.
  */
 @Composable
-private fun packStatusLabel(
+internal fun packStatusLabel(
     pack: CjkDictPack,
     status: CjkDictDownloadManager.DownloadStatus,
 ): String = when (status) {
@@ -1759,6 +2296,220 @@ private fun packStatusLabel(
 private const val PERCENT = 100L
 
 /** How much of the joined letter each hint mode draws, for the picker sheet. */
+/**
+ * The fixed-chip strip of a phonetic layout, and what fills it after the two
+ * fixed chips. The second row only shows while the first is on: it chooses
+ * nothing otherwise.
+ */
+@Composable
+private fun PhoneticStripGroup(
+    langId: String,
+    languageName: String,
+    settings: LiveSettings,
+    repository: SettingsRepository,
+    scope: CoroutineScope,
+) {
+    // Branched on by the builder below, so watched once here.
+    val fixed = settings.watch { langId in it.suggestionStrip.phoneticFixedStripLangs }
+    val candidateListOn = settings.watch {
+        it.suggestionStrip.phoneticCandidateListFor(langId) != PhoneticCandidateList.OFF
+    }
+    val neuralOn = settings.watch { it.suggestionStrip.neuralPhoneticFor(langId) }
+    val neuralLeads = settings.watch { langId in it.suggestionStrip.neuralLeadsLangs }
+    SettingsGroup(stringResource(R.string.languages_phonetic_strip_title)) {
+        item(level = SettingLevel.ADVANCED) {
+            ToggleSetting(
+                R.string.languages_phonetic_strip_fixed_title,
+                stringResource(R.string.languages_phonetic_strip_fixed_subtitle, languageName),
+                fixed,
+                info = stringResource(R.string.languages_phonetic_strip_fixed_info, languageName),
+                default = langId in SettingsDefaults.suggestionStrip.phoneticFixedStripLangs,
+            ) { scope.launch { repository.setPhoneticFixedStrip(langId, it) } }
+        }
+        if (fixed) {
+            item(level = SettingLevel.STANDARD) {
+                ChoiceSetting(
+                    R.string.languages_phonetic_strip_source_title,
+                    subtitle = stringResource(R.string.languages_phonetic_strip_source_subtitle),
+                    options = listOf(
+                        PhoneticStripSource.SMART to
+                            stringResource(R.string.languages_phonetic_strip_source_smart_label),
+                        PhoneticStripSource.NATIVE to
+                            stringResource(R.string.languages_phonetic_strip_source_native_label, languageName),
+                        PhoneticStripSource.ENGLISH to
+                            stringResource(R.string.languages_phonetic_strip_source_english_label),
+                    ),
+                    selected = settings.watch { it.suggestionStrip.phoneticStripSourceFor(langId) },
+                    default = SettingsDefaults.suggestionStrip.phoneticStripSourceFor(langId),
+                    detail = { source ->
+                        ChoiceDetail(
+                            when (source) {
+                                PhoneticStripSource.SMART -> stringResource(
+                                    R.string.languages_phonetic_strip_source_smart_desc,
+                                    languageName,
+                                )
+                                PhoneticStripSource.NATIVE -> stringResource(
+                                    R.string.languages_phonetic_strip_source_native_desc,
+                                    languageName,
+                                )
+                                PhoneticStripSource.ENGLISH -> stringResource(
+                                    R.string.languages_phonetic_strip_source_english_desc,
+                                )
+                            },
+                        )
+                    },
+                ) { scope.launch { repository.setPhoneticStripSource(langId, it) } }
+            }
+        }
+        // Avro's own feature, so on Avro's language: the list is built the
+        // way desktop Avro builds it, Bengali suffixes and all.
+        if (langId == PhoneticSchemes.BENGALI.languageId) {
+            item(level = SettingLevel.STANDARD) {
+                ChoiceSetting(
+                    R.string.languages_phonetic_candidates_title,
+                    subtitle = stringResource(R.string.languages_phonetic_candidates_subtitle),
+                    info = stringResource(R.string.languages_phonetic_candidates_info, languageName),
+                    options = listOf(
+                        PhoneticCandidateList.OFF to stringResource(R.string.languages_phonetic_candidates_off_label),
+                        PhoneticCandidateList.STRIP to
+                            stringResource(R.string.languages_phonetic_candidates_strip_label),
+                        PhoneticCandidateList.BAR to stringResource(R.string.languages_phonetic_candidates_bar_label),
+                    ),
+                    selected = settings.watch { it.suggestionStrip.phoneticCandidateListFor(langId) },
+                    default = SettingsDefaults.suggestionStrip.phoneticCandidateListFor(langId),
+                    detail = { where ->
+                        ChoiceDetail(
+                            stringResource(
+                                when (where) {
+                                    PhoneticCandidateList.OFF -> R.string.languages_phonetic_candidates_off_desc
+                                    PhoneticCandidateList.STRIP -> R.string.languages_phonetic_candidates_strip_desc
+                                    PhoneticCandidateList.BAR -> R.string.languages_phonetic_candidates_bar_desc
+                                },
+                            ),
+                        )
+                    },
+                ) { scope.launch { repository.setPhoneticCandidateList(langId, it) } }
+            }
+            item(visible = candidateListOn, level = SettingLevel.STANDARD) { AvroDictionaryRow() }
+        }
+        // IndicXlit's readings after the one the space bar writes: a small
+        // neural network, one download shared by every language it writes.
+        if (IndicXlitModels.supports(langId)) {
+            item(level = SettingLevel.STANDARD) {
+                NeuralPhoneticToggle(langId, languageName, settings, neuralOn) { on ->
+                    scope.launch { repository.setNeuralPhonetic(langId, on) }
+                }
+            }
+            item(visible = neuralOn, level = SettingLevel.STANDARD) { NeuralPhoneticModelRow(settings, repository) }
+            // Only where it measured worth the swap it makes (IndicXlitModels.LEADS).
+            if (IndicXlitModels.canLead(langId)) {
+                item(visible = neuralOn, level = SettingLevel.ADVANCED) {
+                    ToggleSetting(
+                        R.string.languages_neural_leads_title,
+                        stringResource(R.string.languages_neural_leads_subtitle),
+                        neuralLeads,
+                        info = stringResource(R.string.languages_neural_leads_info, languageName),
+                        default = langId in SettingsDefaults.suggestionStrip.neuralLeadsLangs,
+                    ) { scope.launch { repository.setNeuralLeads(langId, it) } }
+                }
+            }
+        }
+        // The same model family the other way round, for dictating this
+        // language in Latin letters (#948). Its own download, no switch.
+        if (IndicXlitModels.LATIN.supports(langId)) {
+            item(level = SettingLevel.STANDARD) { RomanizedDictationModelRow(settings) }
+        }
+    }
+}
+
+/**
+ * Desktop Avro's dictionary, which the candidate list searches besides the
+ * keyboard's own words. The keyboard fetches it as the list is turned on; this
+ * row says where that stands and fetches it again after a failure.
+ */
+@Composable
+private fun AvroDictionaryRow() {
+    val filesDir = LocalContext.current.filesDir
+    val status by AvroDictionaryDownloads.status.collectAsState()
+    LaunchedEffect(Unit) { AvroDictionaryDownloads.refresh(filesDir) }
+    val value = when (val s = status) {
+        is AvroDictionaryDownloads.Status.Downloaded ->
+            stringResource(R.string.languages_avro_dictionary_downloaded, formatBytes(s.sizeBytes))
+        AvroDictionaryDownloads.Status.Downloading -> stringResource(CommonR.string.common_downloading)
+        AvroDictionaryDownloads.Status.Failed -> stringResource(R.string.languages_word_pairs_failed)
+        AvroDictionaryDownloads.Status.NotDownloaded ->
+            stringResource(R.string.languages_avro_dictionary_download, formatBytes(AvroDictionaryDownloads.APPROX_BYTES))
+    }
+    NavRow(R.string.languages_avro_dictionary_title, subtitle = value) {
+        if (status !is AvroDictionaryDownloads.Status.Downloaded) AvroDictionaryDownloads.start(filesDir)
+    }
+}
+
+/**
+ * Which of Khipro's rules type (#909): the ones this version came with, or a
+ * newer set from the data repository, which the keyboard looks for once a day
+ * while Khipro is in use. Check now looks at once; going back to the bundled
+ * rules keeps the daily check from bringing the same set back.
+ */
+@Composable
+private fun KhiproSpecsGroup() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val state by KhiproSpecs.state.collectAsState()
+    var ready by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) { KhiproSpecs.activeRevision() }
+        ready = true
+    }
+    val date = state.revision?.let(::khiproRevisionDate)
+    val subtitle = when {
+        !ready -> null
+        date == null -> stringResource(R.string.languages_khipro_specs_unsupported)
+        // The build with no internet: a check could only fail, and the reason
+        // it gave was whichever gate stopped it first, data saving's included.
+        !InternetPermission.granted -> stringResource(R.string.languages_khipro_specs_no_internet, date)
+        state.checking -> stringResource(R.string.languages_khipro_specs_checking)
+        state.failure != null -> stringResource(R.string.languages_khipro_specs_failed, date, state.failure.orEmpty())
+        state.downloaded -> stringResource(R.string.languages_khipro_specs_downloaded, date)
+        else -> stringResource(R.string.languages_khipro_specs_bundled, date)
+    }
+    SettingsGroup(stringResource(R.string.languages_khipro_specs_group)) {
+        item(level = SettingLevel.STANDARD) {
+            NavRow(R.string.languages_khipro_specs_title, subtitle = subtitle) {
+                if (date == null || state.checking || !InternetPermission.granted) return@NavRow
+                scope.launch {
+                    val message = when (val outcome = withContext(Dispatchers.IO) { KhiproSpecs.refresh() }) {
+                        is KhiproSpecs.Outcome.Installed -> context.getString(
+                            R.string.languages_khipro_specs_installed,
+                            khiproRevisionDate(outcome.revision),
+                        )
+                        KhiproSpecs.Outcome.UpToDate -> context.getString(R.string.languages_khipro_specs_up_to_date)
+                        // The row says why.
+                        is KhiproSpecs.Outcome.Refused, KhiproSpecs.Outcome.Unsupported -> null
+                    }
+                    if (message != null) Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        item(visible = state.downloaded, level = SettingLevel.ADVANCED) {
+            NavRow(
+                R.string.languages_khipro_specs_bundled_title,
+                subtitle = stringResource(R.string.languages_khipro_specs_bundled_subtitle),
+            ) {
+                scope.launch { withContext(Dispatchers.IO) { KhiproSpecs.useBundled() } }
+            }
+        }
+    }
+}
+
+/** A spec revision (RFC 3339 UTC) as the date the user reads, or the revision itself if it does not parse. */
+internal fun khiproRevisionDate(revision: String): String = runCatching {
+    val utc = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.ROOT).apply {
+        timeZone = java.util.TimeZone.getTimeZone("UTC")
+    }
+    java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(utc.parse(revision)!!)
+}.getOrDefault(revision)
+
 private fun translitHintDescRes(mode: TransliterationHintMode): Int = when (mode) {
     TransliterationHintMode.OFF -> R.string.languages_translit_hints_off_desc
     TransliterationHintMode.ADDED -> R.string.languages_translit_hints_added_desc
@@ -1768,11 +2519,25 @@ private fun translitHintDescRes(mode: TransliterationHintMode): Int = when (mode
 private fun cjkRegionDescRes(region: HanVariant.HanRegion): Int = when (region) {
     HanVariant.HanRegion.GENERIC -> R.string.languages_cjk_region_generic_subtitle
     HanVariant.HanRegion.TAIWAN -> R.string.languages_cjk_region_taiwan_subtitle
+    HanVariant.HanRegion.TAIWAN_WORDING -> R.string.languages_cjk_region_taiwan_wording_subtitle
     HanVariant.HanRegion.HONG_KONG -> R.string.languages_cjk_region_hong_kong_subtitle
 }
 
 private fun cjkRegionLabelRes(region: HanVariant.HanRegion): Int = when (region) {
     HanVariant.HanRegion.GENERIC -> R.string.languages_cjk_region_generic_title
     HanVariant.HanRegion.TAIWAN -> R.string.languages_cjk_region_taiwan_title
+    HanVariant.HanRegion.TAIWAN_WORDING -> R.string.languages_cjk_region_taiwan_wording_title
     HanVariant.HanRegion.HONG_KONG -> R.string.languages_cjk_region_hong_kong_title
+}
+
+private fun readingOnSwitchLabelRes(choice: ReadingOnSwitch): Int = when (choice) {
+    ReadingOnSwitch.CONVERT -> R.string.languages_cjk_reading_on_switch_convert
+    ReadingOnSwitch.TYPED -> R.string.languages_cjk_reading_on_switch_typed
+    ReadingOnSwitch.DISCARD -> R.string.languages_cjk_reading_on_switch_discard
+}
+
+private fun readingOnSwitchDescRes(choice: ReadingOnSwitch): Int = when (choice) {
+    ReadingOnSwitch.CONVERT -> R.string.languages_cjk_reading_on_switch_convert_desc
+    ReadingOnSwitch.TYPED -> R.string.languages_cjk_reading_on_switch_typed_desc
+    ReadingOnSwitch.DISCARD -> R.string.languages_cjk_reading_on_switch_discard_desc
 }

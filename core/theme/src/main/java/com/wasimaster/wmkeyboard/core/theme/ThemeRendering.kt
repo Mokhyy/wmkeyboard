@@ -143,9 +143,14 @@ fun GradientSpec.brush(
  * only the slant uses it: see [SlantKeyShape]. Keys pass the gap they are inset
  * by; anything that clips to its bounds, or has no gap to spill into, leaves it
  * at zero.
+ *
+ * [KeyShapeKind.NONE] has no outline of its own, yet a pressed or latched key
+ * still lights up, and a few surfaces borrow the key outline (the layer peek,
+ * the trackpad, the autopilot overlay). All of those get the plain rounded one,
+ * at [radiusDp].
  */
 fun keyShapeFor(kind: KeyShapeKind, radiusDp: Int, bleedDp: Float = 0f): Shape = when (kind) {
-    KeyShapeKind.ROUNDED -> RoundedCornerShape(radiusDp.dp)
+    KeyShapeKind.NONE, KeyShapeKind.ROUNDED -> RoundedCornerShape(radiusDp.dp)
     KeyShapeKind.SHARP -> RectangleShape
     KeyShapeKind.PILL -> RoundedCornerShape(percent = 50)
     KeyShapeKind.CUT -> CutCornerShape(radiusDp.coerceIn(2, 14).dp)
@@ -266,15 +271,17 @@ private val HexagonKeyShape: Shape = GenericShape { size, _ ->
  * bunched its waves up at the corners, where the radius changes fastest.
  */
 private val ScallopKeyShape: Shape = GenericShape { size, _ ->
-    // A seventh of the short side: fewer, chunkier bumps than that read as a
-    // cloud, and more of them disappear at the size a key is on screen.
+    val bumps = scallopBumps(size.width, size.height)
+    if (bumps == null) {
+        addRect(Rect(Offset.Zero, size))
+        return@GenericShape
+    }
+    val (across, down) = bumps
     val depth = min(size.width, size.height) / 7f
     val left = depth
     val top = depth
     val right = size.width - depth
     val bottom = size.height - depth
-    val across = max(2, ((right - left) / (2f * depth)).roundToInt())
-    val down = max(1, ((bottom - top) / (2f * depth)).roundToInt())
     val stepX = (right - left) / across
     val stepY = (bottom - top) / down
     // Angles run clockwise from three o'clock, so each half-oval starts at the
@@ -298,6 +305,39 @@ private val ScallopKeyShape: Shape = GenericShape { size, _ ->
     }
     close()
 }
+
+/**
+ * How many bumps [ScallopKeyShape] puts across the top and down each side of a
+ * [width] by [height] box, or null when the box has nothing to put them on.
+ *
+ * The depth is a seventh of the short side: fewer, chunkier bumps than that
+ * read as a cloud, and more of them disappear at the size a key is on screen.
+ * A box laid out at zero on either side (#963: a long press in a tool panel,
+ * under a scalloped theme) has no depth to count by. Zero over zero rounds as
+ * NaN, which throws mid-draw, and a width over zero rounds to Int.MAX_VALUE
+ * bumps, which would hang the keyboard instead. Such a box takes a plain
+ * rectangle.
+ *
+ * So does a box only a few pixels tall (#1001: the same long press still froze
+ * the keyboard after #963). A box growing in from nothing passes through
+ * heights of a fraction of a pixel, and a wide one then asked for thousands
+ * of arcs on every frame of the animation; bumps a pixel deep cannot be seen
+ * anyway. [MAX_SCALLOP_BUMPS] caps what is left, so no box, however long, can
+ * make the outline expensive.
+ */
+internal fun scallopBumps(width: Float, height: Float): Pair<Int, Int>? {
+    val depth = min(width, height) / 7f
+    if (!(depth >= MIN_SCALLOP_DEPTH_PX) || !width.isFinite() || !height.isFinite()) return null
+    val across = ((width - 2f * depth) / (2f * depth)).roundToInt().coerceIn(2, MAX_SCALLOP_BUMPS)
+    val down = ((height - 2f * depth) / (2f * depth)).roundToInt().coerceIn(1, MAX_SCALLOP_BUMPS)
+    return across to down
+}
+
+/** The shallowest bump worth drawing, in pixels; see [scallopBumps]. */
+private const val MIN_SCALLOP_DEPTH_PX = 1f
+
+/** The most bumps along any one side; a spacebar needs about 34. */
+private const val MAX_SCALLOP_BUMPS = 64
 
 /**
  * Concave corners, like a cinema ticket: the rectangle minus a circle at each

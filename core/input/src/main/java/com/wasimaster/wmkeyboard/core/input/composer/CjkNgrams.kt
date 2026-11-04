@@ -1,17 +1,18 @@
 package com.wasimaster.wmkeyboard.core.input.composer
 
-import kotlin.math.ln
+import com.wasimaster.wmkeyboard.core.engine.NativeHandles
+import java.io.File
 
 /**
  * Word unigram and bigram counts for the conversion decoder — how likely 事情 is
  * at all, and how much likelier it becomes right after 这件.
  *
- * **No pack ships one yet.** [EMPTY] is the shipped state, and it is a working
+ * Mandarin has one: the `pinyin_ngrams` pack (#580), fetched with the pinyin
+ * table. Without it — or for a language with no pack — [EMPTY] is a working
  * state rather than a stub: [logProbability] then falls back to the conversion
- * pack's own frequency column, which is what makes the decoder a unigram Viterbi
- * today and a bigram one the day a pack lands, with no change to [Lattice].
+ * pack's own frequency column, which makes the decoder a unigram Viterbi.
  *
- * The format, when it does land, is the plain TSV every other pack here uses,
+ * The format is the plain TSV every other pack here uses,
  * with the section decided by field count:
  * ```
  * # wmkeyboard cjk ngram v1
@@ -23,35 +24,47 @@ import kotlin.math.ln
  * keyed by reading with no way to index the other way. Keeping both sections in
  * one file also keeps them from drifting to different corpora or tokenizers.
  *
- * Storage is two sorted `LongArray`s of 64-bit hashes with parallel counts, not
- * the `Map<String, Map<String, Int>>` this obviously wants to be — that shape is
- * exactly what blew a 256 MB heap in [ConversionDictionary] and forced its
- * structure-of-arrays layout. At ~300k bigrams a hashed table is ~3.6 MB; the map
- * would be an order of magnitude more. Hashing costs collisions, but at 64 bits
- * over 300k keys that is a ~1e-7 chance of one wrong score, which is not worth a
- * fallback path to fix.
+ * The table is in Rust (`native/wm-engine/src/cjk/ngrams.rs`): sorted columns of
+ * 64-bit hashes with parallel counts, as flat bytes, and this class holds a
+ * handle. Hashing costs collisions, but at 64 bits over 300k keys that is a ~1e-7
+ * chance of one wrong score, which is not worth a fallback path to fix. A pack
+ * opened from its file ([open]) is parsed once and written beside it as
+ * `<pack>.wmcd`; after that it is mapped.
  */
-class CjkNgrams private constructor(
-    private val uniKeys: LongArray,
-    private val uniCounts: IntArray,
-    private val biKeys: LongArray,
-    private val biCounts: IntArray,
-    /** Corpus size, the denominator for an unconditioned unigram. */
-    private val totalTokens: Long,
-) {
+class CjkNgrams private constructor(internal val handle: Long) {
 
-    val isEmpty: Boolean get() = uniKeys.isEmpty() && biKeys.isEmpty()
+    val isEmpty: Boolean = handle == 0L || CjkNative.ngramIsEmpty(handle) != 0
 
-    /** Corpus count of [word], or 0 when the model has never seen it. */
-    fun unigram(word: String): Int {
-        val i = uniKeys.binarySearch(hash(word))
-        return if (i >= 0) uniCounts[i] else 0
+    init {
+        if (handle != 0L) NativeHandles.track(this, handle, CjkNative::ngramClose)
     }
 
+    /** Corpus count of [word], or 0 when the model has never seen it. */
+    fun unigram(word: String): Int = if (handle == 0L) 0 else CjkNative.ngramUnigram(handle, word)
+
     /** Corpus count of [previous] immediately followed by [word]. */
-    fun bigram(previous: String, word: String): Int {
-        val i = biKeys.binarySearch(pairHash(previous, word))
-        return if (i >= 0) biCounts[i] else 0
+    fun bigram(previous: String, word: String): Int =
+        if (handle == 0L) 0 else CjkNative.ngramBigram(handle, previous, word)
+
+    /**
+     * The words seen most often straight after [word], commonest first, each
+     * with the pair's count: what the strip offers once [word] is written
+     * (#580 follow-up). Only the [SUCCESSORS] commonest per word are kept.
+     */
+    fun successors(word: String, limit: Int = SUCCESSORS): List<Pair<String, Int>> {
+        if (handle == 0L || limit <= 0) return emptyList()
+        val counts = IntArray(limit)
+        return counted(CjkNative.ngramSuccessors(handle, word, limit, counts), counts)
+    }
+
+    /**
+     * Words longer than [prefix] that start with it, commonest first, each with
+     * its count: 无聊 for 无, so the strip can offer 聊 the moment 无 is written.
+     */
+    fun completions(prefix: String, limit: Int): List<Pair<String, Int>> {
+        if (handle == 0L || limit <= 0) return emptyList()
+        val counts = IntArray(limit)
+        return counted(CjkNative.ngramCompletions(handle, prefix, limit, counts), counts)
     }
 
     /**
@@ -60,34 +73,42 @@ class CjkNgrams private constructor(
      * own probability.
      *
      * Stupid backoff rather than Kneser-Ney deliberately. KN wants continuation
-     * counts, which is a third table on a heap that has already run out once, and
-     * at corpus scale the two are hard to tell apart — this is exactly the
-     * lots-of-data regime it was published for. It also needs no normalizing
-     * constant, so an edge costs two array lookups and a subtraction.
+     * counts, which is a third table, and at corpus scale the two are hard to
+     * tell apart: this is exactly the lots-of-data regime it was published for.
      *
      * [packTotal] and [packFreq] are the conversion pack's own numbers, used when
      * this model is [EMPTY] so the decoder still has a real unigram to rank by.
      * Always finite: an unseen word floors at one notional occurrence rather than
      * `ln(0)`, so a path can never be scored at negative infinity and drop out.
      */
-    fun logProbability(previous: String?, word: String, packFreq: Int, packTotal: Long): Double {
-        if (isEmpty) return ln((packFreq + 1).toDouble()) - ln((packTotal + 1).toDouble())
-        if (previous != null) {
-            val pair = bigram(previous, word)
-            if (pair > 0) {
-                val prior = unigram(previous)
-                if (prior > 0) return ln(pair.toDouble()) - ln(prior.toDouble())
-            }
-        }
-        return LOG_BACKOFF + ln((unigram(word) + 1).toDouble()) - ln((totalTokens + 1).toDouble())
-    }
+    fun logProbability(previous: String?, word: String, packFreq: Int, packTotal: Long): Double =
+        CjkNative.ngramLogProbability(handle, previous, word, packFreq, packTotal, bigramWeight)
 
     companion object {
-        val EMPTY = CjkNgrams(LongArray(0), IntArray(0), LongArray(0), IntArray(0), 0L)
+        val EMPTY = CjkNgrams(0L)
 
         /** The published stupid-backoff weight. */
         const val BACKOFF = 0.4
-        private val LOG_BACKOFF = ln(BACKOFF)
+
+        /**
+         * The pair's share when interpolating (libpinyin's form), or 0 for
+         * stupid backoff. 0: on the held-out benchmark (`PinyinBenchmarkTest`)
+         * backoff beat every weight from 0.3 to 0.85, by up to four points of
+         * whole clauses. A variable so that benchmark can compare them again.
+         */
+        @Volatile
+        var bigramWeight: Double = 0.0
+
+        /** Successors kept per word for [successors]. */
+        const val SUCCESSORS = 8
+
+        private const val SEP = '\u0001'
+
+        /**
+         * The pack in [file], or [EMPTY] if nothing in it parses. Fast after the
+         * first time; see the class. Throws `IOException` when it cannot be read.
+         */
+        fun open(file: File): CjkNgrams = ofHandle(CjkNative.ngramOpen(file.path))
 
         /**
          * Parses the TSV described on the class. Two fields is a unigram, three a
@@ -95,64 +116,17 @@ class CjkNgrams private constructor(
          * skipped, matching [ConversionDictionary.parse]'s tolerance of a pack
          * that picked up stray lines somewhere between the corpus and the device.
          */
-        fun parse(lines: Sequence<String>): CjkNgrams {
-            val uni = HashMap<Long, Int>()
-            val bi = HashMap<Long, Int>()
-            var total = 0L
-            for (raw in lines) {
-                val line = raw.trim()
-                if (line.isEmpty() || line.startsWith("#")) continue
-                val parts = line.split('\t')
-                when (parts.size) {
-                    2 -> {
-                        val count = parts[1].trim().toIntOrNull() ?: continue
-                        if (parts[0].isEmpty() || count <= 0) continue
-                        uni[hash(parts[0])] = count
-                        total += count
-                    }
-                    3 -> {
-                        val count = parts[2].trim().toIntOrNull() ?: continue
-                        if (parts[0].isEmpty() || parts[1].isEmpty() || count <= 0) continue
-                        bi[pairHash(parts[0], parts[1])] = count
-                    }
-                    else -> continue
-                }
-            }
-            if (uni.isEmpty() && bi.isEmpty()) return EMPTY
-            val (uk, uc) = sortedPairs(uni)
-            val (bk, bc) = sortedPairs(bi)
-            return CjkNgrams(uk, uc, bk, bc, total)
+        fun parse(lines: Sequence<String>): CjkNgrams =
+            ofHandle(CjkNative.ngramParse(lines.joinToString("\n")))
+
+        private fun ofHandle(handle: Long): CjkNgrams {
+            val table = CjkNgrams(handle)
+            return if (table.isEmpty) EMPTY else table
         }
 
-        /** A hash map flattened into key-sorted parallel arrays for binary search. */
-        private fun sortedPairs(src: Map<Long, Int>): Pair<LongArray, IntArray> {
-            val keys = src.keys.toLongArray()
-            keys.sort()
-            val counts = IntArray(keys.size)
-            for (i in keys.indices) counts[i] = src.getValue(keys[i])
-            return keys to counts
-        }
-
-        /** FNV-1a 64 over the chars — cheap, and well spread for short strings. */
-        private fun hash(s: String): Long {
-            var h = -0x340d631b7bdddcdbL
-            for (c in s) {
-                h = h xor c.code.toLong()
-                h *= 0x100000001b3L
-            }
-            return h
-        }
-
-        /** [hash] of the pair, separated so `ab|c` and `a|bc` cannot collide. */
-        private fun pairHash(a: String, b: String): Long {
-            var h = hash(a)
-            h = h xor 0L
-            h *= 0x100000001b3L
-            for (c in b) {
-                h = h xor c.code.toLong()
-                h *= 0x100000001b3L
-            }
-            return h
+        private fun counted(joined: String, counts: IntArray): List<Pair<String, Int>> {
+            if (joined.isEmpty()) return emptyList()
+            return joined.split(SEP).mapIndexed { i, word -> word to counts[i] }
         }
     }
 }

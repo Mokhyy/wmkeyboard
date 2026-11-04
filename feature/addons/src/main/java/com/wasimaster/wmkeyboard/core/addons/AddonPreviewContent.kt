@@ -357,15 +357,30 @@ object AddonPreviewReader {
      * so what the preview plays is what the keyboard would play — not whatever
      * happened to be in the archive.
      */
-    private fun readSoundPack(payload: File): AddonPreviewContent {
+    /**
+     * Public because the file-import dialog previews a local `.wmsoundpack`
+     * with it: the archive reading is the same work whether the file was
+     * downloaded from a repository or tapped in a file manager.
+     */
+    fun readSoundPack(payload: File): AddonPreviewContent {
         val manifest = runCatching {
             payload.inputStream().use { SoundPackFile.readManifest(it) }
         }.getOrNull() ?: return AddonPreviewContent.Unreadable(
             AddonText.of(R.string.faddons_preview_error_sound_pack_unreadable),
         )
 
-        val press = manifest.press.take(MAX_PACK_VARIANTS)
-        val release = manifest.release.take(MAX_PACK_VARIANTS)
+        // A pack may be per-key only — a voice pack naming every letter and no
+        // board-wide set — and then the thing worth previewing is one sample
+        // per key, in the pack's own order, which for such a pack reads as
+        // "a, b, c…". Taken one per key rather than one key's whole list: the
+        // question a preview answers is what the pack sounds like, and a pack
+        // like this answers it with different keys, not with variants of one.
+        val press = manifest.press.take(MAX_PACK_VARIANTS).ifEmpty {
+            manifest.keys.values.mapNotNull { it.press.firstOrNull() }.take(MAX_PACK_VARIANTS)
+        }
+        val release = manifest.release.take(MAX_PACK_VARIANTS).ifEmpty {
+            manifest.keys.values.mapNotNull { it.release.firstOrNull() }.take(MAX_PACK_VARIANTS)
+        }
         val outDir = File(payload.parentFile, payload.nameWithoutExtension + "_pack")
         outDir.mkdirs()
 
@@ -436,7 +451,8 @@ object AddonPreviewReader {
         )
     }
 
-    private fun readStickers(payload: File): AddonPreviewContent {
+    /** Public for the same reason [readSoundPack] is. */
+    fun readStickers(payload: File): AddonPreviewContent {
         val outDir = File(payload.parentFile, payload.nameWithoutExtension + "_stickers")
         outDir.mkdirs()
         val images = ArrayList<File>(MAX_STICKER_IMAGES)

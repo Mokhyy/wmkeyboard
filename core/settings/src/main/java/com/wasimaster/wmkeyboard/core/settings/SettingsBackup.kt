@@ -58,6 +58,62 @@ object SettingsBackup {
     /** The WebDAV server password. A credential, so it follows the same rules. */
     const val AUTO_BACKUP_WEBDAV_PASSWORD = "auto_backup_webdav_password"
 
+    /**
+     * Every backup location, as one JSON list; see [BackupLocation]. Holds
+     * passwords and refresh tokens, so it is a secret: out of device-protected
+     * storage, and out of an export unless "Include API keys" is on. With it
+     * on, a phone restored from that file gets its sign-ins back. The switch
+     * that arms the automatic backup stays transient, so nothing starts
+     * writing until the user turns it on, and a folder grant that means
+     * nothing on the new phone shows up as a folder to choose again.
+     */
+    const val AUTO_BACKUP_LOCATIONS = "auto_backup_locations"
+
+    /**
+     * The credentials every tool's provider list shares: API keys, server
+     * addresses, tokens; see [ProviderSettings]. A secret for the same
+     * reasons as [AUTO_BACKUP_LOCATIONS]. The lists themselves
+     * (`provider_chains`) hold no secret and travel as usual.
+     */
+    const val PROVIDER_CREDENTIALS = "provider_credentials"
+
+    /** How the last run went at each location; see [LocationStatus]. */
+    const val AUTO_BACKUP_LOCATION_STATUS = "auto_backup_location_status"
+
+    /**
+     * Sync's own switches. Transient, all of them: whether this phone syncs,
+     * how often and where is a decision about this phone, and a restored
+     * bundle or a synced file must never switch sync on somewhere else.
+     */
+    const val SYNC_ENABLED = "sync_enabled"
+    const val SYNC_MODE = "sync_mode"
+    const val SYNC_INTERVAL_HOURS = "sync_interval_hours"
+    const val SYNC_SCOPE = "sync_scope"
+    /** Read once, for the move to [SYNC_LOCATION_IDS]; the single choice it was. */
+    const val SYNC_LOCATION_ID = "sync_location_id"
+    const val SYNC_LOCATION_IDS = "sync_location_ids"
+    const val SYNC_SECTIONS = "sync_sections"
+    const val SYNC_INCLUDE_SECRETS = "sync_include_secrets"
+    const val SYNC_WITH_PAIRED_DEVICES = "sync_with_paired_devices"
+    const val SYNC_WIFI_ONLY = "sync_wifi_only"
+    const val SYNC_KEEP_LOCAL = "sync_keep_local"
+    const val SYNC_LAST_RUN_AT = "sync_last_run_at"
+    const val SYNC_LAST_ERROR = "sync_last_error"
+
+    /**
+     * Until when scheduled syncs wait; see [BackupPause]. Transient like the
+     * rest of sync: a pause is about this phone, today.
+     */
+    const val SYNC_PAUSED_UNTIL = "sync_paused_until"
+
+    /**
+     * Which sync group this phone is in at a location several people share;
+     * see `SyncNaming`. Transient: it says whose phone this is, and a bundle
+     * restored onto someone else's must not put that phone into the first
+     * owner's group, where it would merge the two people's keyboards.
+     */
+    const val SYNC_GROUP = "sync_group"
+
     /** S3 secret access key. */
     const val AUTO_BACKUP_S3_SECRET = "auto_backup_s3_secret"
 
@@ -78,6 +134,22 @@ object SettingsBackup {
     const val AUTO_BACKUP_LAST_RUN_AT = "auto_backup_last_run_at"
     const val AUTO_BACKUP_LAST_ERROR = "auto_backup_last_error"
 
+    /** The frequent schedule's switch and record (#970): per install, as the main one's are. */
+    const val FREQUENT_BACKUP_ENABLED = "frequent_backup_enabled"
+    const val FREQUENT_BACKUP_LAST_RUN_AT = "frequent_backup_last_run_at"
+    const val FREQUENT_BACKUP_LAST_ERROR = "frequent_backup_last_error"
+
+    /**
+     * Until when scheduled backups wait; see [BackupPause]. Per install: a
+     * restored bundle that paused the new phone's backups would be the quiet
+     * failure [TRANSIENT_KEYS] exists to prevent.
+     */
+    const val AUTO_BACKUP_PAUSED_UNTIL = "auto_backup_paused_until"
+
+    /** A folder grant and a record of this phone's exports; neither means anything on another. */
+    const val AUTOMATION_EXPORT_FOLDER = "automation_export_folder"
+    const val AUTOMATION_EXPORT_LOG = "automation_export_log"
+
     /**
      * Credentials, kept out of an export unless explicitly asked for. A
      * settings file is the kind of thing people mail to themselves or drop
@@ -95,19 +167,39 @@ object SettingsBackup {
         AUTO_BACKUP_DROPBOX_TOKEN,
         AUTO_BACKUP_ONEDRIVE_TOKEN,
         "translate_api_key",
+        "deepl_api_key",
+        "translate_server_key",
         "klipy_api_key",
         "brave_api_key",
+        "tavily_api_key",
+        "ocr_online_key",
         "giphy_api_key",
+        "telegram_bot_token",
         "ai_anthropic_key",
         "ai_openai_key",
         "ai_gemini_key",
         "ai_xai_key",
         "ai_deepseek_key",
+        "ai_brave_key",
         "ai_compatible_key",
+        "ai_mcp_headers",
+        "ai_provider_headers",
+        "voice_server_key",
+        "voice_server_key_by_lang",
         "hf_token",
         "photo_unsplash_key",
         "photo_pexels_key",
+        // A hash, not the PIN itself, but a four-digit PIN falls to a brute
+        // force of its hash in minutes. Left behind, the lock reads as the
+        // fingerprint on the new phone; see AppLockSettings.secret.
+        APP_LOCK_SECRET,
+        AUTO_BACKUP_LOCATIONS,
+        PROVIDER_CREDENTIALS,
+        "self_hosted_libretranslate_key",
     )
+
+    /** The app lock's stored PIN, password or pattern hash. */
+    const val APP_LOCK_SECRET = "app_lock_secret"
 
     /**
      * Custom themes are stored as one JSON string preference. The full-config
@@ -142,6 +234,28 @@ object SettingsBackup {
         AUTO_BACKUP_KDF_SALT,
         AUTO_BACKUP_LAST_RUN_AT,
         AUTO_BACKUP_LAST_ERROR,
+        AUTO_BACKUP_LOCATION_STATUS,
+        AUTO_BACKUP_PAUSED_UNTIL,
+        AUTOMATION_EXPORT_FOLDER,
+        AUTOMATION_EXPORT_LOG,
+        FREQUENT_BACKUP_ENABLED,
+        FREQUENT_BACKUP_LAST_RUN_AT,
+        FREQUENT_BACKUP_LAST_ERROR,
+        SYNC_ENABLED,
+        SYNC_MODE,
+        SYNC_INTERVAL_HOURS,
+        SYNC_SCOPE,
+        SYNC_LOCATION_ID,
+        SYNC_LOCATION_IDS,
+        SYNC_SECTIONS,
+        SYNC_INCLUDE_SECRETS,
+        SYNC_WITH_PAIRED_DEVICES,
+        SYNC_WIFI_ONLY,
+        SYNC_KEEP_LOCAL,
+        SYNC_LAST_RUN_AT,
+        SYNC_LAST_ERROR,
+        SYNC_PAUSED_UNTIL,
+        SYNC_GROUP,
     )
 
     private val json = Json { prettyPrint = true }

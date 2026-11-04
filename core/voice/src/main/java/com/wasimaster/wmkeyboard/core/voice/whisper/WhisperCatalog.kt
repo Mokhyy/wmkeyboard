@@ -14,8 +14,8 @@ import java.io.IOException
  * reads `message` falls back to its own generic text rather than printing a
  * resource id at the user.
  *
- * Declared here, in the flavour-independent source set, so the lite build sees
- * it too — the Whisper engine itself only exists in the full flavour.
+ * Declared here beside the catalog rather than with the engine, which every
+ * caller reaches through [WhisperEngine.AVAILABLE] first.
  */
 class WhisperException(
     @StringRes val messageRes: Int,
@@ -54,10 +54,21 @@ enum class WhisperSize(@StringRes val labelRes: Int, val catalogName: String) {
 }
 
 /**
- * One downloadable Whisper model. Unlike an LLM entry, each model needs a
+ * Which runtime a model is for, which is also what its files look like.
+ *
+ * [TFLITE] graphs run on LiteRT with the whole generation loop traced inside
+ * them, and need a companion `filters_vocab_*.bin`. [GGML] models run on
+ * whisper.cpp ([WhisperCpp]) from one self-contained `.bin`, and take
+ * everything Whisper itself takes: a language by name, a prompt, beam search.
+ */
+enum class WhisperFormat { TFLITE, GGML }
+
+/**
+ * One downloadable Whisper model. A [WhisperFormat.TFLITE] graph needs a
  * companion `filters_vocab_*.bin` (mel filterbank + BPE vocab in one binary),
- * so a catalog entry maps to **two** files that both must land before the model
- * counts as downloaded.
+ * so its entry maps to **two** files that both must land before the model
+ * counts as downloaded. A [WhisperFormat.GGML] model is one file, and its
+ * [vocabFile] is empty.
  */
 data class WhisperModel(
     /** Stable key — storage directory name and the whisperModelId setting value. */
@@ -98,7 +109,23 @@ data class WhisperModel(
      * `else stringResource(descriptionRes, descriptionArg)`.
      */
     val descriptionArg: String = "",
+    /**
+     * Byte sizes of model files this entry used to download and must not run.
+     * A file of one of these exact sizes is an earlier, broken graph left on
+     * disk from before the entry changed source: [WhisperStore] reports the
+     * model as not downloaded and deletes the file, so it comes down again
+     * from the current [repo] instead of silently transcribing nothing.
+     */
+    val retiredModelBytes: Set<Long> = emptySet(),
+    val format: WhisperFormat = WhisperFormat.TFLITE,
+    /** SHA-256 of [modelFile], checked once it has downloaded, when known. */
+    val sha256: String? = null,
+    /** The repo revision files are fetched from: a commit, so a file cannot change under its hash. */
+    val revision: String = "main",
 ) {
+    /** Runs on whisper.cpp rather than LiteRT. */
+    val ggml: Boolean get() = format == WhisperFormat.GGML
+
     /** Total download/footprint — used for the space preflight and progress fallback. */
     val sizeBytes: Long get() = modelBytes + vocabBytes
 
@@ -122,7 +149,7 @@ data class WhisperModel(
      * takes no such input or does not cover the language (then it auto-detects).
      */
     fun langTokenFor(languageId: String): Int? {
-        if (!selectableLang) return null
+        if (!selectableLang || ggml) return null
         val code = WhisperLanguages.codeForLanguage(languageId) ?: return null
         if (code !in langCodes) return null
         return WhisperLanguages.tokenFor(code)
@@ -174,8 +201,17 @@ data class WhisperModel(
  * count from whichever filterbank came down with the model.
  *
  * Not included on purpose: `whisper-small.tflite` forces no task and duplicates
- * `small-multi`; `whisper-tiny-en.tflite` duplicates `tiny-en`; and the
- * `-with-timestamp-` graphs emit timestamp tokens this decoder has no use for.
+ * `small-multi`; `whisper-tiny-en.tflite` takes decoder token ids, not a
+ * spectrogram; DocWolle's `whisper-tiny.en.tflite` forces the multilingual
+ * prompt (`<|en|>` `<|transcribe|>` as ids 50259/50359) onto the English-only
+ * tokenizer, where those ids mean something else, so it answers most clips with
+ * an immediate end-of-text and dictation comes back empty (#207) — `tiny-en`
+ * takes nyadla's conversion of the same name, which gets position 1 right but
+ * still forces those two multilingual ids at positions 2 and 3 (seen in tiny.en
+ * and base.en; small.en and medium.en come from the same script), so
+ * [WhisperGraphFix] rewrites that table on first use (#440);
+ * and the `-with-timestamp-` graphs emit timestamp tokens this decoder has no
+ * use for.
  *
  * Order is a suggested-pick ranking, not a size ranking — the settings list
  * renders in catalog order, so the balanced default sits first.
@@ -184,6 +220,20 @@ data class WhisperModel(
  * ones surface once their language is enabled. See [visibleFor].
  */
 object WhisperCatalog {
+
+    /**
+     * Whether this device runs [WhisperFormat.GGML] models: a build with a
+     * whisper.cpp library for its ABI. Read once, before [models], which is
+     * built from it. Where it is false the catalog is exactly the LiteRT one.
+     */
+    val cppAvailable: Boolean = WhisperCpp.shipped
+
+    /** The id of the model pointed at first: the whisper.cpp Small where it runs. */
+    val defaultId: String get() = if (cppAvailable) "cpp-small" else "small-multi"
+
+    /** whisper.cpp's own model repo (MIT), at the commit the hashes below were read from. */
+    private const val REPO_GGML = "ggerganov/whisper.cpp"
+    private const val REV_GGML = "5359861c739e955e79d9a303bcbc70fb988958b1"
 
     private const val REPO = "DocWolle/whisper_tflite_models"
     private const val REPO_NYADLA = "nyadla-sys/whisper-tiny.en.tflite"
@@ -214,6 +264,10 @@ object WhisperCatalog {
     )
 
     val models: List<WhisperModel> = buildList {
+        // ---- whisper.cpp first where it runs: every language by name, prompts,
+        // beam search, and faster than the LiteRT graphs of the same size.
+        if (cppAvailable) addAll(ggmlModels())
+
         // ---- Grouped, language-selectable: the best fit for a multilingual keyboard.
         add(
             WhisperModel(
@@ -383,7 +437,12 @@ object WhisperCatalog {
         // ---- Single-language graphs: one language each, no detection step.
         addAll(
             singleLanguage(
-                Single("tiny-en", WhisperSize.TINY, "whisper-tiny.en.tflite", "en", REPO, 41_486_616L),
+                Single(
+                    "tiny-en", WhisperSize.TINY, "whisper-tiny.en.tflite", "en", REPO_NYADLA, 41_507_968L,
+                    // DocWolle's graph of the same name, which tiny-en downloaded
+                    // before #207 and which transcribes almost nothing.
+                    retired = setOf(41_486_616L),
+                ),
                 Single("base-en", WhisperSize.BASE, "whisper-base.en.tflite", "en", REPO_NYADLA, 77_642_600L),
                 Single("small-en", WhisperSize.SMALL, "whisper-small.en.tflite", "en", REPO_NYADLA, 247_048_280L),
                 Single("medium-en", WhisperSize.MEDIUM, "whisper-medium.en.tflite", "en", REPO_NYADLA, 772_442_720L),
@@ -404,6 +463,111 @@ object WhisperCatalog {
                 Single("base-zh", WhisperSize.BASE, "whisper-base.zh.tflite", "zh", REPO, 78_448_496L),
             ),
         )
+    }.filter { model ->
+        // F-Droid's build has no LiteRT, so only whisper.cpp's models can run there.
+        model.ggml || WhisperEngine.AVAILABLE
+    }.map { model ->
+        // Beside whisper.cpp's models of the same sizes, the LiteRT graphs need
+        // telling apart, and the one pointed at first is no longer theirs.
+        if (!cppAvailable || model.ggml) {
+            model
+        } else {
+            model.copy(displayName = "${model.displayName} (LiteRT)", tier = WhisperTier.STANDARD)
+        }
+    }
+
+    /**
+     * whisper.cpp's quantized models: 8-bit up to Small, which loses nothing
+     * measurable, and 5-bit from Medium up, where the download size starts to
+     * matter more. Each `.en` model is the English-only one, which is a little
+     * more accurate for English than the multilingual model of its size.
+     */
+    private fun ggmlModels(): List<WhisperModel> {
+        fun entry(
+            id: String,
+            size: WhisperSize,
+            file: String,
+            bytes: Long,
+            sha256: String,
+            @StringRes descriptionRes: Int,
+            english: Boolean = false,
+            name: String = size.catalogName,
+            tier: WhisperTier = WhisperTier.STANDARD,
+            translate: Boolean = !english,
+        ) = WhisperModel(
+            id = id,
+            displayName = if (english) "Whisper $name (${WhisperLanguages.label("en")})" else "Whisper $name",
+            size = size,
+            repo = REPO_GGML,
+            modelFile = file,
+            vocabFile = "",
+            modelBytes = bytes,
+            vocabBytes = 0,
+            langCodes = if (english) setOf("en") else emptySet(),
+            // Any language can be named to a multilingual whisper.cpp model.
+            selectableLang = !english,
+            supportsTranslate = translate,
+            tier = tier,
+            descriptionRes = descriptionRes,
+            descriptionArg = if (english) WhisperLanguages.label("en") else "",
+            format = WhisperFormat.GGML,
+            sha256 = sha256,
+            revision = REV_GGML,
+        )
+        return listOf(
+            entry(
+                "cpp-small", WhisperSize.SMALL, "ggml-small-q8_0.bin", 264_464_607L,
+                "49c8fb02b65e6049d5fa6c04f81f53b867b5ec9540406812c643f177317f779f",
+                R.string.core_voice_model_cpp_small_body, tier = WhisperTier.RECOMMENDED,
+            ),
+            entry(
+                "cpp-base", WhisperSize.BASE, "ggml-base-q8_0.bin", 81_768_585L,
+                "c577b9a86e7e048a0b7eada054f4dd79a56bbfa911fbdacf900ac5b567cbb7d9",
+                R.string.core_voice_model_cpp_base_body,
+            ),
+            entry(
+                "cpp-tiny", WhisperSize.TINY, "ggml-tiny-q8_0.bin", 43_537_433L,
+                "c2085835d3f50733e2ff6e4b41ae8a2b8d8110461e18821b09a15c40c42d1cca",
+                R.string.core_voice_model_cpp_tiny_body,
+            ),
+            entry(
+                "cpp-turbo", WhisperSize.TURBO, "ggml-large-v3-turbo-q5_0.bin", 574_041_195L,
+                "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+                R.string.core_voice_model_cpp_turbo_body,
+                // large-v3-turbo was trained for transcription alone.
+                translate = false,
+            ),
+            entry(
+                "cpp-medium", WhisperSize.MEDIUM, "ggml-medium-q5_0.bin", 539_212_467L,
+                "19fea4b380c3a618ec4723c3eef2eb785ffba0d0538cf43f8f235e7b3b34220f",
+                R.string.core_voice_model_cpp_medium_body,
+            ),
+            entry(
+                "cpp-large-v3", WhisperSize.LARGE, "ggml-large-v3-q5_0.bin", 1_081_140_203L,
+                "d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1",
+                R.string.core_voice_model_cpp_large_body, name = "Large v3",
+            ),
+            entry(
+                "cpp-tiny-en", WhisperSize.TINY, "ggml-tiny.en-q8_0.bin", 43_550_795L,
+                "5bc2b3860aa151a4c6e7bb095e1fcce7cf12c7b020ca08dcec0c6d018bb7dd94",
+                R.string.core_voice_model_single_language_body, english = true,
+            ),
+            entry(
+                "cpp-base-en", WhisperSize.BASE, "ggml-base.en-q8_0.bin", 81_781_811L,
+                "a4d4a0768075e13cfd7e19df3ae2dbc4a68d37d36a7dad45e8410c9a34f8c87e",
+                R.string.core_voice_model_single_language_body, english = true,
+            ),
+            entry(
+                "cpp-small-en", WhisperSize.SMALL, "ggml-small.en-q8_0.bin", 264_477_561L,
+                "67a179f608ea6114bd3fdb9060e762b588a3fb3bd00c4387971be4d177958067",
+                R.string.core_voice_model_single_language_body, english = true,
+            ),
+            entry(
+                "cpp-medium-en", WhisperSize.MEDIUM, "ggml-medium.en-q5_0.bin", 539_225_533L,
+                "76733e26ad8fe1c7a5bf7531a9d41917b2adc0f20f2e4f5531688a8c6cd88eb0",
+                R.string.core_voice_model_single_language_body, english = true,
+            ),
+        )
     }
 
     /** Every language at least one single-language graph exists for. */
@@ -417,6 +581,7 @@ object WhisperCatalog {
         val code: String,
         val repo: String,
         val bytes: Long,
+        val retired: Set<Long> = emptySet(),
     )
 
     /** Single-language graphs share one shape — spell out only what differs. */
@@ -440,6 +605,7 @@ object WhisperCatalog {
                 tier = WhisperTier.STANDARD,
                 descriptionRes = R.string.core_voice_model_single_language_body,
                 descriptionArg = name,
+                retiredModelBytes = entry.retired,
             )
         }
 
@@ -479,7 +645,7 @@ object WhisperCatalog {
      * languages happen to be script-convertible ([WhisperScript]).
      */
     fun autoDetectOnly(code: String): Boolean =
-        models.none { it.fixedLang == code || (it.selectableLang && code in it.langCodes) }
+        models.none { it.fixedLang == code || (it.selectableLang && it.covers(code)) }
 
     /**
      * Ranks [candidates] by how well each transcribes [code], best first. Used
@@ -499,7 +665,7 @@ object WhisperCatalog {
                     it.selectableLang -> 1
                     else -> 2
                 }
-            }.thenByDescending { it.sizeBytes },
+            }.thenBy { !it.ggml }.thenByDescending { it.sizeBytes },
         )
 
     /**
@@ -509,8 +675,18 @@ object WhisperCatalog {
      * settings screen stays a shortlist rather than a second full catalog.
      */
     fun recommendedFor(codes: Set<String>, limit: Int = 4): List<WhisperModel> {
-        val default = byId("small-multi")
+        val default = byId(defaultId)
         if (codes.isEmpty()) return listOfNotNull(default)
+        // whisper.cpp takes any language by name, so the shortlist is about
+        // size alone: the default, the quicker one, English's own where
+        // English is typed, and the most accurate one a phone can hold.
+        if (cppAvailable) {
+            val picks = LinkedHashSet<WhisperModel>()
+            listOfNotNull(default, byId("cpp-base")).forEach { picks += it }
+            if ("en" in codes) byId("cpp-base-en")?.let { picks += it }
+            byId("cpp-turbo")?.let { picks += it }
+            return picks.take(limit)
+        }
         val picks = LinkedHashSet<WhisperModel>()
         // The one we point at first, then the smallest download, so a shortlist
         // spans the accuracy/size trade-off instead of listing near-clones.
@@ -552,6 +728,6 @@ object WhisperCatalog {
         return picks.take(limit)
     }
 
-    fun downloadUrl(repo: String, fileName: String): String =
-        "https://huggingface.co/$repo/resolve/main/$fileName"
+    fun downloadUrl(repo: String, fileName: String, revision: String = "main"): String =
+        "https://huggingface.co/$repo/resolve/$revision/$fileName"
 }

@@ -70,6 +70,9 @@ internal class XmlSearchStrings(
 
     override fun resourceName(id: Int): String = names[id] ?: error("no R field has id $id")
 
+    /** Looks up a string by its XML name, or null when undefined. */
+    fun getByName(name: String): String? = strings[name]
+
     private fun unescape(raw: String): String {
         var text = raw.trim()
         if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) text = text.substring(1, text.length - 1)
@@ -83,12 +86,14 @@ internal class XmlSearchStrings(
                 com.wasimaster.wmkeyboard.R::class.java,
                 com.wasimaster.wmkeyboard.common.R::class.java,
                 com.wasimaster.wmkeyboard.ime.R::class.java,
+                // The provider kinds' names, which a provider screen's rows have in their path.
+                com.wasimaster.wmkeyboard.tools.R::class.java,
             ),
             valuesDirs = listOf(
                 File("src/main/res/values"),
-                File("src/full/res/values"),
                 File("../core/common/src/main/res/values"),
                 File("../feature/ime/src/main/res/values"),
+                File("../core/tools/src/main/res/values"),
             ),
         )
     }

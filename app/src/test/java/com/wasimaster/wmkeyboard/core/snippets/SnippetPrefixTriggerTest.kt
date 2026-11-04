@@ -37,6 +37,42 @@ class SnippetPrefixTriggerTest {
         uppercaseStyle = style,
     )
 
+    // ---- symbol endings (#471) ----
+
+    @Test
+    fun `a trigger ending in a symbol is a suffix trigger, a word is not`() {
+        assertTrue(SnippetMatcher.isSuffixTrigger("js:"))
+        assertTrue(SnippetMatcher.isSuffixTrigger("->"))
+        assertTrue(SnippetMatcher.isSuffixTrigger("gr db:"))
+        assertFalse(SnippetMatcher.isSuffixTrigger("js"))
+        assertFalse(SnippetMatcher.isSuffixTrigger(":shrug"))
+        assertFalse(SnippetMatcher.isSuffixTrigger(":"))
+        assertFalse(SnippetMatcher.isSuffixTrigger("a\tb:"))
+    }
+
+    @Test
+    fun `a suffix trigger matches the field the moment its symbol lands`() {
+        val index = SnippetIndex.of(listOf(snip("js:", id = 1), snip("gr db:", id = 2, text = "gradle")))
+        assertTrue(index.hasSuffixTriggers)
+        assertTrue(index.couldEndWith(':'))
+        assertFalse(index.couldEndWith(';'))
+        assertEquals(1L, index.matchSuffix("type js:")?.snippet?.id)
+        assertEquals(1L, index.matchSuffix("JS:")?.snippet?.id)
+        // Longest wins, and the shorter one is not taken out of the longer.
+        assertEquals(2L, index.matchSuffix("gr db:")?.snippet?.id)
+        // A word boundary in front, as every trigger starting with a letter needs.
+        assertNull(index.matchSuffix("xjs:"))
+        assertNull(index.matchSuffix("js;"))
+        assertNull(index.matchSuffix(""))
+    }
+
+    @Test
+    fun `a suffix trigger starting with a symbol needs no boundary`() {
+        val index = SnippetIndex.of(listOf(snip("->", id = 3, text = "→")))
+        assertNotNull(index.matchSuffix("a->"))
+        assertNotNull(index.matchSuffix("->"))
+    }
+
     // ---- splitting ----
 
     @Test
@@ -80,6 +116,26 @@ class SnippetPrefixTriggerTest {
         // the last word is confirmed by reading the field.
         assertEquals(SnippetMatcher.Prefixed(":a-", "b"), SnippetMatcher.splitPrefix(":a-b"))
         assertEquals(SnippetMatcher.Prefixed("a.", "b"), SnippetMatcher.splitPrefix("a.b"))
+    }
+
+    @Test
+    fun `a hyphenated last word is also found the way the buffer joins it`() {
+        // #659: the buffer holds "f-u" whole, with only "m:" in the field.
+        assertEquals(SnippetMatcher.Prefixed("m:", "f-u"), SnippetMatcher.splitCompound("m:f-u"))
+        assertEquals(SnippetMatcher.Prefixed("", "e-mail"), SnippetMatcher.splitCompound("e-mail"))
+        assertNull(SnippetMatcher.splitCompound(":shrug"))
+        assertNull(SnippetMatcher.splitCompound("omw"))
+        assertNull(SnippetMatcher.splitCompound("-u"))
+
+        val index = SnippetIndex.of(
+            listOf(snip(trigger = "m:f-u", text = "one"), snip(trigger = "e-mail", id = 2, text = "two")),
+        )
+        assertEquals("one", index.matchPrefix("f-u", "x m:")!!.snippet.text)
+        assertEquals("one", index.matchPrefix("u", "x m:f-")!!.snippet.text)
+        assertNull(index.matchPrefix("f-u", "xm:"))
+        assertEquals("two", index.matchTrigger("E-mail")!!.text)
+        assertEquals("two", index.matchPrefix("mail", "e-")!!.snippet.text)
+        assertFalse("e-mail" in index.expandingTriggers)
     }
 
     @Test

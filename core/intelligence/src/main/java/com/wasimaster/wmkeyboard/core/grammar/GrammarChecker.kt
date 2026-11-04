@@ -1,8 +1,12 @@
 package com.wasimaster.wmkeyboard.core.grammar
 
 import androidx.annotation.StringRes
+import com.wasimaster.wmkeyboard.core.modules.FeatureModules
+import com.wasimaster.wmkeyboard.core.modules.FeatureModules.awaitInstalled
+import com.wasimaster.wmkeyboard.core.modules.ModuleState
 import java.util.concurrent.Executors
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -51,7 +55,12 @@ data class GrammarFix(
  */
 data class GrammarEdit(val start: Int, val end: Int, val text: String)
 
-/** One grammar/style issue. [start]/[end] are UTF-16 indices into the checked text. */
+/**
+ * One grammar/style issue. [start]/[end] are UTF-16 indices into the checked text.
+ *
+ * [title] and [rule] come from LanguageTool only (its `shortMessage` and its
+ * rule id); Harper's lints leave them blank.
+ */
 @Serializable
 data class GrammarLint(
     val start: Int,
@@ -61,6 +70,8 @@ data class GrammarLint(
     val message: String = "",
     val priority: Int = 0,
     val suggestions: List<GrammarFix> = emptyList(),
+    val title: String = "",
+    val rule: String = "",
 )
 
 /**
@@ -71,21 +82,90 @@ data class GrammarLint(
  * out over a pool would rebuild the ~100ms rule set per thread for nothing.
  */
 object GrammarChecker {
+    /** Loads the library on first read, so read it only on the way to a lint. */
     val available: Boolean get() = HarperNative.available
 
-    private val dispatcher =
-        Executors.newSingleThreadExecutor { r -> Thread(r, "harper-lint") }.asCoroutineDispatcher()
+    /**
+     * Whether this build ships the library, answered without loading it.
+     *
+     * [available] maps and relocates a 5 MB native library to say yes, and the
+     * keyboard asks at every start just to decide how the grammar tool draws
+     * itself; most sessions never lint anything. The class loader can say
+     * whether the library is packaged without opening it. Off Android (unit
+     * tests) there is no such loader and the answer is [available]'s. On
+     * Play the library is the on-demand `:feature:grammar` split, so the
+     * build has it whether or not Play has fetched it yet.
+     */
+    val bundled: Boolean by lazy {
+        if (FeatureModules.grammar.onDemand) return@lazy true
+        val loader = GrammarChecker::class.java.classLoader
+        if (loader is dalvik.system.BaseDexClassLoader) {
+            loader.findLibrary(HarperNative.LIBRARY) != null
+        } else {
+            available
+        }
+    }
+
+    /** Where the library's Play module stands. Always installed outside Play. */
+    val moduleState: StateFlow<ModuleState> get() = FeatureModules.grammar.state
+
+    /** Whether the library is on the device, without loading it. */
+    val moduleReady: Boolean get() = FeatureModules.grammar.installed
+
+    /** Asks Play for the library's module. A no-op where it is in the base. */
+    fun requestModule() = FeatureModules.grammar.requestInstall()
+
+    /** Asks Play for the module and waits for it. False when the fetch failed. */
+    suspend fun awaitModule(): Boolean = FeatureModules.grammar.awaitInstalled()
+
+    private val linter = Executors.newSingleThreadExecutor { r -> Thread(r, "harper-lint") }
+    private val dispatcher = linter.asCoroutineDispatcher()
     private val json = Json { ignoreUnknownKeys = true }
+
+    /**
+     * Whether a rule set has actually been built, so [release] can tell
+     * "nothing to free" from "not loaded yet" **without reading [available]**
+     * — which would map and relocate the 5 MB library just to discover there
+     * was nothing to give back.
+     */
+    @Volatile
+    private var built = false
 
     /** Builds the native linter ahead of the first check; cheap if already built. */
     suspend fun warmUp(dialectOrdinal: Int) {
+        // The spell checker's warm-up is the first sign it is in use: on Play
+        // that is when the library is worth fetching.
+        if (!moduleReady) {
+            requestModule()
+            return
+        }
         if (!available) return
         withContext(dispatcher) { runCatching { HarperNative.nativeWarmUp(dialectOrdinal) } }
+        built = true
+    }
+
+    /**
+     * Frees the rule sets Harper has built, if it has built any.
+     *
+     * Harper caches a `LintGroup` per dialect for the life of the process, and
+     * until this existed there was no way to hand that back — on a keyboard
+     * that lints in the same process it draws in, which is what issue #476 is
+     * about. Rebuilt on the next lint at the usual ~100 ms.
+     *
+     * Posted to the lint thread rather than run here, because the native cache
+     * is thread-local: it has to be freed by the thread that filled it. That
+     * also serialises it behind any lint already running instead of racing one.
+     */
+    fun release() {
+        if (!built) return
+        built = false
+        linter.execute { runCatching { HarperNative.nativeRelease() } }
     }
 
     /** Lints [text]; empty result when the native library is missing or errors. */
     suspend fun check(text: String, dialectOrdinal: Int): List<GrammarLint> {
         if (!available || text.isBlank()) return emptyList()
+        built = true
         return withContext(dispatcher) {
             runCatching {
                 val raw = HarperNative.nativeLint(text, dialectOrdinal) ?: return@runCatching emptyList()

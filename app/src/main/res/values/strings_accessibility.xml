@@ -24,11 +24,11 @@
 
     <string name="accessibility_high_contrast_title">High contrast keys</string>
     <string name="accessibility_high_contrast_subtitle">Labels with the highest contrast on a plain black or white board</string>
-    <string name="accessibility_high_contrast_info">The keyboard replaces the key colours and the board colours of the theme with flat high contrast colours. Every label becomes pure black or pure white.\n\nThe keyboard keeps the accent colour of your theme. Shift and the active tools stay easy to see.\n\nThis setting replaces the colours of the selected theme while it is on.</string>
+    <string name="accessibility_high_contrast_info">The keyboard replaces the key colours and the board colours of the theme with flat high contrast colours. Every label becomes pure black or pure white.\n\nThe keyboard keeps the accent colour of your theme. Shift and the active tools stay easy to see.\n\nThis setting replaces the colours of the selected theme while it is on.\n\nIf the key shape of the theme is None, the keys become rounded while this setting is on.</string>
 
     <string name="accessibility_key_outlines_title">Key outlines</string>
     <string name="accessibility_key_outlines_subtitle">Draw a border around every key and every toolbar tool</string>
-    <string name="accessibility_key_outlines_info">Outlines keep the key edges easy to see when the key colour and the board colour have almost the same brightness. This helps with themes that are partly transparent, or with a background image.\n\nThe background behind each toolbar tool gets the same border, unless that background is switched off in Appearance.\n\nA theme that has its own key border or tool outline keeps it.</string>
+    <string name="accessibility_key_outlines_info">Outlines keep the key edges easy to see when the key colour and the board colour have almost the same brightness. This helps with themes that are partly transparent, or with a background image.\n\nThe background behind each toolbar tool gets the same border, unless that background is switched off in Appearance.\n\nA theme that has its own key border or tool outline keeps it.\n\nIf the key shape of the theme is None, the keys become rounded while this setting is on.</string>
 
     <string name="accessibility_bold_labels_title">Bold key labels</string>
     <string name="accessibility_bold_labels_subtitle">Heavier letters on the keys</string>
@@ -53,7 +53,68 @@
 
     <string name="accessibility_reduce_motion_title">Reduce motion</string>
     <string name="accessibility_reduce_motion_subtitle">Turn off the animation that is not necessary</string>
+    <string name="accessibility_panel_motion_title">Animate panels</string>
+    <string name="accessibility_panel_motion_subtitle">Panels grow out of the button or tool name that opened them</string>
+    <string name="accessibility_panel_motion_info">When you open a panel such as the clipboard, emoji or a tool, it grows out of the toolbar button or the tool name you tapped, and it folds back into it when you close it. The animation is short, so it does not slow you down.
+
+Turn this off and panels appear and disappear at once. Reduce motion also turns this off.</string>
+    <string name="accessibility_selection_motion_title">Animate text selection</string>
+    <string name="accessibility_selection_motion_subtitle">The selection highlight and its buttons move smoothly</string>
+    <string name="accessibility_selection_motion_info">While you select text with the keyboard, the highlight slides to the new selection and the buttons of the selection bar come in one after the other.
+
+Turn this off and the selection and its buttons change at once. Reduce motion also turns this off.</string>
+    <string name="accessibility_language_switch_motion_title">Animate language switch</string>
+    <string name="accessibility_language_switch_motion_subtitle">Keys flip to the new language when you switch</string>
+    <string name="accessibility_language_switch_motion_info">When you switch language, each key that shows a different letter in the new language flips over to it. Keys that stay the same hold still, so you can see what changed.
+
+Off by default, because the plain switch is the fastest. Only a language switch animates. Changing to symbols or numbers never does. Reduce motion also turns this off.</string>
+    <string name="accessibility_tool_result_motion_title">Animate grammar and translate results</string>
+    <string name="accessibility_tool_result_motion_subtitle">Fixes and translations move into place</string>
+    <string name="accessibility_tool_result_motion_info">In the grammar tool, a fix you apply crosses out the old words and slides the new ones in, and the list of problems closes up around it. In the translate tool, the part of the translation that changed fades in while the words that stayed hold still, and the language swap button turns.
+
+Off by default, because these tools are for getting text out fast. Reduce motion also turns this off.</string>
+    <string name="accessibility_classic_popup_title">Classic press-and-hold popup</string>
+    <string name="accessibility_classic_popup_subtitle">The alternates popup as it used to be, with nothing moving under your finger</string>
+    <string name="accessibility_classic_popup_info">When you hold a key, its alternates popup normally opens with the first alternate right over the key and the others on both sides of it, the alternate you aim at grows, and the highlight follows your finger a row above it and slides from one alternate to the next.\n\nTurn this on for the popup as it used to be. It opens where the key is, the alternates run in reading order, the highlight is on whatever alternate is under your finger, nothing grows, and the highlight jumps straight to the next alternate instead of sliding. Choosing still works the same way: slide to an alternate and lift.</string>
     <string name="accessibility_reduce_motion_info">This setting is for motion sensitivity. It turns off the slide and scale transitions in the keyboard toolbar and in this settings app. It also turns off the animated theme backgrounds, the blinking cursors and the pulse ring of the microphone.\n\nThe keyboard keeps the feedback that gives you information: the key preview bubble, the colour of a pressed key and the gesture trail. Without this feedback the keyboard is more difficult to use.\n\nThe cursors and the microphone ring stay visible. They hold still.\n\nWhen you turn animations off for the whole device, in Accessibility or in the developer options, the keyboard follows that and behaves as if this setting is on. This setting stays yours: it turns motion off for the keyboard only, and it leaves the rest of your device as it is.</string>
+
+    <!-- Accessibility settings screen, "Settings app" group: options for these
+         settings screens themselves rather than for the keyboard. -->
+    <string name="accessibility_settings_app_title">Settings app</string>
+
+    <string name="accessibility_row_icons_title">Icons in settings</string>
+    <string name="accessibility_row_icons_subtitle">A coloured icon beside every setting and screen name</string>
+    <string name="accessibility_screen_transitions_title">Screen transitions</string>
+    <string name="accessibility_screen_transitions_subtitle">A setting\'s icon and name move into the screen it opens</string>
+    <string name="accessibility_screen_transitions_info">Turn this off if these settings screens are slow to open on your phone. Moving a setting\'s icon and name into the screen it opens makes each screen take more work to draw, and some slower phones show that as a stutter. With this off, a screen opens with the plain slide, and it draws faster.\n\nThis changes only these settings screens. It does nothing to the keyboard. When Reduce motion is on, these transitions are already off.</string>
+    <string name="accessibility_row_icons_info">Turn this off for plain rows that show only words, as in earlier versions of the app. Some people find a list of words easier to read than a column of coloured icons.\n\nThis changes only these settings screens. The icons of the keyboard and of its tools stay as they are.</string>
+    <string name="accessibility_keyboard_preview_title">Keyboard test button</string>
+    <string name="accessibility_keyboard_preview_subtitle">A small button on every settings screen that opens the keyboard with a field to type in</string>
+    <string name="accessibility_keyboard_preview_info">The button sits in the bottom corner of every settings screen. Tap it and a text field opens above the real keyboard, so you can try a change on the screen where you made it, without going back to another app. Tap the button again, or hide the keyboard, to close the field. It stays open while you move between settings screens.\n\nScreens that already show a keyboard of their own, such as the theme editor, don\'t show the button. Turn this off if you don\'t want the button on your screens.</string>
+
+    <!-- The button itself, on every settings screen (#412). Read by screen
+         readers; the field's placeholder shows while it is empty. -->
+    <string name="keyboard_preview_open">Try the keyboard</string>
+    <string name="keyboard_preview_close">Close the keyboard test</string>
+    <string name="keyboard_preview_hint">Type here to try your changes</string>
+    <string name="keyboard_preview_clear">Clear</string>
+    <string name="keyboard_preview_switch">Switch to this keyboard</string>
+
+    <!-- Favourite settings (#898): screens and rows the user pins, listed by
+         the star button in every settings screen's top bar. -->
+    <string name="favourites_button_title">Favourites button</string>
+    <string name="favourites_button_subtitle">A star at the top of every settings screen that lists your favourite settings</string>
+    <string name="favourites_button_info">Tap the star at the top of any settings screen to see your favourites, and tap one to go there. In the list, Add this screen pins the screen you are on. To pin one setting, touch and hold it and choose Add to favourites.\n\nThe star is filled on a screen that is already a favourite. Turn this off if you don\'t want the button. Your favourites are kept and come back when you turn it on again.</string>
+    <string name="favourites_title">Favourites</string>
+    <string name="favourites_empty">Nothing here yet. Add the screen you are on, or touch and hold a setting and choose Add to favourites.</string>
+    <string name="favourites_edit">Edit</string>
+    <string name="favourites_done">Done</string>
+    <string name="favourites_open_desc">Open favourites</string>
+    <string name="favourites_add">Add to favourites</string>
+    <string name="favourites_remove">Remove from favourites</string>
+    <string name="favourites_copy_link">Copy link</string>
+    <string name="favourites_screen_add">Add this screen</string>
+    <string name="favourites_screen_remove">Remove this screen</string>
 
     <!-- Accessibility settings screen, "Screen reader" group. TalkBack is the
          name of the Android screen reader and is not translated. -->

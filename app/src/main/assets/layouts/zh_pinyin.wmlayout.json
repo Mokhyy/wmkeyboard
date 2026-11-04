@@ -6,99 +6,189 @@
     "name": "中文 拼音 (Chinese Pinyin)",
     "langId": "zh",
     "composer": "PINYIN",
-    "version": 2,
+    "version": 4,
     "layers": {
       "letters": {
         "rows": [
           [
             {
-              "label": "q"
+              "label": "q",
+              "longPress": [
+                "1"
+              ]
             },
             {
-              "label": "w"
+              "label": "w",
+              "longPress": [
+                "2"
+              ]
             },
             {
-              "label": "e"
+              "label": "e",
+              "longPress": [
+                "3"
+              ]
             },
             {
-              "label": "r"
+              "label": "r",
+              "longPress": [
+                "4"
+              ]
             },
             {
-              "label": "t"
+              "label": "t",
+              "longPress": [
+                "5"
+              ]
             },
             {
-              "label": "y"
+              "label": "y",
+              "longPress": [
+                "6"
+              ]
             },
             {
-              "label": "u"
+              "label": "u",
+              "longPress": [
+                "7"
+              ]
             },
             {
-              "label": "i"
+              "label": "i",
+              "longPress": [
+                "8"
+              ]
             },
             {
-              "label": "o"
+              "label": "o",
+              "longPress": [
+                "9"
+              ]
             },
             {
-              "label": "p"
+              "label": "p",
+              "longPress": [
+                "0"
+              ]
             }
           ],
           [
             {
-              "label": "a"
+              "label": "a",
+              "longPress": [
+                "@"
+              ]
             },
             {
-              "label": "s"
+              "label": "s",
+              "longPress": [
+                "#"
+              ]
             },
             {
-              "label": "d"
+              "label": "d",
+              "longPress": [
+                "¥",
+                "$"
+              ]
             },
             {
-              "label": "f"
+              "label": "f",
+              "longPress": [
+                "%"
+              ]
             },
             {
-              "label": "g"
+              "label": "g",
+              "longPress": [
+                "&"
+              ]
             },
             {
-              "label": "h"
+              "label": "h",
+              "longPress": [
+                "-"
+              ]
             },
             {
-              "label": "j"
+              "label": "j",
+              "longPress": [
+                "+"
+              ]
             },
             {
-              "label": "k"
+              "label": "k",
+              "longPress": [
+                "("
+              ]
             },
             {
-              "label": "l"
+              "label": "l",
+              "longPress": [
+                ")"
+              ]
             }
           ],
           [
             {
-              "label": "⇧",
-              "action": {
-                "type": "shift"
-              },
+              "label": "'词",
+              "output": "'",
+              "longPress": [
+                "`"
+              ],
+              "actionAlternates": [
+                {
+                  "action": {
+                    "type": "han_script"
+                  },
+                  "label": "简/繁"
+                }
+              ],
+              "actionAlternatesAt": 0,
+              "hint": "繁",
               "width": 1.5
             },
             {
-              "label": "z"
+              "label": "z",
+              "longPress": [
+                "*"
+              ]
             },
             {
-              "label": "x"
+              "label": "x",
+              "longPress": [
+                "\""
+              ]
             },
             {
-              "label": "c"
+              "label": "c",
+              "longPress": [
+                "'"
+              ]
             },
             {
-              "label": "v"
+              "label": "v",
+              "longPress": [
+                ":"
+              ]
             },
             {
-              "label": "b"
+              "label": "b",
+              "longPress": [
+                ";"
+              ]
             },
             {
-              "label": "n"
+              "label": "n",
+              "longPress": [
+                "!"
+              ]
             },
             {
-              "label": "m"
+              "label": "m",
+              "longPress": [
+                "?"
+              ]
             },
             {
               "label": "⌫",
@@ -117,10 +207,18 @@
               "width": 1.5
             },
             {
-              "label": ",",
+              "label": "，",
               "longPress": [
-                "!",
-                "?"
+                "！",
+                "？",
+                "、",
+                "“",
+                "”",
+                "「",
+                "」",
+                "《",
+                "》",
+                ","
               ],
               "role": "Comma"
             },
@@ -138,14 +236,12 @@
               "width": 4
             },
             {
-              "label": ".",
+              "label": "。",
               "longPress": [
                 "…",
-                ",",
-                "?",
-                "!",
-                ":",
-                ";"
+                "：",
+                "；",
+                "."
               ],
               "role": "Period"
             },

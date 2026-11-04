@@ -3,6 +3,8 @@ package com.wasimaster.wmkeyboard.app
 import android.app.job.JobParameters
 import android.app.job.JobService
 import com.wasimaster.wmkeyboard.core.settings.AutoBackupRunner
+import com.wasimaster.wmkeyboard.core.settings.AutoBackupScheduler
+import com.wasimaster.wmkeyboard.core.settings.AutomationExport
 import com.wasimaster.wmkeyboard.core.settings.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,7 +38,23 @@ class AutoBackupJobService : JobService() {
 
     override fun onStartJob(params: JobParameters?): Boolean {
         running = scope.launch {
-            AutoBackupRunner.run(applicationContext, SettingsRepository(applicationContext))
+            val exportSections = params?.extras?.getString(AutoBackupScheduler.EXTRA_EXPORT_SECTIONS)
+            if (exportSections != null) {
+                AutomationExport.run(
+                    applicationContext,
+                    SettingsRepository(applicationContext),
+                    AutomationExport.parseSections(exportSections).orEmpty(),
+                    params?.extras?.getString(AutoBackupScheduler.EXTRA_EXPORT_SENDER).orEmpty(),
+                )
+                jobFinished(params, false)
+                return@launch
+            }
+            // A one-off run from an automation intent forces, as the Back up
+            // now button does; the periodic job keeps to its interval.
+            val force = params?.extras?.getBoolean(AutoBackupScheduler.EXTRA_FORCE, false) == true
+            // The frequent schedule's job says so (#970); everything else is the main one.
+            val frequent = params?.extras?.getBoolean(AutoBackupScheduler.EXTRA_FREQUENT, false) == true
+            AutoBackupRunner.run(applicationContext, SettingsRepository(applicationContext), force = force, frequent = frequent)
             // Always false: a periodic job comes round again on its own, and
             // asking for a reschedule on one is ignored. A failure worth showing
             // the user is already recorded in the settings by the runner.

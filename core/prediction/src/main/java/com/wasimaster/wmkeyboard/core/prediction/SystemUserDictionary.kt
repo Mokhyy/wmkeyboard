@@ -1,6 +1,10 @@
 package com.wasimaster.wmkeyboard.core.prediction
 
+import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
+import android.os.Build
+import android.provider.Settings
 import android.provider.UserDictionary
 
 /**
@@ -73,6 +77,47 @@ object SystemUserDictionary {
     }
 
     /**
+     * Removes every row spelling [word] (any capitalisation) from the system
+     * dictionary, for the strip's delete action (#99). Same access rule as
+     * [add] — the current IME may write — and the same defensive wrapping:
+     * an OEM that refuses just leaves the rows in place. Returns whether a
+     * row went. Content-provider I/O; call it off the main thread.
+     */
+    fun remove(context: Context, word: String): Boolean {
+        val key = word.trim().lowercase()
+        if (key.isEmpty()) return false
+        synchronized(this) { added.remove(key) }
+        return runCatching {
+            val ids = ArrayList<Long>()
+            context.contentResolver.query(
+                UserDictionary.Words.CONTENT_URI,
+                arrayOf(UserDictionary.Words._ID, UserDictionary.Words.WORD),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                val idCol = cursor.getColumnIndex(UserDictionary.Words._ID)
+                val wordCol = cursor.getColumnIndex(UserDictionary.Words.WORD)
+                if (idCol >= 0 && wordCol >= 0) {
+                    while (cursor.moveToNext()) {
+                        val row = cursor.getString(wordCol)?.trim()?.lowercase() ?: continue
+                        if (row == key) ids.add(cursor.getLong(idCol))
+                    }
+                }
+            }
+            var deleted = 0
+            for (id in ids) {
+                deleted += context.contentResolver.delete(
+                    ContentUris.withAppendedId(UserDictionary.Words.CONTENT_URI, id),
+                    null,
+                    null,
+                )
+            }
+            deleted > 0
+        }.getOrDefault(false)
+    }
+
+    /**
      * Every word in Android's personal dictionary as a [WordSource], so the
      * keyboard treats them as known: they complete, they are never
      * autocorrected away, and gliding one does not put an "add to
@@ -89,7 +134,10 @@ object SystemUserDictionary {
      * field; a word the user went out of their way to add is a word in any
      * language they type.
      */
-    fun words(context: Context): Entries {
+    fun words(context: Context): Entries = index(spellings(context))
+
+    /** The rows [words] indexes, each as it was written. Empty when the provider will not answer. */
+    fun spellings(context: Context): List<String> {
         val out = ArrayList<String>()
         runCatching {
             context.contentResolver.query(
@@ -107,7 +155,7 @@ object SystemUserDictionary {
                 }
             }
         }
-        return index(out)
+        return out
     }
 
     /**
@@ -120,15 +168,27 @@ object SystemUserDictionary {
      * vocabulary by orders of magnitude. Multi-word entries index as their
      * parts: "on my way" is not a word anyone types as one token, but each
      * part is. Pure, so it is unit-testable off the device.
+     *
+     * Only a row that *is* one word hands over a spelling, though. The
+     * capitals in "User Dictionary Manager" belong to the phrase — that is how
+     * a title is written — and say nothing about how the user spells "user" on
+     * its own, so lifting them onto the parts would capitalize three ordinary
+     * words everywhere the keyboard writes them and make the case vote read
+     * them as words that are never lower case (#221). The phrase itself is
+     * still reachable as written: it is what the row's shortcut expands to.
      */
     fun index(words: Iterable<String>): Entries {
         val keys = LinkedHashSet<String>()
         val cases = HashMap<String, String>()
         for (raw in words) {
-            for (part in raw.split(WHITESPACE)) {
-                val trimmed = part.trim()
+            val parts = raw.split(WHITESPACE).map { it.trim() }.filter { it.isNotEmpty() }
+            val singleWord = parts.size == 1
+            for (trimmed in parts) {
                 val key = WordKey.of(trimmed)
-                if (key.length < 2) continue
+                // A row that is one letter was put there on purpose — "I", the
+                // capital the keyboard should write it with (#620). One letter
+                // out of a phrase ("Plan B") is not a word anyone added.
+                if (key.isEmpty() || (key.length < 2 && !singleWord)) continue
                 keys.add(key)
                 // The capital the user typed into the platform's dictionary is
                 // the whole reason they went there ("Boston", "AOSP", an email
@@ -136,7 +196,9 @@ object SystemUserDictionary {
                 // anything the keyboard offers (#44). First spelling wins: two
                 // rows differing only in case are one word, and re-deciding it
                 // per row would make the answer depend on cursor order.
-                if (trimmed != key) cases.putIfAbsent(key, WordKey.surface(trimmed))
+                if (singleWord && trimmed != key) {
+                    cases.putIfAbsent(key, WordKey.surface(trimmed))
+                }
             }
         }
         if (keys.isEmpty()) return Entries.EMPTY
@@ -152,6 +214,10 @@ object SystemUserDictionary {
      * call — cheap, small, and the caller caches it — and never throws: an OEM
      * that hides the provider just yields an empty map. Powers
      * [com.wasimaster.wmkeyboard.core.settings.SuggestionStripSettings.expandUserDictShortcuts].
+     *
+     * An expansion that is nothing but whitespace — a tab, an em space — is
+     * kept as written: it is the whole point of that row ("tttq" → a tab),
+     * and trimming it like a word left nothing, so the row was dropped (#552).
      */
     fun shortcuts(context: Context): Map<String, String> {
         val out = HashMap<String, String>()
@@ -168,7 +234,7 @@ object SystemUserDictionary {
                 if (wordCol >= 0 && shortcutCol >= 0) {
                     while (cursor.moveToNext()) {
                         val shortcut = cursor.getString(shortcutCol)?.trim()
-                        val word = cursor.getString(wordCol)?.trim()
+                        val word = cursor.getString(wordCol)?.let { raw -> raw.trim().ifEmpty { raw } }
                         if (!shortcut.isNullOrEmpty() && !word.isNullOrEmpty()) {
                             out[shortcut.lowercase()] = word
                         }
@@ -177,6 +243,54 @@ object SystemUserDictionary {
             }
         }
         return out
+    }
+
+    /**
+     * Whether Android will share its dictionary with this app right now, for
+     * the settings app's import and export (#174). Since Android 10 the
+     * provider serves only the current keyboard or spell checker, and it
+     * answers anyone else with an *empty* list rather than an error, so an
+     * empty read cannot tell "nothing there" from "not allowed". Asking which
+     * keyboard is current can.
+     */
+    fun available(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return true
+        val current = runCatching {
+            Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+        }.getOrNull() ?: return false
+        return current.substringBefore('/') == context.packageName
+    }
+
+    /**
+     * Adds each of [words] not already in the dictionary and returns how many
+     * rows were really written, for the settings app's export (#174). The same
+     * de-duplication as [add]; a row the provider refuses is not counted, and
+     * is not remembered as added either, so a later try can still write it.
+     * Content-provider I/O; call it off the main thread.
+     */
+    fun addAll(context: Context, words: Collection<String>): Int {
+        var written = 0
+        for (word in words) {
+            val cleaned = word.trim()
+            if (cleaned.length < 2) continue
+            val key = cleaned.lowercase()
+            val fresh = synchronized(this) {
+                seed(context)
+                added.add(key)
+            }
+            if (!fresh) continue
+            val ok = runCatching {
+                val values = ContentValues().apply {
+                    put(UserDictionary.Words.WORD, cleaned)
+                    put(UserDictionary.Words.FREQUENCY, FREQUENCY)
+                    putNull(UserDictionary.Words.LOCALE)
+                    put(UserDictionary.Words.APP_ID, 0)
+                }
+                context.contentResolver.insert(UserDictionary.Words.CONTENT_URI, values) != null
+            }.getOrDefault(false)
+            if (ok) written++ else synchronized(this) { added.remove(key) }
+        }
+        return written
     }
 
     /** Loads the words already in the dictionary once, so we don't re-add them. */

@@ -29,6 +29,18 @@
          Portuguese has a European list and a Brazilian list. -->
     <string name="core_pred_wordlist_variant_europe_label">Europe</string>
     <string name="core_pred_wordlist_variant_brazil_label">Brazil</string>
+    <!-- English has a list for American, British, Canadian and Australian spelling. -->
+    <string name="core_pred_wordlist_variant_us_label">United States</string>
+    <string name="core_pred_wordlist_variant_uk_label">United Kingdom</string>
+    <string name="core_pred_wordlist_variant_canada_label">Canada</string>
+    <string name="core_pred_wordlist_variant_australia_label">Australia</string>
+
+    <!-- Where a word list comes from, when a language has two. AOSP is the
+         Android Open Source Project and stays as it is. -->
+    <string name="core_pred_wordlist_source_aosp_label">AOSP</string>
+    <string name="core_pred_wordlist_source_aosp_detail">The curated list Android\'s own keyboard uses. Fewer words, with fewer names and typos among them.</string>
+    <string name="core_pred_wordlist_source_frequency_label">Frequency</string>
+    <string name="core_pred_wordlist_source_frequency_detail">Counted from subtitles and web text. Many more words, with more names, slang and typos.</string>
 
     <!-- ================================================================== -->
     <!-- Word list download errors. Shown under the row that failed.        -->
@@ -39,5 +51,6 @@
     <string name="core_pred_wordlist_http_error">The server did not send the file. The error code is HTTP <xliff:g id="status_code" example="404">%1$s</xliff:g>.</string>
     <string name="core_pred_wordlist_malformed_error">That word list is empty or unreadable.</string>
     <string name="core_pred_wordlist_save_error">The app cannot save the word list. Try again.</string>
+    <string name="core_pred_wordlist_memory_error">This device does not have enough memory for a word list of this size. Choose a smaller size.</string>
 
 </resources>

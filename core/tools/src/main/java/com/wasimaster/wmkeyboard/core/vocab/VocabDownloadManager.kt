@@ -2,6 +2,8 @@ package com.wasimaster.wmkeyboard.core.vocab
 
 import androidx.annotation.StringRes
 import com.wasimaster.wmkeyboard.common.R as CommonR
+import com.wasimaster.wmkeyboard.core.netlog.NetLog
+import com.wasimaster.wmkeyboard.core.netlog.NetSource
 import com.wasimaster.wmkeyboard.tools.R
 import java.io.File
 import java.io.IOException
@@ -119,9 +121,18 @@ object VocabDownloadManager {
 
     fun translationKey(packId: String, code: String): String = "$packId/$code"
 
-    /** Downloads (or re-downloads) one pack; the row shows progress meanwhile. */
-    fun start(filesDir: File, entry: VocabCatalogEntry) {
-        enqueue(entry.id, ::setPack) { downloadPack(filesDir, entry) }
+    /**
+     * Downloads (or re-downloads) one pack; the row shows progress meanwhile.
+     * [translations] are the sidecar codes to fetch right after it lands, so
+     * a pack arrives with the user's languages rather than waiting for a
+     * second visit to the packs screen.
+     */
+    fun start(filesDir: File, entry: VocabCatalogEntry, translations: Collection<String> = emptyList()) {
+        val wanted = translations.filter { it in entry.translationCodes }
+        enqueue(entry.id, ::setPack) {
+            downloadPack(filesDir, entry)
+            if (states.value[entry.id] is DownloadStatus.Downloaded) startTranslations(filesDir, entry, wanted)
+        }
     }
 
     /** Downloads translation sidecars for [codes] the catalogue offers for [entry]. */
@@ -282,6 +293,7 @@ object VocabDownloadManager {
         progress: (bytes: Long, total: Long) -> Unit,
     ): String {
         val connection = URL(url).openConnection() as HttpURLConnection
+        val netCall = NetLog.call(NetSource.DOWNLOAD_VOCAB, "GET", url, route = NetLog.pathOf(url))
         try {
             connection.connectTimeout = 15_000
             connection.readTimeout = 30_000
@@ -290,12 +302,13 @@ object VocabDownloadManager {
             // The payload is already gzip; a transport re-encode would be
             // inflated out from under the GZIPInputStream below.
             connection.setRequestProperty("Accept-Encoding", "identity")
+            netCall.status = connection.responseCode
             val status = connection.responseCode
             if (status != HttpURLConnection.HTTP_OK) {
                 throw FailedException(FailReason.OTHER, R.string.core_tools_vocab_error_http, status.toString())
             }
             val total = connection.contentLengthLong.takeIf { it > 0 } ?: approxBytes
-            val counting = CountingInputStream(connection.inputStream)
+            val counting = CountingInputStream(netCall.countIn(connection.inputStream))
             val text = StringBuilder()
             val buffer = CharArray(16 * 1024)
             var lastUpdate = 0L
@@ -316,8 +329,12 @@ object VocabDownloadManager {
                 }
             }
             return text.toString()
+        } catch (t: Throwable) {
+            netCall.fail(t)
+            throw t
         } finally {
             connection.disconnect()
+            netCall.end()
         }
     }
 }

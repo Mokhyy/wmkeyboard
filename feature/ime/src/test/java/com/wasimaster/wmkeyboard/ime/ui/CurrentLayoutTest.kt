@@ -1,6 +1,7 @@
 package com.wasimaster.wmkeyboard.ime.ui
 
 import com.wasimaster.wmkeyboard.core.layout.AlternateEntry
+import com.wasimaster.wmkeyboard.core.layout.BottomRowRules
 import com.wasimaster.wmkeyboard.core.layout.BuiltInLayouts
 import com.wasimaster.wmkeyboard.core.layout.Key
 import com.wasimaster.wmkeyboard.core.layout.KeyAction
@@ -9,15 +10,18 @@ import com.wasimaster.wmkeyboard.core.layout.KeyRole
 import com.wasimaster.wmkeyboard.core.layout.KeyboardLayout
 import com.wasimaster.wmkeyboard.core.layout.LayoutLayer
 import com.wasimaster.wmkeyboard.core.layout.alternateEntries
+import com.wasimaster.wmkeyboard.core.layout.arrangedBy
 import com.wasimaster.wmkeyboard.core.layout.compile
 import com.wasimaster.wmkeyboard.core.layout.expandForTablet
 import com.wasimaster.wmkeyboard.core.layout.opensAlternatesPopup
 import com.wasimaster.wmkeyboard.core.layout.roleIn
 import com.wasimaster.wmkeyboard.core.layout.tabletGridWidth
-import com.wasimaster.wmkeyboard.core.settings.DeviceForm
-import com.wasimaster.wmkeyboard.core.settings.KeyboardSettings
+import com.wasimaster.wmkeyboard.core.layout.withoutGlobeKey
+import com.wasimaster.wmkeyboard.core.script.LanguageRegistry
 import com.wasimaster.wmkeyboard.core.script.ScriptId
 import com.wasimaster.wmkeyboard.core.script.ScriptRegistry
+import com.wasimaster.wmkeyboard.core.settings.DeviceForm
+import com.wasimaster.wmkeyboard.core.settings.KeyboardSettings
 import com.wasimaster.wmkeyboard.core.settings.LongPressLetterActions
 import com.wasimaster.wmkeyboard.core.settings.TextEditAction
 import com.wasimaster.wmkeyboard.core.settings.ToolbarTool
@@ -26,6 +30,7 @@ import com.wasimaster.wmkeyboard.ime.FieldKind
 import com.wasimaster.wmkeyboard.ime.KeyboardUiState
 import com.wasimaster.wmkeyboard.ime.LayoutMode
 import com.wasimaster.wmkeyboard.ime.LayoutSet
+import com.wasimaster.wmkeyboard.ime.ShiftState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -88,13 +93,13 @@ class CurrentLayoutTest {
     }
 
     /**
-     * `actionFirst` is the trade the other way: the action moves to entry 0, so
-     * a plain hold-and-release copies, and the accents move one along rather
-     * than being taken away.
+     * An `actionPosition` of 0 is the trade the other way: the action moves to
+     * entry 0, so a plain hold-and-release copies, and the accents move one
+     * along rather than being taken away.
      */
     @Test
-    fun `actionFirst puts the hold shortcut at entry zero`() {
-        val actions = copyOnC().copy(actionFirst = true)
+    fun `actionPosition 0 puts the hold shortcut at entry zero`() {
+        val actions = copyOnC().copy(actionPosition = 0)
         val s = state(settings = plain().copy(longPressLetterActions = actions))
         val entries = cKeyOf(s).alternateEntries()
         assertEquals(
@@ -104,6 +109,19 @@ class CurrentLayoutTest {
         // The accents are still reachable, and in their own order.
         val characters = entries.drop(1).map { (it as AlternateEntry.Character).text }
         assertEquals(cKeyOf(s).longPress, characters)
+    }
+
+    /**
+     * Issue #570's middle way: one along, a plain hold still types the accent
+     * the corner hint shows, and copy is the next entry.
+     */
+    @Test
+    fun `actionPosition 1 puts the hold shortcut after the first accent`() {
+        val s = state(settings = plain().copy(longPressLetterActions = copyOnC().copy(actionPosition = 1)))
+        val key = cKeyOf(s)
+        val entries = key.alternateEntries()
+        assertEquals(key.longPress.first(), (entries[0] as AlternateEntry.Character).text)
+        assertEquals(KeyAction.Edit(TextEditAction.COPY), (entries[1] as AlternateEntry.Action).alternate.action)
     }
 
     /** Copy on `c`, every other hold shortcut off. */
@@ -116,6 +134,67 @@ class CurrentLayoutTest {
         currentLayout(s).keys().single { (it.output ?: it.label) == "c" }
 
     /** Settings with every default-on layout rewrite turned off. */
+    /** A one-row kana pad whose globe key doubles as 小゛゜ (issue #340). */
+    private fun kanaPad(settings: KeyboardSettings, ready: Boolean): KeyboardUiState {
+        val letters = KeyboardLayout(
+            name = "pad",
+            rows = listOf(
+                listOf(
+                    Key("🌐", action = KeyAction.LanguageSwitch, kanaVariantWhileComposing = true, width = 1.5f),
+                    Key("か"),
+                ),
+            ),
+        )
+        return KeyboardUiState(
+            settings = settings,
+            layouts = LayoutSet(letters, letters, letters),
+            kanaVariantReady = ready,
+        )
+    }
+
+    @Test
+    fun `a flagged key is itself until a kana can take a mark`() {
+        val globe = currentLayout(kanaPad(plain(), ready = false)).rows[0][0]
+        assertEquals(KeyAction.LanguageSwitch, globe.action)
+        assertEquals("🌐", globe.label)
+    }
+
+    @Test
+    fun `a flagged key becomes the kana-mark key and keeps its seat`() {
+        val key = currentLayout(kanaPad(plain(), ready = true)).rows[0][0]
+        assertEquals(KeyAction.KanaVariant, key.action)
+        assertEquals("小゛゜", key.label)
+        assertEquals(1.5f, key.width)
+    }
+
+    /**
+     * The emoji preference turns the globe into the emoji key before the swap
+     * runs; the swap still wins while there is a kana to change.
+     */
+    @Test
+    fun `the swap covers a globe the emoji preference already rewrote`() {
+        val settings = plain().copy(globeAsEmoji = true)
+        assertEquals(KeyAction.Emoji, currentLayout(kanaPad(settings, ready = false)).rows[0][0].action)
+        assertEquals(KeyAction.KanaVariant, currentLayout(kanaPad(settings, ready = true)).rows[0][0].action)
+    }
+
+    /**
+     * #874: with every adaptation off the grid comes back as it is, except
+     * that a mode key with no label of its own still draws its mode's name.
+     */
+    @Test
+    fun `a mode key is named on the untouched grid too`() {
+        val base = state(settings = plain())
+        val letters = base.layouts.letters
+        val rows = letters.rows.toMutableList()
+        rows[0] = listOf(Key("", action = KeyAction.Mode("code"))) + rows[0].drop(1)
+        val settings = plain().copy(
+            keyboardModes = listOf(com.wasimaster.wmkeyboard.core.settings.KeyboardMode(id = "code", name = "Code")),
+        )
+        val s = base.copy(settings = settings, layouts = base.layouts.copy(letters = letters.copy(rows = rows)))
+        assertEquals("Code", currentLayout(s).rows[0][0].label)
+    }
+
     private fun plain(): KeyboardSettings = KeyboardSettings(
         globeAsEmoji = false,
         swapCommaAndGlobe = false,
@@ -125,6 +204,86 @@ class CurrentLayoutTest {
             cut = false, undo = false, redo = false,
         ),
     )
+
+    /**
+     * Issue #108: the capital of every letter joins its popup, and joins it
+     * *last* — the first entry is what a hold-and-release commits, and that
+     * belongs to whatever the layout listed first.
+     */
+    @Test
+    fun `shifted popup keys append each letter's capital`() {
+        val base = plain()
+        val s = state(
+            settings = base.copy(
+                layoutBehavior = base.layoutBehavior.copy(shiftedPopupKeys = true),
+            ),
+        )
+        val a = currentLayout(s).keys().single { (it.output ?: it.label) == "a" }
+        assertEquals("A", a.longPress.last())
+        assertEquals(1, a.longPress.count { it == "A" })
+        // Non-letters have no capital, so their popups are untouched.
+        val period = currentLayout(s).keys().single { (it.output ?: it.label) == "." }
+        assertTrue(period.longPress.none { it.length == 1 && it[0].isLetter() })
+    }
+
+    private fun keymanKey(label: String, vkey: Int, shifted: Boolean = false) = Key(
+        label,
+        action = KeyAction.KeymanKey(vkey = vkey, modifiers = if (shifted) KEYMAN_SHIFT else 0),
+    )
+
+    /**
+     * A converted Keyman layout keeps its shifted keys on a page of their own,
+     * with no shiftLabel on the keys under them, so the setting has to read that
+     * page. The entry goes out as the shifted key's own press, so the rules type
+     * it, and the popup's two lists stay paired by index.
+     */
+    @Test
+    fun `shifted popup keys reach a keyman shift page`() {
+        val letters = KeyboardLayout("ar", listOf(listOf(keymanKey("ض", 81), keymanKey("ص", 87))))
+        val shift = KeyboardLayout("ar", listOf(listOf(keymanKey("َ", 81, true), keymanKey("ً", 87, true))))
+        val base = plain()
+        val s = KeyboardUiState(
+            settings = base.copy(layoutBehavior = base.layoutBehavior.copy(shiftedPopupKeys = true)),
+            layouts = LayoutSet(letters, letters, letters, keymanShift = shift),
+        )
+        val dad = currentLayout(s).keys().first()
+        assertEquals(listOf("َ"), dad.longPress)
+        val entry = dad.alternateEntries().single() as AlternateEntry.Action
+        val press = entry.alternate.action as KeyAction.KeymanKey
+        assertEquals(81, press.vkey)
+        assertEquals(KEYMAN_SHIFT, press.modifiers)
+
+        // Off, the popup is the layout's own.
+        val off = s.copy(settings = base)
+        assertTrue(currentLayout(off).keys().first().longPress.isEmpty())
+    }
+
+    /** On the shift page itself every key already is its twin. */
+    @Test
+    fun `the keyman shift page adds nothing to itself`() {
+        val letters = KeyboardLayout("ar", listOf(listOf(keymanKey("ض", 81))))
+        val shift = KeyboardLayout("ar", listOf(listOf(keymanKey("َ", 81, true))))
+        val base = plain()
+        val s = KeyboardUiState(
+            settings = base.copy(layoutBehavior = base.layoutBehavior.copy(shiftedPopupKeys = true)),
+            layouts = LayoutSet(letters, letters, letters, keymanShift = shift),
+            shiftState = ShiftState.ON,
+        )
+        assertTrue(currentLayout(s).keys().single().longPress.isEmpty())
+    }
+
+    /** A row drawn at a different length on the shift page has no seats to pair. */
+    @Test
+    fun `a keyman row of another length pairs nothing`() {
+        val letters = KeyboardLayout("ar", listOf(listOf(keymanKey("ض", 81), keymanKey("ص", 87))))
+        val shift = KeyboardLayout("ar", listOf(listOf(keymanKey("َ", 81, true))))
+        val base = plain()
+        val s = KeyboardUiState(
+            settings = base.copy(layoutBehavior = base.layoutBehavior.copy(shiftedPopupKeys = true)),
+            layouts = LayoutSet(letters, letters, letters, keymanShift = shift),
+        )
+        assertTrue(currentLayout(s).keys().all { it.longPress.isEmpty() })
+    }
 
     private fun enterKeyOf(s: KeyboardUiState): Key =
         currentLayout(s).keys().single { it.action == KeyAction.Enter }
@@ -160,6 +319,39 @@ class CurrentLayoutTest {
         // And draws no corner hint: that comes from the character alternates,
         // which this key still has none of.
         assertTrue(enterKeyOf(s).longPress.isEmpty())
+    }
+
+    private fun withEnterEmoji(base: KeyboardSettings): KeyboardSettings =
+        base.copy(layoutBehavior = base.layoutBehavior.copy(enterLongPressEmoji = true))
+
+    /** Off by default: a hold on enter keeps doing what it did. */
+    @Test
+    fun `the enter key offers no emoji until asked`() {
+        val s = state(settings = plain()).copy(enterAction = EnterAction.SEND)
+        assertTrue(enterKeyOf(s).actionAlternates.none { it.action == KeyAction.Emoji })
+    }
+
+    /** On an ordinary field the emoji entry is the whole popup. */
+    @Test
+    fun `the setting puts emoji on the enter key's long press`() {
+        val s = state(settings = withEnterEmoji(plain())).copy(enterAction = EnterAction.DEFAULT)
+        val enter = enterKeyOf(s)
+        assertEquals(listOf(KeyAction.Emoji), enter.actionAlternates.map { it.action })
+        assertTrue(enter.opensAlternatesPopup())
+    }
+
+    /**
+     * A send field keeps its line break in the popup, but behind the emoji:
+     * the first entry is what a plain hold and release commits, and that is
+     * what the setting was turned on for.
+     */
+    @Test
+    fun `emoji goes ahead of the newline on a send field`() {
+        val s = state(settings = withEnterEmoji(plain())).copy(enterAction = EnterAction.SEND)
+        assertEquals(
+            listOf(KeyAction.Emoji, KeyAction.Newline),
+            enterKeyOf(s).actionAlternates.map { it.action },
+        )
     }
 
     private fun spaceKeyOf(s: KeyboardUiState): Key =
@@ -296,6 +488,37 @@ class CurrentLayoutTest {
     }
 
     /**
+     * Issue #420: the keyboard and the layout editor draw the bottom row from
+     * one pass, so under the shipped settings the keyboard's row is the one
+     * [arrangedBy] makes of the stored grid, which is the row the editor shows.
+     */
+    @Test
+    fun `the keyboard draws the bottom row the shared pass makes`() {
+        val s = state()
+        val drawn = currentLayout(s).rows.last()
+        val shared = s.layouts.letters.arrangedBy(
+            BottomRowRules(globeInOnePlace = true, swapCommaAndGlobe = true, globeAsEmoji = true),
+        ).layout.rows.last()
+        assertEquals(shared.map { it.label to it.action }, drawn.map { it.label to it.action })
+        assertEquals(shared.map { it.width }, drawn.map { it.width })
+    }
+
+    /** Issue #420: a layer laid out by hand in the editor is past every bottom-row setting. */
+    @Test
+    fun `a layer laid out by hand is drawn as it is stored`() {
+        val qwerty = BuiltInLayouts.QWERTY
+        val letters = requireNotNull(qwerty.layer(LayoutLayer.LETTERS))
+        val spec = qwerty.copy(
+            layers = qwerty.layers + (LayoutLayer.LETTERS.key to letters.copy(bottomRowAsLaidOut = true)),
+        )
+        val s = state(spec = spec, settings = KeyboardSettings(showGlobeKey = false, commaAsEmoji = true))
+        val stored = s.layouts.letters.rows.last()
+        val drawn = currentLayout(s).rows.last()
+        assertEquals(stored.map { it.label to it.action }, drawn.map { it.label to it.action })
+        assertEquals(stored.map { it.width }, drawn.map { it.width })
+    }
+
+    /**
      * The six shortcuts ship on, and as popup entries: the key keeps its accents
      * and its popup, and the action is appended after them. Nothing takes the
      * hold outright any more — a [Key.clipboardAction] would, and that is now
@@ -396,11 +619,185 @@ class CurrentLayoutTest {
         assertEquals(emptyList<String>(), colon.longPress)
     }
 
+    /**
+     * Issue #529: a Japanese layout could not hold a literal full stop
+     * anywhere, because the swap ran on every layer but the symbols pages.
+     */
+    @Test
+    fun `only the letters page swaps the full stop for the script mark`() {
+        val pad = oneRow(Key(".", role = KeyRole.Period), Key("0"))
+        val s = KeyboardUiState(
+            settings = plain(),
+            layouts = setOf(BuiltInLayouts.QWERTY).copy(secondaries = mapOf("pad" to pad)),
+            script = ScriptRegistry[ScriptId.JAPANESE],
+            layoutMode = LayoutMode.SECONDARY,
+            secondaryLayoutId = "pad",
+        )
+        val period = currentLayout(s).keys().first { it.role == KeyRole.Period }
+        assertEquals(".", period.output ?: period.label)
+        assertEquals("。", period.longPress.first())
+    }
+
+    /** And on the letters page the swap still happens, as it has since #489. */
+    @Test
+    fun `a japanese letters page types the ideographic full stop`() {
+        val s = state(settings = plain()).copy(script = ScriptRegistry[ScriptId.JAPANESE])
+        val period = currentLayout(s).rows.last().first { it.role == KeyRole.Period }
+        assertEquals("。", period.output ?: period.label)
+        assertEquals(".", period.longPress.first())
+    }
+
+    /** [KeyRole.Plain] is the per-key way out of both that and field adaptation. */
+    @Test
+    fun `a key tagged plain keeps its full stop and takes no domain endings`() {
+        val grid = oneRow(Key(".", role = KeyRole.Plain), Key(",", role = KeyRole.Plain))
+        val s = KeyboardUiState(
+            settings = plain(),
+            layouts = setOf(BuiltInLayouts.QWERTY).copy(letters = grid),
+            script = ScriptRegistry[ScriptId.JAPANESE],
+            fieldKind = FieldKind.EMAIL,
+        )
+        val keys = currentLayout(s).keys()
+        val period = keys.first { it.role == KeyRole.Plain && (it.output ?: it.label) == "." }
+        assertEquals(emptyList<String>(), period.longPress)
+        assertTrue("the comma slot must not become @", keys.none { it.label == "@" })
+    }
+
     @Test
     fun `a latin layout keeps its full stop`() {
         val period = currentLayout(state(settings = plain()))
             .rows.last().first { it.role == KeyRole.Period }
         assertEquals(".", period.output ?: period.label)
+    }
+
+    /**
+     * A letters grid in the shape most shipped layouts have: letters with no
+     * alternates, and every question mark in the period key's popup behind
+     * something else. The Persian layout of issue #408, near enough.
+     */
+    private fun buried(vararg periodPopup: String, letter: Key = Key("ب")) =
+        com.wasimaster.wmkeyboard.core.layout.LayoutSpec(
+            id = "custom_buried",
+            name = "Buried",
+            layers = mapOf(
+                LayoutLayer.LETTERS.key to com.wasimaster.wmkeyboard.core.layout.LayerSpec(
+                    listOf(
+                        listOf(letter),
+                        listOf(
+                            Key(" ", action = KeyAction.Space),
+                            Key(".", role = KeyRole.Period, longPress = periodPopup.toList()),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+    private fun periodOf(s: KeyboardUiState) =
+        currentLayout(s).rows.last().first { it.role == KeyRole.Period }
+
+    /** Issue #408: a hold on the period key types ؟ on Persian. */
+    @Test
+    fun `an arabic-script grid leads the period popup with its own question mark`() {
+        val s = state(buried("…", "؟", "،", "?", "!"), settings = plain())
+            .copy(script = ScriptRegistry[ScriptId.ARABIC])
+        assertEquals(listOf("؟", "…", "،", "?", "!"), periodOf(s).longPress.take(5))
+    }
+
+    /** Issue #606: the harakat close the period key's hold, after the layout's own. */
+    @Test
+    fun `an arabic-script grid ends the period popup with the harakat`() {
+        val s = state(buried("…", "\u064E", "!"), settings = plain())
+            .copy(script = ScriptRegistry[ScriptId.ARABIC])
+        val popup = periodOf(s).longPress
+        // ؟ leads, lifted by issue #408 since nothing else on this grid types
+        // it, so the plain hold still asks a question.
+        assertEquals(listOf("؟", "…", "\u064E", "!"), popup.take(4))
+        assertEquals(ScriptRegistry[ScriptId.ARABIC].periodAlternates - "\u064E", popup.drop(4))
+    }
+
+    /** Issue #972: Sorani is Arabic script but never written with the harakat. */
+    @Test
+    fun `sorani keeps the harakat off the period popup`() {
+        val s = state(buried("…", "!"), settings = plain()).copy(
+            script = ScriptRegistry[ScriptId.ARABIC],
+            language = LanguageRegistry.byId("ckb"),
+        )
+        assertEquals(listOf("؟", "…", "!"), periodOf(s).longPress)
+    }
+
+    /** Only the letters page: the symbols pages' "." is for numbers. */
+    @Test
+    fun `the harakat stay off the symbols pages`() {
+        val s = state(settings = plain())
+            .copy(script = ScriptRegistry[ScriptId.ARABIC], layoutMode = LayoutMode.SYMBOLS)
+        assertTrue(currentLayout(s).keys().none { "\u064E" in it.longPress })
+    }
+
+    /** Issue #605: the symbols page's ? key types ؟, with ? one hold away. */
+    @Test
+    fun `an arabic-script symbols page types its own question mark`() {
+        val s = state(settings = plain())
+            .copy(script = ScriptRegistry[ScriptId.ARABIC], layoutMode = LayoutMode.SYMBOLS)
+        val keys = currentLayout(s).keys()
+        assertTrue("no key may still type ?", keys.none { (it.output ?: it.label) == "?" })
+        val asked = keys.first { (it.output ?: it.label) == "؟" }
+        assertEquals("?", asked.longPress.first())
+    }
+
+    /** A letters key that typed ? counts as ؟ to hand, so nothing is lifted. */
+    @Test
+    fun `a swapped question key keeps the period popup as laid out`() {
+        val s = state(buried("…", "!", letter = Key("?")), settings = plain())
+            .copy(script = ScriptRegistry[ScriptId.ARABIC])
+        assertEquals("؟", currentLayout(s).rows.first().first().label)
+        assertEquals(listOf("…", "!"), periodOf(s).longPress.take(2))
+    }
+
+    /** A script that asks with ? leaves the key alone. */
+    @Test
+    fun `a latin symbols page keeps its question mark`() {
+        val s = state(settings = plain()).copy(layoutMode = LayoutMode.SYMBOLS)
+        assertTrue(currentLayout(s).keys().any { (it.output ?: it.label) == "?" })
+    }
+
+    @Test
+    fun `a lone combining mark draws on a dotted circle`() {
+        assertEquals("\u25CC\u064E", visibleAlternate("\u064E"))
+        assertEquals("ب\u064E", visibleAlternate("ب\u064E"))
+        assertEquals("ZWNJ", visibleAlternate("\u200C"))
+    }
+
+    /** The same fix for every other language whose layout buried "?" there. */
+    @Test
+    fun `a grid with its question mark buried lifts it to the front`() {
+        val s = state(buried("…", ",", "?", "!"), settings = plain())
+        assertEquals(listOf("?", "…", ",", "!"), periodOf(s).longPress)
+    }
+
+    /** QWERTY's hold on m already types "?", so its period key is left alone. */
+    @Test
+    fun `a grid with a question mark to hand keeps its period popup`() {
+        val s = state(buried("…", "?", letter = Key("m", longPress = listOf("?"))), settings = plain())
+        assertEquals(listOf("…", "?"), periodOf(s).longPress)
+        val qwerty = periodOf(state(settings = plain()))
+        assertEquals("…", qwerty.longPress.first())
+    }
+
+    /** A grid that never offered "?" (a kana pad, Morse) does not grow one. */
+    @Test
+    fun `a grid with no question mark at all is not given one`() {
+        val s = state(buried("…", "!"), settings = plain())
+        assertEquals(listOf("…", "!"), periodOf(s).longPress)
+    }
+
+    /** The question mark leads, the "." the danda displaced follows it. */
+    @Test
+    fun `a danda grid puts the question mark ahead of the displaced full stop`() {
+        val s = state(buried("…", "?"), settings = plain())
+            .copy(script = ScriptRegistry[ScriptId.BENGALI])
+        val period = periodOf(s)
+        assertEquals("।", period.label)
+        assertEquals(listOf("?", ".", "…"), period.longPress)
     }
 
     @Test
@@ -598,4 +995,168 @@ class CurrentLayoutTest {
         assertEquals(KeyAction.Shift, row[0].action)
         assertEquals(KeyAction.LanguageSwitch, row[1].action)
     }
+
+    /**
+     * Issue #139: a hidden 🌐 key leaves the bottom row, and the spacebar takes
+     * its width, so the row is exactly as long as it was.
+     */
+    @Test
+    fun `a hidden globe key gives its width to the spacebar`() {
+        val shown = currentLayout(state(settings = plain())).rows.last()
+        val hidden = currentLayout(state(settings = plain().copy(showGlobeKey = false))).rows.last()
+        val globe = shown.single { it.action == KeyAction.LanguageSwitch }
+        val space = shown.single { it.action == KeyAction.Space }
+        assertTrue("the globe key is still there: $hidden", hidden.none { it.action == KeyAction.LanguageSwitch })
+        assertEquals(shown.size - 1, hidden.size)
+        assertEquals(space.width + globe.width, hidden.single { it.action == KeyAction.Space }.width, 0.001f)
+        assertEquals(shown.sumOf { it.width.toDouble() }, hidden.sumOf { it.width.toDouble() }, 0.001)
+    }
+
+    /**
+     * The shipped defaults turn the 🌐 key into an emoji key and swap it with
+     * the comma. Hidden, neither has a key to act on: no emoji key is left in
+     * the slot, and the row reads `?123 , space . enter`.
+     */
+    @Test
+    fun `a hidden globe key takes the emoji key and the swap with it`() {
+        val row = currentLayout(state(settings = KeyboardSettings(showGlobeKey = false))).rows.last()
+        assertEquals(
+            listOf(KeyAction.Symbols, KeyAction.Text, KeyAction.Space, KeyAction.Text, KeyAction.Enter),
+            row.map { it.action },
+        )
+        assertEquals(KeyRole.Comma, row[1].role)
+    }
+
+    /** Both symbol layers too, so the row does not change shape on the way into ?123. */
+    @Test
+    fun `the symbol layers lose the globe key too`() {
+        for (mode in listOf(LayoutMode.SYMBOLS, LayoutMode.SYMBOLS_SHIFTED)) {
+            val shown = state(settings = plain()).copy(layoutMode = mode)
+            assertEquals("$mode", 1, currentLayout(shown).keys().count { it.action == KeyAction.LanguageSwitch })
+            val hidden = state(settings = plain().copy(showGlobeKey = false)).copy(layoutMode = mode)
+            assertEquals("$mode", 0, currentLayout(hidden).keys().count { it.action == KeyAction.LanguageSwitch })
+        }
+    }
+
+    /** A bottom row with no spacebar shares the width out instead of leaving a gap. */
+    @Test
+    fun `a row without a spacebar shares the freed width`() {
+        val row = oneRow(Key("a"), Key("🌐", action = KeyAction.LanguageSwitch), Key("b", width = 2f))
+            .withoutGlobeKey().rows.last()
+        assertEquals(listOf("a", "b"), row.map { it.label })
+        assertEquals(4f / 3f, row[0].width, 0.001f)
+        assertEquals(8f / 3f, row[1].width, 0.001f)
+    }
+
+    /** A row of nothing but 🌐 keys would have no keys left, so it stays. */
+    @Test
+    fun `a row of only globe keys is left alone`() {
+        val layout = oneRow(Key("🌐", action = KeyAction.LanguageSwitch))
+        assertTrue(layout.withoutGlobeKey() === layout)
+    }
+
+    /** A secondary layout is drawn as its author made it: its 🌐 key can be the way out. */
+    @Test
+    fun `a secondary layout keeps its globe key`() {
+        val pad = oneRow(Key("x"), Key("🌐", action = KeyAction.LanguageSwitch))
+        val s = KeyboardUiState(
+            settings = plain().copy(showGlobeKey = false),
+            layouts = setOf(BuiltInLayouts.QWERTY).copy(secondaries = mapOf("custom_pad" to pad)),
+            layoutMode = LayoutMode.SECONDARY,
+            secondaryLayoutId = "custom_pad",
+        )
+        assertEquals(1, currentLayout(s).keys().count { it.action == KeyAction.LanguageSwitch })
+    }
+
+    /** The expanded tablet row loses it as well, and keeps its length. */
+    @Test
+    fun `a tablet grid loses the globe key too`() {
+        val shown = currentLayout(tabletState(KeyboardSettings())).rows.last()
+        val hidden = currentLayout(tabletState(KeyboardSettings(showGlobeKey = false))).rows.last()
+        assertEquals(0, hidden.count { it.action == KeyAction.LanguageSwitch })
+        assertEquals(shown.sumOf { it.width.toDouble() }, hidden.sumOf { it.width.toDouble() }, 0.001)
+    }
+
+    private fun symbolsState(settings: KeyboardSettings): KeyboardUiState =
+        state(settings = settings).copy(layoutMode = LayoutMode.SYMBOLS)
+
+    private fun withNumpadKey(base: KeyboardSettings): KeyboardSettings =
+        base.copy(layoutBehavior = base.layoutBehavior.copy(symbolsNumpadKey = true))
+
+    /** Issue #423: off by default, so the symbols page keeps the row it had. */
+    @Test
+    fun `the symbols page has no 1234 key until asked`() {
+        val s = symbolsState(plain())
+        assertTrue(currentLayout(s).keys().none { it.action == KeyAction.Numpad })
+    }
+
+    /**
+     * Turned on, the 1234 key sits straight after ABC, on both symbols pages,
+     * and the spacebar gives up the width so the row stays the same length.
+     */
+    @Test
+    fun `the setting puts a 1234 key after ABC on the symbols pages`() {
+        for (mode in listOf(LayoutMode.SYMBOLS, LayoutMode.SYMBOLS_SHIFTED)) {
+            val before = currentLayout(symbolsState(plain()).copy(layoutMode = mode)).rows.last()
+            val after = currentLayout(symbolsState(withNumpadKey(plain())).copy(layoutMode = mode)).rows.last()
+            val letters = after.indexOfFirst { it.action == KeyAction.Letters }
+            assertEquals(KeyAction.Numpad, after[letters + 1].action)
+            assertEquals(before.sumOf { it.width.toDouble() }, after.sumOf { it.width.toDouble() }, 0.001)
+        }
+    }
+
+    /** The letters page is left alone: the key belongs with the symbols. */
+    @Test
+    fun `the 1234 key stays off the letters page`() {
+        val s = state(settings = withNumpadKey(plain()))
+        assertTrue(currentLayout(s).keys().none { it.action == KeyAction.Numpad })
+    }
+
+    private fun withSymbolsAlternates(s: KeyboardUiState): KeyboardUiState {
+        val letters = s.layouts.letters
+        val rows = letters.rows.map { row ->
+            row.map { if (it.action == KeyAction.Symbols) it.copy(longPress = listOf("½")) else it }
+        }
+        return s.copy(layouts = s.layouts.copy(letters = letters.copy(rows = rows)))
+    }
+
+    private fun symbolsKeyOf(s: KeyboardUiState): Key =
+        currentLayout(s).keys().single { it.action == KeyAction.Symbols }
+
+    /**
+     * Issue #423: a ?123 key with alternates of its own opens them on a hold,
+     * so the number pad joins that popup rather than being out of reach. The
+     * layout's own entry stays first.
+     */
+    @Test
+    fun `a symbols key with alternates offers the number pad in its popup`() {
+        val key = symbolsKeyOf(withSymbolsAlternates(state(settings = plain())))
+        assertEquals(listOf(KeyAction.Numpad), key.actionAlternates.map { it.action })
+        assertEquals(AlternateEntry.Character("½"), key.alternateEntries().first())
+    }
+
+    /** Rides the hold setting: off, the popup is the layout's alone. */
+    @Test
+    fun `the popup entry follows the hold setting`() {
+        val off = plain().let { it.copy(layoutBehavior = it.layoutBehavior.copy(symbolsLongPressNumpad = false)) }
+        val key = symbolsKeyOf(withSymbolsAlternates(state(settings = off)))
+        assertTrue(key.actionAlternates.isEmpty())
+    }
+
+    /** A plain ?123 key opens the pad on the hold itself and gets no popup. */
+    @Test
+    fun `a plain symbols key gets no popup entry`() {
+        assertTrue(symbolsKeyOf(state(settings = plain())).actionAlternates.isEmpty())
+    }
+
+    private fun oneRow(vararg keys: Key): KeyboardLayout = com.wasimaster.wmkeyboard.core.layout.LayoutSpec(
+        id = "custom_one_row",
+        name = "One row",
+        layers = mapOf(
+            LayoutLayer.LETTERS.key to com.wasimaster.wmkeyboard.core.layout.LayerSpec(listOf(keys.toList())),
+        ),
+    ).compile(LayoutLayer.LETTERS)
 }
+
+/** Keyman's shift bit, as a converted shift page carries it on each key. */
+private const val KEYMAN_SHIFT = 16

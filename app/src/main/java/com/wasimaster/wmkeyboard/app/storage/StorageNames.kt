@@ -53,18 +53,34 @@ internal object StorageNames {
      */
     private val byPath: Map<String, Int> = mapOf(
         "vocab/progress.json" to R.string.storage_file_vocab_progress_label,
+        "updates/releases.json" to R.string.storage_file_releases_label,
         "addons/repos.json" to R.string.storage_file_repos_label,
         "addons/installed.json" to R.string.storage_file_installed_label,
         "addons/.seeded" to R.string.storage_file_seeded_label,
 
         "learning/user_lexicon.json" to R.string.storage_file_lexicon_label,
         "learning/pending_learn.json" to R.string.storage_file_pending_learn_label,
+        "learning/context_adapter.json" to R.string.storage_file_context_adapter_label,
         "learning/correction_stats.json" to R.string.storage_file_corrections_label,
         "learning/emoji_usage.json" to R.string.storage_file_emoji_usage_label,
         "learning/cjk_history.json" to R.string.storage_file_cjk_history_label,
         "learning/language_mix.json" to R.string.storage_file_language_mix_label,
+        "learning/word_ranks.json" to R.string.storage_file_word_ranks_label,
+        "learning/key_offsets.json" to R.string.storage_file_key_offsets_label,
+        "learning/learned_corrections.json" to R.string.storage_file_learned_corrections_label,
+        "learning/tap_offsets.json" to R.string.storage_file_tap_offsets_label,
+        "learning/app_language_mix.json" to R.string.storage_file_app_language_mix_label,
+        "learning/typed_emails.json" to R.string.storage_file_typed_emails_label,
+        "learning/typed_numbers.json" to R.string.storage_file_typed_numbers_label,
+        "learning/phonetic_script_choices.json" to R.string.storage_file_phonetic_script_choices_label,
+        "learning/phonetic_picks.tsv" to R.string.storage_file_phonetic_picks_label,
+        "learning/glide_outcomes.json" to R.string.storage_file_glide_outcomes_label,
+        "learning/glide_shapes.json" to R.string.storage_file_glide_shapes_label,
 
         "stats/typing_stats.json" to R.string.storage_file_typing_stats_label,
+        "stats/typing_stats_devices.json" to R.string.storage_file_typing_stats_devices_label,
+        "netlog/rows.jsonl" to R.string.storage_file_netlog_rows_label,
+        "netlog/days.json" to R.string.storage_file_netlog_days_label,
         "clipboard/history.json" to R.string.storage_file_clip_history_label,
         "clipboard/images" to R.string.storage_file_clip_images_label,
         "snippets/snippets.json" to R.string.storage_file_snippets_label,
@@ -75,6 +91,16 @@ internal object StorageNames {
         "debug/crashes.log" to R.string.storage_file_crash_log_label,
         "diagnostics/wmkeyboard-log.txt" to R.string.storage_file_debug_log_label,
         "theme_photos/pool.json" to R.string.storage_file_photo_pool_label,
+
+        // The same name in the cache and in files/ means two things.
+        "cache/notes" to R.string.storage_file_shared_notes_label,
+        "files/notes" to R.string.storage_file_notes_label,
+        "cache/send" to R.string.storage_file_send_queue_label,
+        "files/send" to R.string.storage_file_send_history_label,
+        "files/backup" to R.string.storage_file_backup_staging_label,
+        "files/clock" to R.string.storage_file_clock_label,
+        "files/kaomoji" to R.string.storage_file_kaomoji_label,
+        "files/keyman" to R.string.storage_file_keyman_label,
     )
 
     // ---- named wherever they turn up ----
@@ -91,15 +117,55 @@ internal object StorageNames {
         "litertlm" to R.string.storage_file_llm_cache_label,
         "keysounds" to R.string.storage_file_keysound_cache_label,
         "diagnostics" to R.string.storage_file_diagnostics_label,
+        "layout-previews" to R.string.storage_file_layout_previews_label,
+        "rboard" to R.string.storage_file_rboard_label,
+        "gboard_preview" to R.string.storage_file_gboard_preview_label,
+        "telegram_stickers" to R.string.storage_file_telegram_stickers_label,
+        "signal_stickers" to R.string.storage_file_signal_stickers_label,
+        "remote-restore" to R.string.storage_file_remote_restore_label,
+        "keyman-rules" to R.string.storage_file_keyman_downloads_label,
+        "import_preview" to R.string.storage_file_import_preview_label,
+        "link-import" to R.string.storage_file_link_import_label,
+        "offline_import" to R.string.storage_file_offline_import_label,
+        "emotic-import" to R.string.storage_file_kaomoji_import_label,
+        "upscale" to R.string.storage_file_upscale_label,
+        "imagegen" to R.string.storage_file_imagegen_label,
+
+        "homeassistant" to R.string.storage_file_smart_home_label,
+        "kdeconnect" to R.string.storage_file_kdeconnect_label,
+        "gif_collections" to R.string.storage_file_gif_collections_label,
+        "handwriting_imports" to R.string.storage_file_ink_imports_label,
+        "gallery_sent.txt" to R.string.storage_file_gallery_sent_label,
+        "bergamot" to R.string.storage_file_bergamot_label,
+        "xlit" to R.string.storage_file_xlit_label,
+        "xlit-latin" to R.string.storage_file_xlit_latin_label,
+        "backup_install_id" to R.string.storage_file_backup_id_label,
+        "otp_capture.xml" to R.string.storage_file_otp_capture_label,
+        "androidx.work.workdb" to R.string.storage_file_work_db_label,
+        "androidx.work.workdb-wal" to R.string.storage_file_work_db_label,
+        "androidx.work.workdb-shm" to R.string.storage_file_work_db_label,
+
+        // Written by Google's libraries (MediaPipe, ML Kit, Play services'
+        // flag and download services), not by this app.
+        "drishti_asset_cache" to R.string.storage_file_mediapipe_label,
+        "mlkit_digital_ink_recognition" to R.string.storage_file_ink_models_label,
+        "com.google.mlkit.translate.models" to R.string.storage_file_mlkit_translate_label,
+        "com.google.mlkit.RemoteConfig" to R.string.storage_file_gms_config_label,
+        "com.google.mlkit.InstallationId" to R.string.storage_file_gms_config_label,
+        "mdd_pds_config" to R.string.storage_file_gms_config_label,
+        "phenotype_storage_info" to R.string.storage_file_gms_config_label,
+        "gms_icing_mdd_garbage_file" to R.string.storage_file_gms_config_label,
 
         "no_backup" to R.string.storage_file_no_backup_label,
         "shared_prefs" to R.string.storage_file_shared_prefs_label,
         "databases" to R.string.storage_file_databases_label,
         "code_cache" to R.string.storage_file_code_cache_label,
         "oat" to R.string.storage_file_code_cache_label,
+        "oat_primary" to R.string.storage_file_code_cache_label,
         "cache" to R.string.storage_file_cache_label,
         "files" to R.string.storage_file_app_files_label,
         "profileInstalled" to R.string.storage_file_profile_installed_label,
+        "profileinstaller_profileWrittenFor_lastUpdateTime.dat" to R.string.storage_file_profile_installed_label,
         "lib" to R.string.storage_file_native_libs_label,
         "app_webview" to R.string.storage_file_webview_data_label,
     )
@@ -109,7 +175,7 @@ internal object StorageNames {
      * installed package. None of them care which directory they are in.
      */
     private fun anywhereOf(name: String): Int? = when {
-        name.endsWith(".part") -> R.string.storage_item_partial_label
+        name.endsWith(".part") || name.endsWith(".part.ranges") -> R.string.storage_item_partial_label
         name.startsWith(".staging_") -> R.string.storage_file_staging_label
         name.endsWith(".tmp") -> R.string.storage_file_temp_label
         name == ".version" -> R.string.storage_file_version_marker_label

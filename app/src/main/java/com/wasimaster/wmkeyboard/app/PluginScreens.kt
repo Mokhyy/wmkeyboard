@@ -6,8 +6,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowForward
-import androidx.compose.material.icons.outlined.Delete
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.ArrowForward
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -31,9 +31,14 @@ import com.wasimaster.wmkeyboard.core.plugins.PluginFile
 import com.wasimaster.wmkeyboard.core.plugins.PluginImportResult
 import com.wasimaster.wmkeyboard.core.plugins.PluginLog
 import com.wasimaster.wmkeyboard.core.plugins.PluginManifestResult
+import com.wasimaster.wmkeyboard.core.plugins.PluginPermission
+import com.wasimaster.wmkeyboard.core.plugins.PluginReminderAlarms
+import com.wasimaster.wmkeyboard.core.plugins.PluginReminders
 import com.wasimaster.wmkeyboard.core.plugins.PluginStorage
 import com.wasimaster.wmkeyboard.core.plugins.PluginStore
+import com.wasimaster.wmkeyboard.core.plugins.PluginWorkspace
 import com.wasimaster.wmkeyboard.core.plugins.resolve
+import com.wasimaster.wmkeyboard.core.notify.WmNotifications
 import com.wasimaster.wmkeyboard.core.util.requireInputStream
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +46,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.wasimaster.wmkeyboard.common.R as CommonR
 import com.wasimaster.wmkeyboard.ime.R as ImeR
+
+/**
+ * One plugin's page, as flights name it.
+ *
+ * The navigation route with its argument filled in, which is what a flight is
+ * keyed on: the pattern (`plugin/{pluginId}`) is the same string for every
+ * plugin and would hang one key on all of them.
+ */
+internal fun pluginRoute(pluginId: String): String = "plugin/$pluginId"
 
 /**
  * Managing plugins: the master switch, what is installed, and what each one is
@@ -81,6 +95,7 @@ internal fun PluginsScreen(onNavigate: (String) -> Unit) {
                 WmRow(
                     title = title,
                     subtitle = stringResource(R.string.plugins_allow_subtitle),
+                    icon = SettingsRowIcons[R.string.plugins_allow_title],
                     trailing = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             // Hand-built rather than a ToggleSetting, because
@@ -88,7 +103,7 @@ internal fun PluginsScreen(onNavigate: (String) -> Unit) {
                             // and ToggleSetting would key the highlight on the
                             // drawn title instead. The reset control is the one
                             // thing it would otherwise have brought with it.
-                            ResetSetting(title, enabled) { store.setSubsystemEnabled(false) }
+                            RowExtras { ResetSetting(title, enabled) { store.setSubsystemEnabled(false) } }
                             Switch(
                                 checked = enabled,
                                 onCheckedChange = { store.setSubsystemEnabled(it) },
@@ -98,22 +113,21 @@ internal fun PluginsScreen(onNavigate: (String) -> Unit) {
                 )
             }
         }
-        if (enabled) {
-            item {
-                ToggleSetting(
-                    R.string.plugins_auto_disable_title,
-                    stringResource(R.string.plugins_auto_disable_subtitle),
-                    autoDisable,
-                    info = stringResource(R.string.plugins_auto_disable_info),
-                    default = true,
-                ) { store.setAutoDisableOnAbandon(it) }
-            }
+        item(visible = enabled, level = SettingLevel.STANDARD) {
+            ToggleSetting(
+                R.string.plugins_auto_disable_title,
+                stringResource(R.string.plugins_auto_disable_subtitle),
+                autoDisable,
+                info = stringResource(R.string.plugins_auto_disable_info),
+                default = true,
+            ) { store.setAutoDisableOnAbandon(it) }
         }
     }
 
     SettingsGroup(
         stringResource(R.string.plugins_facts_title),
         info = stringResource(R.string.plugins_facts_info),
+        level = SettingLevel.STANDARD,
     ) {
         item { PluginFact(stringResource(R.string.plugins_fact_no_typing), allowed = false) }
         item { PluginFact(stringResource(R.string.plugins_fact_no_field), allowed = false) }
@@ -121,6 +135,21 @@ internal fun PluginsScreen(onNavigate: (String) -> Unit) {
         item { PluginFact(stringResource(R.string.plugins_fact_no_internet), allowed = false) }
         item { PluginFact(stringResource(R.string.plugins_fact_own_panel), allowed = true) }
         item { PluginFact(stringResource(R.string.plugins_fact_own_storage), allowed = true) }
+        item { PluginFact(stringResource(R.string.plugins_fact_reminders), allowed = true) }
+    }
+
+    // Outside the master switch on purpose: writing and previewing a plugin runs
+    // nothing in the keyboard, and a plugin can be written before plugins are on.
+    SettingsGroup(stringResource(R.string.plugin_ide_group_title), level = SettingLevel.ADVANCED) {
+        item {
+            WmRow(
+                title = stringResource(R.string.plugin_ide_entry_title),
+                icon = SettingsRowIcons[R.string.plugin_ide_entry_title],
+                subtitle = stringResource(R.string.plugin_ide_entry_subtitle),
+                trailing = { Icon(Icons.AutoMirrored.Outlined.ArrowForward, contentDescription = null) },
+                onClick = { onNavigate("plugin_ide") },
+            )
+        }
     }
 
     if (enabled) {
@@ -129,7 +158,7 @@ internal fun PluginsScreen(onNavigate: (String) -> Unit) {
                 item { CaptionText(stringResource(R.string.plugins_installed_empty)) }
             } else {
                 for (plugin in plugins) {
-                    item {
+                    item(key = plugin.id) {
                         val subtitle = when {
                             plugin.author.isNotBlank() && !plugin.enabled -> stringResource(
                                 R.string.plugins_row_version_author_off,
@@ -177,6 +206,7 @@ internal fun PluginsScreen(onNavigate: (String) -> Unit) {
             item {
                 WmRow(
                     title = stringResource(R.string.plugins_install_file_title),
+                    icon = SettingsRowIcons[R.string.plugins_install_file_title],
                     subtitle = stringResource(R.string.plugins_install_file_subtitle),
                     onClick = { picker.launch(PluginFile.IMPORT_MIME_TYPES) },
                 )
@@ -231,13 +261,15 @@ private fun PluginFact(text: String, allowed: Boolean) {
 
 /** One plugin: what it may do, what it has stored, its log, and how to remove it. */
 @Composable
-internal fun PluginDetailScreen(pluginId: String, onBack: () -> Unit) {
+internal fun PluginDetailScreen(pluginId: String, onNavigate: (String) -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
     val store = remember { PluginStore.get(context) }
     val revision by store.revision.collectAsStateWithLifecycle()
     val plugin = remember(revision) { store.plugin(pluginId) }
     var refresh by remember { mutableIntStateOf(0) }
     var confirmUninstall by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val editError = stringResource(R.string.plugin_ide_edit_error)
 
     if (plugin == null) {
         Column { CaptionText(stringResource(R.string.plugins_detail_missing)) }
@@ -267,18 +299,47 @@ internal fun PluginDetailScreen(pluginId: String, onBack: () -> Unit) {
             )
         }
         item {
-            WmRow(
-                title = stringResource(R.string.plugins_detail_enabled_title),
-                subtitle = if (plugin.abandonedCount >= PluginStore.MAX_ABANDONS) {
-                    stringResource(R.string.plugins_detail_stopped_subtitle)
-                } else {
-                    stringResource(R.string.plugins_detail_enabled_subtitle)
+            // This screen is a deep-link route of its own, so it can be
+            // reached while the "Allow plugins" master switch is off — and
+            // with it off nothing here runs. Greyed rather than gone: it is
+            // the page's only state control, and a page with no switch at all
+            // would say less than a switch that says why it cannot be moved.
+            val subsystemOn = remember(revision) { store.subsystemEnabled() }
+            // No `default`: an installed plugin is not a shipped setting, so
+            // there is no value to reset the switch to.
+            ToggleSetting(
+                R.string.plugins_detail_enabled_title,
+                subtitle = when {
+                    !subsystemOn -> stringResource(R.string.plugins_detail_subsystem_off_subtitle)
+                    plugin.abandonedCount >= PluginStore.MAX_ABANDONS ->
+                        stringResource(R.string.plugins_detail_stopped_subtitle)
+                    else -> stringResource(R.string.plugins_detail_enabled_subtitle)
                 },
-                trailing = {
-                    Switch(
-                        checked = plugin.enabled,
-                        onCheckedChange = { store.setEnabled(pluginId, it) },
-                    )
+                checked = plugin.enabled,
+                enabled = subsystemOn,
+                disabledReason = rememberDisabledReason(
+                    stringResource(R.string.plugins_detail_subsystem_off_subtitle),
+                    R.string.plugins_allow_title,
+                ),
+            ) { store.setEnabled(pluginId, it) }
+        }
+        item(level = SettingLevel.ADVANCED) {
+            WmRow(
+                title = stringResource(R.string.plugin_ide_edit_title),
+                icon = SettingsRowIcons[R.string.plugin_ide_edit_title],
+                subtitle = stringResource(R.string.plugin_ide_edit_subtitle),
+                trailing = { Icon(Icons.AutoMirrored.Outlined.ArrowForward, contentDescription = null) },
+                onClick = {
+                    scope.launch {
+                        val draftId = withContext(Dispatchers.IO) {
+                            draftForInstalled(PluginWorkspace.get(context), store, pluginId)
+                        }
+                        if (draftId != null) {
+                            onNavigate("plugin_ide/$draftId")
+                        } else {
+                            android.widget.Toast.makeText(context, editError, android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    }
                 },
             )
         }
@@ -301,7 +362,7 @@ internal fun PluginDetailScreen(pluginId: String, onBack: () -> Unit) {
         }
     }
 
-    SettingsGroup(stringResource(R.string.plugins_storage_title)) {
+    SettingsGroup(stringResource(R.string.plugins_storage_title), level = SettingLevel.STANDARD) {
         item {
             WmRow(
                 title = stringResource(
@@ -319,10 +380,15 @@ internal fun PluginDetailScreen(pluginId: String, onBack: () -> Unit) {
         }
     }
 
+    if (plugin.grants(PluginPermission.Reminders)) {
+        PluginRemindersGroup(PluginReminders(store.remindersFile(pluginId)) { PluginReminderAlarms.requestRearm(context) })
+    }
+
     if (log.isNotEmpty()) {
         SettingsGroup(
             stringResource(R.string.plugins_log_title),
             info = stringResource(R.string.plugins_log_info),
+            level = SettingLevel.ADVANCED,
         ) {
             for (line in log.takeLast(LOG_LINES)) {
                 item {
@@ -372,6 +438,54 @@ internal fun PluginDetailScreen(pluginId: String, onBack: () -> Unit) {
 
 /** Log lines shown before the list is more scrolling than reading. */
 private const val LOG_LINES = 40
+
+/**
+ * The reminders a plugin has set and not yet shown, each with its time, and a
+ * way to cancel them all. A notification from a plugin opens this page, so it
+ * is also where the user stops one that has become a nuisance.
+ *
+ * Says so when the app may not post notifications, since that is the one thing
+ * here the keyboard cannot fix by itself: an input method has no screen to ask
+ * for the permission from.
+ */
+@Composable
+private fun PluginRemindersGroup(reminders: PluginReminders) {
+    val context = LocalContext.current
+    var refresh by remember { mutableIntStateOf(0) }
+    var canPost by remember { mutableStateOf(WmNotifications.canPost(context)) }
+    val pending = remember(refresh) { reminders.list() }
+    val askPermission = rememberNotificationPermissionRequest { canPost = WmNotifications.canPost(context) }
+    val format = remember { java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT) }
+
+    SettingsGroup(
+        stringResource(R.string.plugins_reminders_title),
+        info = stringResource(R.string.plugins_reminders_info),
+    ) {
+        if (!canPost) {
+            item {
+                WmRow(
+                    title = stringResource(R.string.plugins_reminders_blocked_title),
+                    subtitle = stringResource(R.string.plugins_reminders_blocked_subtitle),
+                    onClick = askPermission,
+                )
+            }
+        }
+        if (pending.isEmpty()) {
+            item { CaptionText(stringResource(R.string.plugins_reminders_empty)) }
+        } else {
+            for (reminder in pending) {
+                item(key = "reminder:${reminder.id}") {
+                    WmRow(title = reminder.text, subtitle = format.format(java.util.Date(reminder.at)))
+                }
+            }
+            item {
+                TextButton(onClick = { reminders.clear(); refresh++ }) {
+                    Text(stringResource(R.string.plugins_reminders_cancel_all_action))
+                }
+            }
+        }
+    }
+}
 
 /**
  * Confirms installing a picked `.wmplugin`, showing what it claims to be and

@@ -73,16 +73,7 @@ class GlideRerankOracleTest {
     private fun realSeeds(): SeedBigrams = seedFile().inputStream().use { SeedBigrams.load(it) }
 
     /** Every (prev, next) the seed list knows, lowercased. */
-    private fun seedPairs(): List<Pair<String, String>> {
-        val out = ArrayList<Pair<String, String>>()
-        seedFile().forEachLine { line ->
-            val trimmed = line.trim()
-            if (trimmed.isEmpty() || trimmed.startsWith("#")) return@forEachLine
-            val parts = trimmed.split(Regex("\\s+"))
-            if (parts.size >= 2) out.add(parts[0].lowercase() to parts[1].lowercase())
-        }
-        return out
-    }
+    private fun seedPairs(): List<Pair<String, String>> = realSeeds().wordPairs
 
     private class Setup(entries: List<Pair<String, Int>>, private val seeds: SeedBigrams) {
         val lexicon = UserLexicon(null)
@@ -112,7 +103,8 @@ class GlideRerankOracleTest {
         var oracleHits = 0
         var total = 0
         for (noise in SwipeCorpus.Noise.entries) {
-            val cases = SwipeCorpus(SEED).generate(entries, noise, CASES_PER_LEVEL)
+            // From the pinned list when one is set (#837); see EvalSampling.
+            val cases = SwipeCorpus(SEED).generate(EvalSampling.entries(entries), noise, CASES_PER_LEVEL)
 
             setup.withNone()
             val baseRanks = cases.map { case -> rankOf(setup, keys, case.path, case.intended, null) }

@@ -24,18 +24,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.wasimaster.wmkeyboard.R
-import com.wasimaster.wmkeyboard.core.settings.KeyboardSettings
 import com.wasimaster.wmkeyboard.core.settings.OnboardingSettings
+import com.wasimaster.wmkeyboard.core.settings.Extension
 import com.wasimaster.wmkeyboard.core.settings.PersonaDepth
+import com.wasimaster.wmkeyboard.core.settings.settingsDepth
 import com.wasimaster.wmkeyboard.core.settings.PersonaLanguages
-import com.wasimaster.wmkeyboard.core.settings.PersonaPrivacy
 import com.wasimaster.wmkeyboard.core.settings.SettingsRepository
 import com.wasimaster.wmkeyboard.core.settings.isSupportedTool
 import com.wasimaster.wmkeyboard.core.util.PlayServices
 import kotlinx.coroutines.launch
 
 /**
- * The persona quiz. Three questions whose answers trim the rest of the wizard
+ * The persona quiz. Two questions whose answers trim the rest of the wizard
  * and, on a fresh run, apply a matching batch of defaults on the spot (the
  * option subtitles say exactly what). On a replay only the stored answers
  * change: re-gating pages is fine, silently rewriting settings is not.
@@ -43,15 +43,13 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun PersonaPage(
     repository: SettingsRepository,
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     replay: Boolean,
     onToolsSeeded: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    val persona = settings.onboarding
-    // Recomputed from the answers as a whole after each one, since the depth
-    // answer picks the set and the privacy answer adds to it — see
-    // [starterTools]. Held here so both call sites read the same device facts.
+    val persona = settings.watch { it.onboarding }
+    // Held here so every answer reads the same device facts.
     val playServices = remember { PlayServices.available }
     val applyTools: suspend (OnboardingSettings) -> Unit = { next ->
         starterTools(next, playServices, ::isSupportedTool)?.let { repository.setEnabledTools(it) }
@@ -80,10 +78,11 @@ internal fun PersonaPage(
     }
     // Grows out of the answer it belongs to rather than snapping in and
     // shoving the questions below it down a notch.
+    val reduceMotion = settings.watch { it.reduceMotion }
     AnimatedVisibility(
         visible = persona.personaLanguages == PersonaLanguages.MANY,
-        enter = onboardingRevealEnter(settings.reduceMotion),
-        exit = onboardingRevealExit(settings.reduceMotion),
+        enter = onboardingRevealEnter(reduceMotion),
+        exit = onboardingRevealExit(reduceMotion),
     ) {
         OnboardingNotice(stringResource(R.string.onboarding_persona_many_notice))
     }
@@ -112,10 +111,16 @@ internal fun PersonaPage(
             subtitle = stringResource(subtitleRes),
             selected = persona.personaDepth == depth,
         ) {
+            val answered = settings.value.onboarding
             scope.launch {
                 repository.setPersonaDepth(depth)
                 if (!replay) {
-                    applyTools(persona.copy(personaDepth = depth))
+                    applyTools(answered.copy(personaDepth = depth))
+                    // The depth also decides which feature bundles start on
+                    // (Extensions): a handful for "keep it simple", all of
+                    // them for "show me everything". A default, not a
+                    // choice, so no master switch moves with it.
+                    repository.setExtensions(Extension.defaultsFor(depth.settingsDepth()))
                     // The answer just landed a tool set; the tools page must
                     // not seed its own over it.
                     onToolsSeeded()
@@ -124,32 +129,6 @@ internal fun PersonaPage(
         }
     }
 
-    OnboardingSectionTitle(stringResource(R.string.onboarding_persona_q_privacy))
-    PersonaOption(
-        title = stringResource(R.string.onboarding_persona_privacy_standard_title),
-        subtitle = stringResource(R.string.onboarding_persona_privacy_standard_subtitle),
-        selected = persona.personaPrivacy == PersonaPrivacy.STANDARD,
-    ) {
-        scope.launch {
-            repository.setPersonaPrivacy(PersonaPrivacy.STANDARD)
-            // Answered after "extra strict" and then changed back: the set
-            // still has incognito in it, so recompute rather than leave it.
-            if (!replay) applyTools(persona.copy(personaPrivacy = PersonaPrivacy.STANDARD))
-        }
-    }
-    PersonaOption(
-        title = stringResource(R.string.onboarding_persona_privacy_strict_title),
-        subtitle = stringResource(R.string.onboarding_persona_privacy_strict_subtitle),
-        selected = persona.personaPrivacy == PersonaPrivacy.STRICT,
-    ) {
-        scope.launch {
-            repository.setPersonaPrivacy(PersonaPrivacy.STRICT)
-            if (!replay) {
-                applyPresets(repository, presetsFor(PersonaPrivacy.STRICT))
-                applyTools(persona.copy(personaPrivacy = PersonaPrivacy.STRICT))
-            }
-        }
-    }
     Spacer(Modifier.height(8.dp))
 }
 
@@ -161,9 +140,6 @@ private suspend fun applyPresets(repository: SettingsRepository, writes: List<Pr
             repository.setSpaceLongSwipe(write.long)
         }
         is PresetWrite.GlobeAsEmoji -> repository.setGlobeAsEmoji(write.value)
-        is PresetWrite.LearnFromTyping -> repository.setLearnFromTyping(write.value)
-        is PresetWrite.ClipboardHistory -> repository.setClipboardHistory(write.value)
-        is PresetWrite.TypingStats -> repository.setTypingStatsEnabled(write.value)
     }
 }
 

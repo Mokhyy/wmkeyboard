@@ -31,6 +31,14 @@ import com.wasimaster.wmkeyboard.core.prediction.WordContext
  * conversion composer sets [Composer.isTransliterating] too, so the one term
  * covers both.
  *
+ * That is what [Composer.resumesComposedText] asks, and Vietnamese Telex and VNI
+ * are the transliterators that answer yes: their output is a pure function of
+ * their keystrokes, so the word read out of the field can be spelled back into
+ * the keys that would compose it ([Composer.resumeBuffer]) and edited on. The
+ * resume itself declines per word when that spelling does not survive the round
+ * trip, so this stays the cheap gate it was — one field read is still only paid
+ * for a layout that may use it.
+ *
  * Everything that types its own script qualifies — Latin, Cyrillic, Greek,
  * Arabic, Hebrew, and the cluster-shaping layouts (Probhat, Jatiya, the fixed
  * Devanagari/Tamil/… ones). Bengali typed on Probhat is Bengali in the field and
@@ -47,7 +55,38 @@ import com.wasimaster.wmkeyboard.core.prediction.WordContext
  * complete from the same sources English does.
  */
 internal fun composingResumable(composer: Composer, hasWordSources: Boolean): Boolean =
-    hasWordSources && !composer.isTransliterating
+    hasWordSources && composer.resumesComposedText
+
+/**
+ * The word a language switch mid-word may hand to a transliterating layout as
+ * its roman buffer (#522), or null when [word] is not one it could have typed.
+ *
+ * Roman letters only. A buffer with a digit, an apostrophe or a hyphen in it is
+ * not a spelling any of the phonetic schemes takes, and a word read back out of
+ * the field could hold anything; letting one through would compose the
+ * transliterator's reading of characters it has no rule for.
+ *
+ * Lowercased, because the case says nothing about what the user meant. Avro and
+ * Hindi phonetic both spell the retroflexes and aspirates with capitals — `T`
+ * is ট — so carrying "Tu" as typed would transliterate a capital the keyboard
+ * armed itself at a sentence start, or one the user pressed for an English
+ * word, into a different consonant. Neither script has case of its own, so
+ * nothing is lost by dropping it.
+ */
+internal fun carriedRomanWord(word: String): String? {
+    if (word.isEmpty() || word.length > CARRIED_WORD_MAX) return null
+    if (!word.all { it in 'a'..'z' || it in 'A'..'Z' }) return null
+    return word.lowercase()
+}
+
+/**
+ * How long a word may be and still carry across a language switch. A run of
+ * letters longer than this behind the caret is not a word someone is in the
+ * middle of typing — it is a URL, a token, or an editor that handed back more
+ * than was asked for — and transliterating it would rewrite text the user never
+ * meant to convert.
+ */
+internal const val CARRIED_WORD_MAX = 32
 
 /**
  * Whether [c] is part of the word the composing buffer holds.
@@ -59,14 +98,16 @@ internal fun composingResumable(composer: Composer, hasWordSources: Boolean): Bo
  * accept it hands back only the tail past the last mark. Devanagari matras,
  * Tamil and Thai vowel signs, Arabic harakat and Hebrew niqqud spell words the
  * same way. Same rule the prediction stores already use for the same reason
- * ([WordContext.isWordChar]), plus the apostrophe that lives inside English
- * contractions.
+ * ([WordContext.isWordChar]), plus the apostrophe that lives inside a word —
+ * every character that spells one, not the ASCII one alone, since the field
+ * is read back from whatever put text in it ([WordContext.isApostrophe]).
  *
  * Digits are deliberately absent. They can *enter* a buffer as a number-row slip
  * ("as3" → "ase"), but a word span read back out of the field must not swallow
  * the "2" of "level 2".
  */
-internal fun isComposingWordChar(c: Char): Boolean = WordContext.isWordChar(c) || c == '\''
+internal fun isComposingWordChar(c: Char): Boolean =
+    WordContext.isWordChar(c) || WordContext.isApostrophe(c)
 
 /**
  * Whether the character *after* the caret continues the word behind it — the
@@ -93,8 +134,37 @@ internal fun continuesWordAhead(c: Char): Boolean = c.isDigit() || WordContext.i
 internal fun resumableWordAt(before: CharSequence?, after: CharSequence?): String? {
     if (before.isNullOrEmpty() || !isComposingWordChar(before.last())) return null
     if (!after.isNullOrEmpty() && continuesWordAhead(after[0])) return null
-    return before.toString().takeLastWhile { isComposingWordChar(it) }.ifEmpty { null }
+    var start = before.length
+    while (start > 0) {
+        val c = before[start - 1]
+        start = when {
+            isComposingWordChar(c) -> start - 1
+            // A hyphen with a word character on both sides is inside the word,
+            // the same as the buffer holds it ([joinsComposingWord]): the caret
+            // after "well-paid" resumes all of it, and the strip completes and
+            // corrects the compound rather than its last half.
+            c == COMPOUND_HYPHEN && start >= 2 && isComposingWordChar(before[start - 2]) -> start - 1
+            else -> break
+        }
+    }
+    return before.subSequence(start, before.length).toString().ifEmpty { null }
 }
+
+/** The hyphen a compound is spelled with: `well-paid`, `что-то`, `e-mail`. */
+internal const val COMPOUND_HYPHEN = '-'
+
+/**
+ * Whether a typed [c] extends the word being composed, [buffer], rather than
+ * ending it — a hyphen straight after a letter, the way AOSP's keyboard treats
+ * it as a word connector.
+ *
+ * Without it the hyphen committed the word in front of it and the part after
+ * it composed on its own, so "well-pai" completed to "paid" and never to
+ * "well-paid", and "что-" could not go on to "что-то". A second hyphen in a row
+ * is a dash being typed, not a compound, and ends the word as before.
+ */
+internal fun joinsComposingWord(c: Char, buffer: CharSequence): Boolean =
+    c == COMPOUND_HYPHEN && buffer.isNotEmpty() && isComposingWordChar(buffer[buffer.length - 1])
 
 /**
  * The word a caret sitting between [before] and [after] is *inside*, split at

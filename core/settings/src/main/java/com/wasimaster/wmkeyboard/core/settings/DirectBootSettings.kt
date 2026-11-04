@@ -44,16 +44,18 @@ fun KeyboardSettings.restrictedToDirectBoot(): KeyboardSettings {
         // is a whole directory of them. Unlike the fonts there is no per-glyph
         // fallback to hide it — the style would simply make no sound — so both
         // drop back to the system click.
-        keySoundStyle = if (keySoundStyle == KeySoundStyle.CUSTOM || keySoundStyle == KeySoundStyle.PACK) {
-            KeySoundStyle.CLICK
+        sound = if (sound.style == KeySoundStyle.CUSTOM || sound.style == KeySoundStyle.PACK) {
+            sound.copy(style = KeySoundStyle.CLICK)
         } else {
-            keySoundStyle
+            sound
         },
         // Contacts, contact e-mails and the installed-app list all come from
         // providers that need the user's credential.
-        contactSuggestions = false,
-        contactEmailSuggestions = false,
-        appNameSuggestions = false,
+        suggestionSources = suggestionSources.copy(
+            contacts = false,
+            contactEmails = false,
+            appNames = false,
+        ),
         // Android's shared personal dictionary is credential-encrypted too, and
         // nothing typed on a lock screen should be learned anywhere regardless.
         addWordsToSystemDictionary = false,
@@ -83,13 +85,31 @@ fun KeyboardSettings.restrictedToDirectBoot(): KeyboardSettings {
         // *content* — a chip printing a code out of one would put on the
         // keyboard exactly what the shade is redacting.
         otp = otp.copy(enabled = false),
+        // The device's key and its paired computers' certificates are under
+        // filesDir; and a computer typing into a lock screen, or reading what
+        // was copied behind one, is not something a pairing should reach.
+        kdeConnect = kdeConnect.copy(enabled = false),
         // Every selection macro that hands the text to another app starts an
-        // activity, and nothing can be started before the first unlock. The row
-        // itself stays: copying and the case ladder only touch the field the
-        // user is already typing in, which is exactly what still works here.
+        // activity, and nothing can be started before the first unlock; a
+        // paste reads a clipboard that is behind the lock, and reading aloud
+        // binds a speech engine, which is another app. The row itself stays:
+        // copying, the case ladder and the rest only touch the field the user
+        // is already typing in, which is exactly what still works here.
         selectionMacros = selectionMacros.copy(
-            macros = selectionMacros.macros.filterNotTo(mutableSetOf()) { it.leavesApp },
+            macros = selectionMacros.macros.filterTo(mutableSetOf()) { it.directBootSafe },
         ),
+        // RIME's schemas and the user dictionary it learns into are under
+        // filesDir, so Chinese types through the built-in engine until unlock
+        // (whose own downloaded dictionaries are behind the lock as well).
+        // Mozc's dictionary and what it learns are there too.
+        cjk = cjk.copy(rimeLanguages = emptySet(), mozcJapanese = false),
+        // Emoji mixes read each source's index and pack from filesDir. Loaded
+        // here they came up empty, and the keyboard kept that empty load for
+        // the same list of sources after the unlock: mixes stayed gone after
+        // a restart until a source was switched off and on (Telegram, 5048).
+        // With no sources the keyboard loads nothing, and the unlocked
+        // settings bring the list back as a change it has to read.
+        emoji = emoji.copy(mix = emoji.mix.copy(sources = emptyList())),
     )
 }
 

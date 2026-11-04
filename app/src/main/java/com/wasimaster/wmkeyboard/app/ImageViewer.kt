@@ -13,7 +13,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -66,6 +66,8 @@ import com.wasimaster.wmkeyboard.ime.ui.rememberMediaImageLoader
 internal fun ImageViewerDialog(
     urls: List<String>,
     startIndex: Int,
+    /** What a screen reader calls each image; null reads them as numbered screenshots. */
+    description: String? = null,
     onDismiss: () -> Unit,
 ) {
     if (urls.isEmpty()) return
@@ -113,7 +115,7 @@ internal fun ImageViewerDialog(
             ) { page ->
                 AsyncImage(
                     model = urls[page],
-                    contentDescription = stringResource(
+                    contentDescription = description ?: stringResource(
                         R.string.shell_image_viewer_page_desc,
                         page + 1,
                         urls.size,

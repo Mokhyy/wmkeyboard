@@ -63,11 +63,27 @@ object IconSlots {
     const val KEY_SHIFT = "key.shift"
     const val KEY_SHIFT_ON = "key.shift_on"
     const val KEY_SHIFT_LOCK = "key.shift_lock"
+
+    /**
+     * The dedicated Caps Lock key a tablet board adds. Its own slot rather than
+     * [KEY_SHIFT_LOCK]: that one is the shift key's face while caps lock is on,
+     * and the two keys sit on the same board.
+     */
+    const val KEY_CAPS_LOCK = "key.caps_lock"
     const val KEY_BACKSPACE = "key.backspace"
     const val KEY_FORWARD_DELETE = "key.forward_delete"
     const val KEY_GLOBE = "key.globe"
     const val KEY_INPUT_METHOD_PICKER = "key.input_method_picker"
     const val KEY_EMOJI = "key.emoji"
+
+    /** The four keys of the arrow row under the keyboard (#369, slots per #504). */
+    const val KEY_ARROW_LEFT = "key.arrow_left"
+    const val KEY_ARROW_UP = "key.arrow_up"
+    const val KEY_ARROW_DOWN = "key.arrow_down"
+    const val KEY_ARROW_RIGHT = "key.arrow_right"
+
+    /** A key sending Tab: the tablet board's, or one built in the layout editor. */
+    const val KEY_TAB = "key.tab"
 
     /**
      * One per enter action the field can ask for. `EnterAction.CUSTOM` has no
@@ -90,6 +106,12 @@ object IconSlots {
     const val CHROME_EMOJI_SHORTCUT = "chrome.emoji_shortcut"
     const val CHROME_SEARCH_CLOSE = "chrome.search_close"
     const val CHROME_INCOGNITO = "chrome.incognito"
+    const val CHROME_POWER_SAVING = "chrome.power_saving"
+
+    /** The toolbar-only view's button for a physical keyboard (#642), each way. */
+    const val CHROME_SHOW_KEYS = "chrome.show_keys"
+    const val CHROME_HIDE_KEYS = "chrome.hide_keys"
+    const val CHROME_TOOLBOX_SEARCH = "chrome.toolbox_search"
 
     // ---- emoji tab slots ----
 
@@ -129,6 +151,7 @@ object IconSlots {
         IconSlot(KEY_SHIFT, IconSlotGroup.KEY, R.string.core_icons_slot_shift_label),
         IconSlot(KEY_SHIFT_ON, IconSlotGroup.KEY, R.string.core_icons_slot_shift_on_label),
         IconSlot(KEY_SHIFT_LOCK, IconSlotGroup.KEY, R.string.core_icons_slot_caps_lock_label),
+        IconSlot(KEY_CAPS_LOCK, IconSlotGroup.KEY, R.string.core_icons_slot_caps_lock_key_label),
         IconSlot(KEY_BACKSPACE, IconSlotGroup.KEY, R.string.core_icons_slot_backspace_label),
         IconSlot(KEY_FORWARD_DELETE, IconSlotGroup.KEY, R.string.core_icons_slot_forward_delete_label),
         IconSlot(KEY_ENTER, IconSlotGroup.KEY, R.string.core_icons_slot_enter_label),
@@ -145,6 +168,11 @@ object IconSlots {
             R.string.core_icons_slot_input_method_picker_label,
         ),
         IconSlot(KEY_EMOJI, IconSlotGroup.KEY, R.string.core_icons_slot_emoji_key_label),
+        IconSlot(KEY_ARROW_LEFT, IconSlotGroup.KEY, R.string.core_icons_slot_arrow_left_label),
+        IconSlot(KEY_ARROW_UP, IconSlotGroup.KEY, R.string.core_icons_slot_arrow_up_label),
+        IconSlot(KEY_ARROW_DOWN, IconSlotGroup.KEY, R.string.core_icons_slot_arrow_down_label),
+        IconSlot(KEY_ARROW_RIGHT, IconSlotGroup.KEY, R.string.core_icons_slot_arrow_right_label),
+        IconSlot(KEY_TAB, IconSlotGroup.KEY, R.string.core_icons_slot_tab_label),
     )
 
     private val chromeSlots: List<IconSlot> = listOf(
@@ -154,6 +182,10 @@ object IconSlots {
         IconSlot(CHROME_EMOJI_SHORTCUT, IconSlotGroup.CHROME, R.string.core_icons_slot_emoji_shortcut_label),
         IconSlot(CHROME_SEARCH_CLOSE, IconSlotGroup.CHROME, R.string.core_icons_slot_search_close_label),
         IconSlot(CHROME_INCOGNITO, IconSlotGroup.CHROME, R.string.core_icons_slot_incognito_label),
+        IconSlot(CHROME_POWER_SAVING, IconSlotGroup.CHROME, R.string.core_icons_slot_power_saving_label),
+        IconSlot(CHROME_SHOW_KEYS, IconSlotGroup.CHROME, R.string.core_icons_slot_show_keys_label),
+        IconSlot(CHROME_HIDE_KEYS, IconSlotGroup.CHROME, R.string.core_icons_slot_hide_keys_label),
+        IconSlot(CHROME_TOOLBOX_SEARCH, IconSlotGroup.CHROME, R.string.core_icons_slot_toolbox_search_label),
     )
 
     private val emojiTabSlots: List<IconSlot> = buildList {
@@ -200,4 +232,52 @@ object IconSlots {
             id.first() in 'a'..'z' &&
             ".." !in id &&
             id.all { it in 'a'..'z' || it in '0'..'9' || it == '.' || it == '_' }
+
+    // ---- variants ----
+
+    /**
+     * Joins a slot id to the name of one of its alternative looks: `tool.gif@text`
+     * is the `text` look of `tool.gif`.
+     *
+     * A pack ships a variant as a file of that name (`icons/tool.gif@text.svg`)
+     * and lists the same key in its `slots`, so the variant rides every bit of
+     * machinery a slot's own icon does — the store, the export, the reconcile
+     * sweep — with no second list to keep in step. Neither half can contain the
+     * separator, so the split is never ambiguous.
+     */
+    const val VARIANT_SEPARATOR = '@'
+
+    fun variantKey(slot: String, variant: String): String = "$slot$VARIANT_SEPARATOR$variant"
+
+    /** The slot half of a pack key: `tool.gif@text` → `tool.gif`, and a plain slot id is itself. */
+    fun slotOf(key: String): String = key.substringBefore(VARIANT_SEPARATOR)
+
+    /** The variant half of a pack key, or null when the key is a slot's own icon. */
+    fun variantOf(key: String): String? {
+        val at = key.indexOf(VARIANT_SEPARATOR)
+        return if (at < 0) null else key.substring(at + 1)
+    }
+
+    /**
+     * Whether [name] may name a variant: lowercase letters, digits and `_`,
+     * starting with a letter, at most 32 long. No `.` at all, so a variant can
+     * never smuggle a path segment into the file name it becomes.
+     */
+    fun isVariantNameWellFormed(name: String): Boolean =
+        name.isNotEmpty() &&
+            name.length <= 32 &&
+            name.first() in 'a'..'z' &&
+            name.all { it in 'a'..'z' || it in '0'..'9' || it == '_' }
+
+    /**
+     * Whether a pack may hold [key]: a slot this version knows, alone or with a
+     * well-formed variant name after [VARIANT_SEPARATOR]. The check every key
+     * arriving from a pack goes through before it becomes a file name.
+     */
+    fun isKnownKey(key: String): Boolean {
+        val slot = slotOf(key)
+        if (!isWellFormed(slot) || byId(slot) == null) return false
+        val variant = variantOf(key) ?: return true
+        return isVariantNameWellFormed(variant)
+    }
 }

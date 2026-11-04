@@ -55,6 +55,29 @@ class PredictionLatencyBench {
          */
         const val SUGGEST_P50_CEILING_MS = 5.0
         const val SUGGEST_P99_CEILING_MS = 25.0
+
+        /**
+         * The octopus (discussion #102) asked separately from `suggest`,
+         * because a board with the feature off must not pay for it and dense
+         * mode's fan-out must not sit under `suggest`'s own ceiling.
+         *
+         * Baseline 2026-09-08, same desktop JVM, measured back to back:
+         * ```
+         * octopus keystroke (deep suggest + keys)  p50 0.82ms   p99 1.79ms
+         * strip alone, feature off                 p50 0.71ms   p99 1.25ms
+         * octopus dense                            p50 0.62ms   p99 1.28ms
+         * ```
+         * About a tenth of a millisecond per keystroke for the whole feature.
+         * The deeper `suggest` is most of it: the beam searches to
+         * `max(limit * 2, WALK_K)`, so asking for 24 words widens it from 32 to
+         * 48. The octopus's own half is nearly free — it reads a list the strip
+         * already had.
+         *
+         * Compare the two lines rather than either alone; a busy machine moves
+         * both together and only the gap between them is this feature's.
+         */
+        const val OCTOPUS_P50_CEILING_MS = 2.0
+        const val OCTOPUS_P99_CEILING_MS = 8.0
     }
 
     @get:Rule
@@ -119,6 +142,66 @@ class PredictionLatencyBench {
     }
 
     @Test
+    fun octopusStaysCheap() {
+        val entries = realEntries()
+        val engine = SuggestionEngine(
+            PackedTrie.of(entries),
+            BengaliPhoneticIndex(emptyList()),
+            UserLexicon(null),
+        )
+        val corpus = TypoCorpus(7L)
+        val cases = corpus.generate(entries, 200)
+        // A 1:1 Latin board: every letter is its own key.
+        val keyOf: (Int) -> Int = { it }
+
+        // The production shape. With the octopus on, the service asks suggest
+        // for a deeper list than the strip shows — the keys have room for more
+        // words, and several ranked words want the same key — then hands that
+        // list over. Both halves are measured together because that is what one
+        // keystroke now costs.
+        val deepNs = measure("octopus sparse warm") { i ->
+            val typed = cases[i % cases.size].typed
+            val deep = engine.suggest(typed, previousWord = null, limit = 24)
+            engine.octopusWords(typed, previousWord = null, limit = 6, pool = deep, keyOf = keyOf)
+        }
+        // The strip alone, for the difference: this is what the same keystroke
+        // costs with the feature off.
+        val stripNs = measure("strip alone") { i ->
+            engine.suggest(cases[i % cases.size].typed, previousWord = null)
+        }
+        val warmNs = deepNs
+        val coldNs = stripNs
+        val denseNs = measure("octopus dense") { i ->
+            val typed = cases[i % cases.size].typed
+            val deep = engine.suggest(typed, previousWord = null, limit = 24)
+            engine.octopusWords(
+                typed, previousWord = null, limit = 26, dense = true, pool = deep, keyOf = keyOf,
+            )
+        }
+
+        report("octopus keystroke (deep suggest + keys)", warmNs)
+        report("strip alone, feature off", coldNs)
+        report("octopus dense", denseNs)
+
+        if (System.getProperty("wmkeyboard.benchAssert") != "false") {
+            for ((name, samples) in listOf(
+                "keystroke" to warmNs, "strip alone" to coldNs, "dense" to denseNs,
+            )) {
+                val p50 = percentile(samples, 50.0) / 1e6
+                val p99 = percentile(samples, 99.0) / 1e6
+                assertTrue(
+                    "octopus $name P50 ${p50}ms above ceiling $OCTOPUS_P50_CEILING_MS",
+                    p50 < OCTOPUS_P50_CEILING_MS,
+                )
+                assertTrue(
+                    "octopus $name P99 ${p99}ms above ceiling $OCTOPUS_P99_CEILING_MS",
+                    p99 < OCTOPUS_P99_CEILING_MS,
+                )
+            }
+        }
+    }
+
+    @Test
     fun suggestionHotPathStaysFast() {
         val entries = realEntries()
         val engine = SuggestionEngine(
@@ -162,6 +245,7 @@ class PredictionLatencyBench {
         }
     }
 
+    @Suppress("UnusedParameter")
     private inline fun measure(name: String, op: (Int) -> Any?): LongArray {
         repeat(WARMUP) { op(it) }
         val samples = LongArray(MEASURE)

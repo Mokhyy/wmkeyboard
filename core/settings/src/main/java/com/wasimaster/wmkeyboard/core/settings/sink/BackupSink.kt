@@ -47,13 +47,34 @@ enum class SinkError {
 
     /** Everything else. Assumed transient, so the next run tries again. */
     IO,
+
+    /**
+     * This process ran out of heap building or checking the file. Nothing is
+     * wrong with the destination, and the older backups were not touched.
+     */
+    OUT_OF_MEMORY,
+
+    /**
+     * The destination answered, and what it showed is not safe to write to: an
+     * SFTP server whose host key changed, a public Git repository, an SMB
+     * server that cannot encrypt when encryption is required. Not transient,
+     * and not a credential problem either.
+     */
+    UNSAFE,
 }
 
-/** The failure a [BackupSink] reports, carrying the [reason] the UI reads. */
-class BackupSinkException(
+/** The failure a [BackupSink] reports, carrying the [reason] the UI reads. Open for a sink's own detail. */
+open class BackupSinkException(
     val reason: SinkError,
     cause: Throwable? = null,
 ) : IOException(reason.name, cause)
+
+/** The reason a failed run reports for [failure], whichever part of the run threw it. */
+fun sinkErrorOf(failure: Throwable): SinkError = when {
+    failure is BackupSinkException -> failure.reason
+    generateSequence(failure) { it.cause }.take(4).any { it is OutOfMemoryError } -> SinkError.OUT_OF_MEMORY
+    else -> SinkError.IO
+}
 
 /**
  * Somewhere a backup file can be put, and taken back out again.
@@ -71,6 +92,14 @@ interface BackupSink {
 
     /** Stable id, stored with the run record so a changed destination shows up. */
     val id: String
+
+    /**
+     * Whether two files can share a name here, so writing a name again adds a
+     * file rather than replacing one. Only Google Drive does this. Sync
+     * rewrites one file per device and has to clear the older copies itself
+     * where this is true.
+     */
+    val allowsDuplicateNames: Boolean get() = false
 
     /**
      * Whether a [write] could succeed right now.

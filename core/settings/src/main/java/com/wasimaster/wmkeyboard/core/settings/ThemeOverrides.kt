@@ -1,5 +1,7 @@
 package com.wasimaster.wmkeyboard.core.settings
 
+import com.wasimaster.wmkeyboard.core.layout.PanelLayoutSpec
+import com.wasimaster.wmkeyboard.core.layout.resolveLayout
 import com.wasimaster.wmkeyboard.core.theme.DEFAULT_THEME_ID
 import com.wasimaster.wmkeyboard.core.theme.ThemeSpec
 import com.wasimaster.wmkeyboard.core.theme.findThemeSpec
@@ -136,16 +138,21 @@ fun KeyboardSettings.applyThemeOverrides(spec: ThemeSpec?): KeyboardSettings {
         spec.sidePadLeftScale == null && spec.sidePadRightScale == null &&
         spec.fontScale == null && spec.boldKeyLabels == null &&
         spec.hintFontScale == null && spec.gestureTrailWidthDp == null &&
-        spec.gestureTrailOpacity == null && spec.toolWidthDp == null
+        spec.gestureTrailOpacity == null && spec.toolWidthDp == null &&
+        spec.keyIcons.isEmpty()
     // Instance-stable in the no-override case: the caller remembers on the
     // result, and a fresh-but-equal copy per frame would defeat that.
     if (untouched) return this
     return copy(
+        // A theme's own key glyphs, which a Gboard theme is as likely to carry
+        // as a colour. The weakest icon layer: see [IconSettings.themeIcons].
+        icons = if (spec.keyIcons.isEmpty()) icons else icons.copy(themeIcons = spec.keyIcons),
         toolbarHeightDp = spec.toolbarHeightDp ?: toolbarHeightDp,
         keyHeightDp = spec.keyHeightDp ?: keyHeightDp,
         keyGapScale = spec.keyGapScale ?: keyGapScale,
         fontScale = spec.fontScale ?: fontScale,
-        boldKeyLabels = spec.boldKeyLabels ?: boldKeyLabels,
+        accessibility = spec.boldKeyLabels
+            ?.let { accessibility.copy(boldLabels = it) } ?: accessibility,
         toolbarBehavior = spec.toolWidthDp
             ?.let { toolbarBehavior.copy(toolWidthDp = it) } ?: toolbarBehavior,
         layoutBehavior = if (
@@ -173,4 +180,85 @@ fun KeyboardSettings.applyThemeOverrides(spec: ThemeSpec?): KeyboardSettings {
             gesture
         },
     )
+}
+
+/**
+ * The key sound a theme asks for — (style, sound id) — or null to follow the
+ * global sound setting.
+ *
+ * The single definition of that question. The service resolves it on every
+ * keystroke and the theme preview resolves it for its own fake board, and the
+ * two answering separately is what let a theme carrying a broken sound silence
+ * one of them and not the other.
+ *
+ * Null covers three shapes that all mean "this theme has no sound of its own":
+ * no [ThemeSpec.soundStyle] at all, a style name this build does not know (a
+ * theme written by a later one), and — the case worth spelling out —
+ * [KeySoundStyle.CUSTOM] or [KeySoundStyle.PACK] naming nothing.
+ *
+ * Those two styles are a *pointer* to something installed rather than a sound
+ * in their own right, so a theme that selects one without naming a target has
+ * asked for a sound that does not exist. Answering with it anyway is worse than
+ * useless: the theme beats the global setting, so every key on the board falls
+ * back to the system click while the sound the user picked in Settings sits
+ * there being ignored, with nothing on screen to say why. A theme that names
+ * nothing defers instead. See [ThemeSpec.soundCustomId], which has always
+ * promised exactly this.
+ */
+fun ThemeSpec.keySound(): Pair<KeySoundStyle, String>? {
+    val style = soundStyle
+        ?.let { wanted -> KeySoundStyle.entries.firstOrNull { it.name == wanted } }
+        ?: return null
+    val id = soundCustomId.orEmpty()
+    val needsTarget = style == KeySoundStyle.CUSTOM || style == KeySoundStyle.PACK
+    if (needsTarget && id.isBlank()) return null
+    return style to id
+}
+
+/**
+ * One place the keyboard draws in a theme other than the one picked under
+ * Keyboard themes (issue #806): a layout's own theme, one of its pages', one
+ * of its panel tabs', or a shared panel layout's.
+ *
+ * [layoutId] is null for a shared panel layout. [layerKey] is null for the
+ * layout as a whole; otherwise it is the layer's key, `panel_<kind>` for a
+ * panel tab.
+ */
+data class ThemePin(
+    val layoutId: String?,
+    val layoutName: String?,
+    val layerKey: String?,
+    val themeId: String,
+)
+
+/**
+ * Every [ThemePin] that changes what the keyboard draws: on the layouts the
+ * globe key cycles through, and on the shared panel layouts. A pin naming a
+ * theme this device does not have is left out, since [applyLayoutTheme]
+ * ignores it too; so is one naming the selected theme, unless the automatic
+ * pair is on, which a pin switches off for its grid.
+ *
+ * The theme editor's preview leaves these out on purpose (#779), so without
+ * this the screen that picks the theme and the keyboard can disagree with
+ * nothing saying why. Picking the built-in "Default (system)" in a panel's
+ * picker, read as "follow the default", was how #806 got there.
+ */
+fun KeyboardSettings.themePins(sharedPanels: List<PanelLayoutSpec>): List<ThemePin> {
+    fun counts(id: String?): Boolean = id != null &&
+        (id == DEFAULT_THEME_ID || findThemeSpec(id, customThemes) != null) &&
+        (autoTheme.enabled || id != keyboardThemeId)
+    val pins = mutableListOf<ThemePin>()
+    for (id in enabledLayoutIds.distinct()) {
+        val layout = resolveLayout(customLayouts, id)
+        if (counts(layout.themeId)) pins += ThemePin(layout.id, layout.name, null, layout.themeId!!)
+        for ((key, layer) in layout.layers.toSortedMap()) {
+            if (counts(layer.themeId)) pins += ThemePin(layout.id, layout.name, key, layer.themeId!!)
+        }
+    }
+    for (panel in sharedPanels) {
+        if (counts(panel.grid.themeId)) {
+            pins += ThemePin(null, null, panel.panel.layerKey, panel.grid.themeId!!)
+        }
+    }
+    return pins
 }

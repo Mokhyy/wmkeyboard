@@ -1,10 +1,14 @@
 package com.wasimaster.wmkeyboard.core.addons
 
+import com.wasimaster.wmkeyboard.core.integrity.IntegrityChecks
 import android.content.Context
 import android.os.StatFs
 import androidx.annotation.StringRes
 import com.wasimaster.wmkeyboard.addons.feature.R
+import com.wasimaster.wmkeyboard.core.netlog.NetLog
+import com.wasimaster.wmkeyboard.core.netlog.NetSource
 import com.wasimaster.wmkeyboard.core.tools.ToolHttp
+import com.wasimaster.wmkeyboard.core.share.RemixCredit
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
@@ -96,6 +100,12 @@ object AddonDownloadManager {
      */
     private const val PREVIEW_MAX_BYTES = 12L * 1024 * 1024
 
+    /**
+     * A Clink theme catalogue carries every theme whole, about 3.5 KB each, so
+     * the official one is already 600 KB; this leaves a fork room to grow.
+     */
+    private const val CLINK_MANIFEST_MAX_BYTES = 6L * 1024 * 1024
+
     /** A licence file longer than this is not a licence file. */
     private const val MAX_TEXT_BYTES = 256L * 1024
 
@@ -174,17 +184,55 @@ object AddonDownloadManager {
         cacheDir: File,
         store: AddonStore? = null,
     ): AddonRepoManifest? {
+        val text = downloadSmallText(manifestUrl, cacheDir, AddonRepoCodec.MAX_MANIFEST_BYTES)
+        val manifest = text?.let(AddonRepoCodec::decode)
+        if (text != null && manifest != null) {
+            store?.cacheManifest(manifestUrl, text)
+            return manifest
+        }
+        // A GitHub repository with no manifest of ours may be a Clink one. It
+        // is cached already converted, so the cache reads like any other.
+        val clink = fetchClinkManifest(manifestUrl, cacheDir) ?: return null
+        store?.cacheManifest(manifestUrl, clink.text)
+        return clink.manifest
+    }
+
+    private class Fetched(val manifest: AddonRepoManifest, val text: String)
+
+    /**
+     * The Clink catalogue of the GitHub repository [manifestUrl] points into,
+     * converted, or null when there is none. The theme gallery's preview index
+     * is read too when the repository holds themes, so the cards have pictures.
+     */
+    private fun fetchClinkManifest(manifestUrl: String, cacheDir: File): Fetched? {
+        val location = ClinkRepo.locate(manifestUrl) ?: return null
+        val text = downloadSmallText(location.releaseManifestUrl, cacheDir, CLINK_MANIFEST_MAX_BYTES) ?: return null
+        if (!ClinkRepo.looksLikeManifest(text)) return null
+        val previews = if (text.contains("\"themes\"")) {
+            ClinkRepo.previewIds(downloadSmallText(location.previewIndexUrl, cacheDir, AddonRepoCodec.MAX_MANIFEST_BYTES))
+        } else {
+            emptySet()
+        }
+        val converted = ClinkRepo.convert(text, location, previews) ?: return null
+        val encoded = ClinkRepo.encode(converted)
+        // Read back through the decoder, so a Clink entry passes the same
+        // filters every other repository's entries do.
+        val manifest = AddonRepoCodec.decode(encoded) ?: return null
+        return Fetched(manifest, encoded)
+    }
+
+    /** A small text file, or null on any failure. Blocking. */
+    private fun downloadSmallText(url: String, cacheDir: File, maxBytes: Long): String? {
         val temp = File(cacheDir, "manifest_${System.nanoTime()}.json")
         return try {
             ToolHttp.download(
-                url = manifestUrl,
+                url = url,
                 target = temp,
-                maxBytes = AddonRepoCodec.MAX_MANIFEST_BYTES,
+                maxBytes = maxBytes,
+                source = NetSource.ADDONS,
+                route = NetLog.pathOf(url),
             )
-            val text = temp.readText()
-            val manifest = AddonRepoCodec.decode(text) ?: return null
-            store?.cacheManifest(manifestUrl, text)
-            manifest
+            temp.readText()
         } catch (_: Exception) {
             null
         } finally {
@@ -215,7 +263,10 @@ object AddonDownloadManager {
         // exactly the sort of thing a metered connection notices.
         if (target.isFile && target.length() > 0) return target
         return try {
-            ToolHttp.download(url, target, maxBytes = minOf(entry.type.maxBytes, PREVIEW_MAX_BYTES))
+            ToolHttp.download(
+                url, target, maxBytes = minOf(entry.type.maxBytes, PREVIEW_MAX_BYTES),
+                source = NetSource.ADDONS, route = NetLog.pathOf(url),
+            )
             target.takeIf { it.length() > 0 }
         } catch (_: Exception) {
             target.delete()
@@ -228,7 +279,7 @@ object AddonDownloadManager {
         val url = AddonRepoCodec.resolveAsset(manifestUrl, path) ?: return null
         val temp = File(cacheDir, "addon_text_${System.nanoTime()}.txt")
         return try {
-            ToolHttp.download(url, temp, maxBytes = MAX_TEXT_BYTES)
+            ToolHttp.download(url, temp, maxBytes = MAX_TEXT_BYTES, source = NetSource.ADDONS, route = NetLog.pathOf(url))
             temp.readText().takeIf { it.isNotBlank() }
         } catch (_: Exception) {
             null
@@ -247,7 +298,8 @@ object AddonDownloadManager {
     fun refresh(store: AddonStore, repoId: String, manifest: AddonRepoManifest) {
         val installed = store.installed()
         _states.update { current ->
-            current + manifest.addons.associate { entry ->
+            // Every language of a localized addon is tracked on its own key.
+            current + manifest.addons.flatMap { it.variants }.associate { entry ->
                 val key = entry.key(repoId)
                 key to when {
                     key == activeKey && isBusy -> current[key] ?: AddonStatus.NotInstalled
@@ -407,7 +459,12 @@ object AddonDownloadManager {
                     AddonInstaller.uninstall(appContext, previous)
                 }
 
-                val outcome = AddonInstaller.install(appContext, entry, part)
+                val outcome = AddonInstaller.install(
+                    appContext,
+                    entry,
+                    part,
+                    RemixCredit(key, entry.name, entry.author),
+                )
 
                 when (outcome) {
                     is AddonInstaller.Outcome.Installed -> {
@@ -421,6 +478,7 @@ object AddonDownloadManager {
                             manifestUrl = manifestUrl,
                             description = entry.description,
                             author = entry.author,
+                            locale = entry.id.substringAfter(AddonLocalization.SEPARATOR, ""),
                         )
                         store.markInstalled(key, record)
                         val questionRes = AddonApply.questionRes(entry.type)
@@ -495,12 +553,14 @@ object AddonDownloadManager {
         part.parentFile?.mkdirs()
         val resumeFrom = if (part.exists()) part.length() else 0L
         val connection = URL(url).openConnection() as HttpURLConnection
+        val netCall = NetLog.call(NetSource.ADDONS, "GET", url, route = NetLog.pathOf(url))
         try {
             connection.connectTimeout = 20_000
             connection.readTimeout = 20_000
             connection.instanceFollowRedirects = true
             if (resumeFrom > 0) connection.setRequestProperty("Range", "bytes=$resumeFrom-")
 
+            netCall.status = connection.responseCode
             val status = connection.responseCode
             // A server that ignored the Range header sends 200 with the whole
             // file, so the partial we have is worthless and we start over.
@@ -521,7 +581,7 @@ object AddonDownloadManager {
             }
             val cap = entry.type.maxBytes
 
-            connection.inputStream.use { input ->
+            netCall.countIn(connection.inputStream).use { input ->
                 RandomAccessFile(part, "rw").use { output ->
                     output.setLength(already)
                     output.seek(already)
@@ -552,8 +612,12 @@ object AddonDownloadManager {
                     set(key, AddonStatus.Downloading(written, maxOf(total, written)))
                 }
             }
+        } catch (t: Throwable) {
+            netCall.fail(t)
+            throw t
         } finally {
             connection.disconnect()
+            netCall.end()
         }
     }
 
@@ -577,7 +641,7 @@ object AddonDownloadManager {
             }
         }
         val actual = digest.digest().joinToString("") { "%02x".format(it) }
-        if (actual != expected) {
+        if (!IntegrityChecks.accept(actual == expected, entry.id)) {
             throw FailedException(
                 FailReason.CHECKSUM,
                 AddonText.of(R.string.faddons_download_error_checksum),

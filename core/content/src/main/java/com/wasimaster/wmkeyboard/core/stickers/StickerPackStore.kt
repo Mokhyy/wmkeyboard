@@ -97,6 +97,13 @@ class StickerPackStore(private var baseDir: File?) {
         /** Staging directories an import is still filling; skipped by reconcile. */
         private const val STAGING_PREFIX = ".staging_"
 
+        /**
+         * How old a staging directory is before reconcile takes it for one a
+         * dead process left. An import stages a pack and waits on the user to
+         * pick from it (#965), which can take minutes, never a day.
+         */
+        private const val STALE_STAGING_MS = 24L * 60 * 60 * 1000
+
         /** Where the picture behind each sticker is kept, for a later edit. */
         const val ORIGINALS_DIR = ".originals"
 
@@ -242,14 +249,13 @@ class StickerPackStore(private var baseDir: File?) {
     }
 
     /**
-     * Local stickers as grid items. [query] matches the sticker's search words
-     * and the pack name case-insensitively; blank shows everything. [packId]
-     * limits the result to one pack (null = all packs, in pack order).
+     * Local stickers as grid items. [query] matches the sticker's title, its
+     * keywords and the pack name case-insensitively; blank shows everything.
+     * [packId] limits the result to one pack (null = all packs, in pack order).
      *
-     * Name and tags are matched as one line rather than field by field, so a
-     * query can span both — the editor shows them as one list of words, and
-     * an imported "grumpy cat" whose name is split across the two fields has
-     * to keep matching the phrase.
+     * Title and keywords are matched as one line rather than field by field,
+     * so a query can span both: a sticker saved by an older build as "grumpy"
+     * with the tag "cat" has to keep matching "grumpy cat".
      */
     @Synchronized
     fun searchAsGifItems(query: String, packId: String? = null): List<GifItem> {
@@ -261,23 +267,40 @@ class StickerPackStore(private var baseDir: File?) {
             val packMatches = needle.isEmpty() || pack.name.contains(needle, ignoreCase = true)
             for (sticker in pack.stickers) {
                 val matches = packMatches ||
-                    StickerSearchWords.haystack(sticker).contains(needle, ignoreCase = true)
+                    StickerKeywords.haystack(sticker).contains(needle, ignoreCase = true)
                 if (!matches) continue
-                // Paths are ours — hex ids under a pack_<millis> directory —
-                // so a plain file:// URL needs no escaping.
-                val url = "file://" + File(File(dir, pack.id), sticker.fileName).absolutePath
-                items += GifItem(
-                    id = itemId(pack.id, sticker.id),
-                    previewUrl = url,
-                    fullUrl = url,
-                    mime = sticker.mime,
-                    aspectRatio = sticker.aspectRatio,
-                    source = GifSource.LOCAL,
-                    title = sticker.name.ifBlank { pack.name },
-                )
+                items += gifItem(dir, pack, sticker)
             }
         }
         return items
+    }
+
+    /**
+     * [sticker] as a grid item, the way [searchAsGifItems] would list it, or
+     * null when the pack is gone or the store has no directory yet. For the
+     * stickers offered while typing (#329), which are found by
+     * [StickerTriggerIndex] rather than by a search.
+     */
+    @Synchronized
+    fun asGifItem(packId: String, sticker: CustomSticker): GifItem? {
+        val dir = baseDir ?: return null
+        val pack = packs.firstOrNull { it.id == packId } ?: return null
+        return gifItem(dir, pack, sticker)
+    }
+
+    private fun gifItem(dir: File, pack: StickerPack, sticker: CustomSticker): GifItem {
+        // Paths are ours — hex ids under a pack_<millis> directory — so a
+        // plain file:// URL needs no escaping.
+        val url = "file://" + File(File(dir, pack.id), sticker.fileName).absolutePath
+        return GifItem(
+            id = itemId(pack.id, sticker.id),
+            previewUrl = url,
+            fullUrl = url,
+            mime = sticker.mime,
+            aspectRatio = sticker.aspectRatio,
+            source = GifSource.LOCAL,
+            title = sticker.name.ifBlank { pack.name },
+        )
     }
 
     private fun itemId(packId: String, stickerId: String) = "$ITEM_PREFIX${packId}_$stickerId"
@@ -361,7 +384,7 @@ class StickerPackStore(private var baseDir: File?) {
         packId: String,
         processed: ProcessedSticker,
         name: String = "",
-        emojis: List<String> = emptyList(),
+        keywords: List<String> = emptyList(),
         now: Long = System.currentTimeMillis(),
         original: ByteArray? = null,
     ): StickerAddResult {
@@ -392,7 +415,7 @@ class StickerPackStore(private var baseDir: File?) {
             fileName = fileName,
             mime = processed.mime,
             name = name.trim(),
-            emojis = emojis,
+            keywords = keywords,
             animated = processed.animated,
             aspectRatio = processed.aspectRatio,
             addedAt = now,
@@ -416,12 +439,16 @@ class StickerPackStore(private var baseDir: File?) {
      * it is about to replace: an edit is destructive, and the state before it
      * is the best starting point still available. Later edits leave that first
      * original alone, so erasing a background twice cannot eat the photo.
+     *
+     * [original], when given, replaces the kept original outright: the editor
+     * passes the picture it upscaled, which is the sticker's source from then on.
      */
     @Synchronized
     fun replaceStickerImage(
         packId: String,
         stickerId: String,
         processed: ProcessedSticker,
+        original: ByteArray? = null,
     ): StickerAddResult {
         val index = packs.indexOfFirst { it.id == packId }
         if (index < 0) return StickerAddResult.PackMissing
@@ -430,7 +457,9 @@ class StickerPackStore(private var baseDir: File?) {
         if (at < 0) return StickerAddResult.PackMissing
         val dir = packDir(packId) ?: return StickerAddResult.WriteFailed
         val previous = stickers[at]
-        if (!previous.animated && originalFor(stickerId) == null) {
+        if (original != null) {
+            writeOriginal(stickerId, original)
+        } else if (!previous.animated && originalFor(stickerId) == null) {
             runCatching { File(dir, previous.fileName).readBytes() }
                 .getOrNull()
                 ?.let { writeOriginal(stickerId, it) }
@@ -475,14 +504,34 @@ class StickerPackStore(private var baseDir: File?) {
         save()
     }
 
+    /**
+     * Removes every sticker of [stickerIds] from [packId] in one go (#965),
+     * with one manifest write rather than one per sticker. Returns how many
+     * were removed.
+     */
     @Synchronized
-    fun updateSticker(packId: String, stickerId: String, name: String, emojis: List<String>) {
+    fun removeStickers(packId: String, stickerIds: Set<String>): Int {
+        val index = packs.indexOfFirst { it.id == packId }
+        if (index < 0 || stickerIds.isEmpty()) return 0
+        val (gone, kept) = packs[index].stickers.partition { it.id in stickerIds }
+        if (gone.isEmpty()) return 0
+        packs[index] = packs[index].copy(stickers = kept)
+        for (sticker in gone) {
+            fileFor(packId, sticker)?.delete()
+            deleteKept(sticker.id)
+        }
+        save()
+        return gone.size
+    }
+
+    @Synchronized
+    fun updateSticker(packId: String, stickerId: String, name: String, keywords: List<String>) {
         val index = packs.indexOfFirst { it.id == packId }
         if (index < 0) return
         val stickers = packs[index].stickers.toMutableList()
         val at = stickers.indexOfFirst { it.id == stickerId }
         if (at < 0) return
-        stickers[at] = stickers[at].copy(name = name.trim(), emojis = emojis)
+        stickers[at] = stickers[at].copy(name = name.trim(), keywords = keywords)
         packs[index] = packs[index].copy(stickers = stickers)
         save()
     }
@@ -508,6 +557,55 @@ class StickerPackStore(private var baseDir: File?) {
         val destIndex = packs.indexOfFirst { it.id == toPackId }
         packs[destIndex] = packs[destIndex].copy(stickers = packs[destIndex].stickers + sticker)
         save()
+        return true
+    }
+
+    /**
+     * Moves [stickerIds] to the end of [toPackId], in the order they sit in now.
+     * Returns how many went, which is short only when that pack fills (#1061).
+     */
+    @Synchronized
+    fun moveStickers(fromPackId: String, stickerIds: Set<String>, toPackId: String): Int =
+        pack(fromPackId)?.stickers.orEmpty()
+            .filter { it.id in stickerIds }
+            .count { moveSticker(fromPackId, it.id, toPackId) }
+
+    /**
+     * Copies [stickerIds] to the end of [toPackId], each with an id and a file of
+     * its own and whatever is kept for editing it, so changing or deleting one
+     * leaves the other alone. Returns how many went (#1061).
+     */
+    @Synchronized
+    fun copyStickers(
+        fromPackId: String,
+        stickerIds: Set<String>,
+        toPackId: String,
+        now: Long = System.currentTimeMillis(),
+    ): Int {
+        if (fromPackId == toPackId || packs.none { it.id == toPackId }) return 0
+        val copied = pack(fromPackId)?.stickers.orEmpty()
+            .filter { it.id in stickerIds }
+            .count { copySticker(fromPackId, it, toPackId, now) }
+        if (copied > 0) save()
+        return copied
+    }
+
+    private fun copySticker(fromPackId: String, sticker: CustomSticker, toPackId: String, now: Long): Boolean {
+        val index = packs.indexOfFirst { it.id == toPackId }
+        if (packs[index].stickers.size >= MAX_STICKERS_PER_PACK) return false
+        val source = fileFor(fromPackId, sticker) ?: return false
+        val dir = packDir(toPackId) ?: return false
+        val id = newStickerId()
+        val fileName = fileNameFor(id, sticker.mime)
+        if (runCatching { source.copyTo(File(dir, fileName), overwrite = true) }.isFailure) return false
+        originalsDir()?.let { kept ->
+            for (suffix in listOf(".webp", ".mask.png", ".json")) {
+                val file = File(kept, sticker.id + suffix)
+                if (file.isFile) runCatching { file.copyTo(File(kept, id + suffix), overwrite = true) }
+            }
+        }
+        val copy = sticker.copy(id = id, fileName = fileName, addedAt = now)
+        packs[index] = packs[index].copy(stickers = packs[index].stickers + copy)
         return true
     }
 
@@ -597,8 +695,8 @@ class StickerPackStore(private var baseDir: File?) {
     /**
      * Makes the manifest and the files on disk agree: entries without a file
      * are dropped, files and directories nothing references are deleted.
-     * Staging directories belong to an import in flight and are left alone,
-     * and so is the originals directory — its files answer to sticker ids
+     * Staging directories belong to an import in flight and are left alone
+     * until they are a day old, and so is the originals directory — its files answer to sticker ids
      * rather than to file names, and are swept by id below.
      */
     private fun reconcile(dir: File, sweepUnknown: Boolean) {
@@ -618,7 +716,9 @@ class StickerPackStore(private var baseDir: File?) {
         val known = packs.mapTo(HashSet()) { it.id }
         if (sweepUnknown) dir.listFiles()?.forEach { child ->
             if (!child.isDirectory) return@forEach
-            if (child.name in known || child.name.startsWith(STAGING_PREFIX)) return@forEach
+            if (child.name in known) return@forEach
+            val staleBefore = System.currentTimeMillis() - STALE_STAGING_MS
+            if (child.name.startsWith(STAGING_PREFIX) && child.lastModified() >= staleBefore) return@forEach
             if (child.name == ORIGINALS_DIR) return@forEach
             child.deleteRecursively()
         }

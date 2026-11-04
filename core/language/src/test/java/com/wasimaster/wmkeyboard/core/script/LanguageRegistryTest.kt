@@ -62,6 +62,54 @@ class LanguageRegistryTest {
         }
     }
 
+    /**
+     * The reverse of the test above, and the one that was missing: a layout can
+     * be compiled in, counted by `ShippedCountsTest` and written up in the docs
+     * while no language offers it, and then there is no way to turn it on.
+     *
+     * That is not hypothetical. T9 and Compact QWERTY shipped in `880e6764` and
+     * were unreachable until discussion #103 asked where they were: the English
+     * screen lists [LanguageDef.layoutIds], not every layout whose `langId` says
+     * English, so adding a spec to [BuiltInLayouts.all] is only half of shipping
+     * it. Assets are left out of this: those are added by dropping a file in,
+     * and the ones a language does not list are reachable through import.
+     */
+    @Test
+    fun `every built-in layout is offered by some language`() {
+        val offered = LanguageRegistry.all.flatMapTo(HashSet()) { it.layoutIds }
+        for (layout in BuiltInLayouts.all) {
+            assertTrue(
+                "built-in layout '${layout.id}' (${layout.name}) is listed by no language, " +
+                    "so nothing in the app can turn it on",
+                layout.id in offered,
+            )
+        }
+    }
+
+    /**
+     * The hand-written and generated halves are indexed separately so the
+     * keyboard's process never builds the 481 Keyman entries unless it is asked
+     * for one, and the hand-written index is consulted first. That ordering is
+     * only invisible while the two halves share no id — a duplicate would
+     * change which entry `byId` and `languageOf` answer with, and the
+     * hand-written one is the one with the endonym and the dictionary.
+     */
+    @Test
+    fun `the generated half shares no id or layout with the hand-written half`() {
+        val keymanIds = KeymanLanguages.all.map { it.id }
+        assertEquals("duplicate ids within the generated half", keymanIds.size, keymanIds.toSet().size)
+        val handWrittenIds = LanguageRegistry.all.map { it.id }.toMutableList()
+        for (id in keymanIds) handWrittenIds.remove(id)
+        val clash = handWrittenIds.toSet() intersect keymanIds.toSet()
+        assertEquals("ids in both halves", emptySet<String>(), clash)
+
+        val handWrittenLayouts = handWrittenIds.flatMapTo(HashSet()) { LanguageRegistry.byId(it).layoutIds }
+        val shadowed = KeymanLanguages.all
+            .filter { lang -> lang.layoutIds.any { it in handWrittenLayouts } }
+            .map { it.id }
+        assertEquals("generated layouts a hand-written language already claims", emptyList<String>(), shadowed)
+    }
+
     @Test
     fun `an unknown id resolves to the generic language, never null`() {
         assertSame(LanguageRegistry.GENERIC, LanguageRegistry.byId("zz-Xxxx"))
@@ -81,6 +129,10 @@ class LanguageRegistryTest {
         assertEquals("en", LanguageRegistry.languageOf(BuiltInLayouts.QWERTY_ID).id)
         assertEquals("en", LanguageRegistry.languageOf(BuiltInLayouts.AZERTY_ID).id)
         assertEquals("bn", LanguageRegistry.languageOf(BuiltInLayouts.AVRO_ID).id)
+        assertEquals("hi", LanguageRegistry.languageOf(BuiltInLayouts.HINDI_ID).id)
+        assertEquals("hi", LanguageRegistry.languageOf(BuiltInLayouts.HINDI_PHONETIC_ID).id)
+        // InScript leads: enabling Hindi must not hand anyone a Latin grid.
+        assertEquals(BuiltInLayouts.HINDI_ID, LanguageRegistry.byId("hi").layoutIds.first())
         assertEquals("de", LanguageRegistry.languageOf(BuiltInLayouts.GERMAN_ID).id)
     }
 

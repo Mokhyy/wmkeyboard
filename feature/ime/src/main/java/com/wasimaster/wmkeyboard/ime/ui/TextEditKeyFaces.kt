@@ -2,25 +2,26 @@ package com.wasimaster.wmkeyboard.ime.ui
 
 import androidx.annotation.StringRes
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Backspace
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.outlined.LastPage
-import androidx.compose.material.icons.automirrored.outlined.ShortText
-import androidx.compose.material.icons.automirrored.outlined.Subject
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.ContentCut
-import androidx.compose.material.icons.outlined.ContentPaste
-import androidx.compose.material.icons.outlined.FirstPage
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.KeyboardArrowUp
-import androidx.compose.material.icons.outlined.KeyboardDoubleArrowDown
-import androidx.compose.material.icons.outlined.KeyboardDoubleArrowLeft
-import androidx.compose.material.icons.outlined.KeyboardDoubleArrowRight
-import androidx.compose.material.icons.outlined.KeyboardDoubleArrowUp
-import androidx.compose.material.icons.outlined.SelectAll
-import androidx.compose.material.icons.outlined.VerticalAlignBottom
-import androidx.compose.material.icons.outlined.VerticalAlignTop
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.Backspace
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.KeyboardArrowLeft
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.KeyboardArrowRight
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.LastPage
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.ShortText
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.Subject
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.ContentCopy
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.ContentCut
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.ContentPaste
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.FirstPage
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.KeyboardArrowDown
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.KeyboardArrowUp
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.KeyboardDoubleArrowDown
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.KeyboardDoubleArrowLeft
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.KeyboardDoubleArrowRight
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.KeyboardDoubleArrowUp
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.SelectAll
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.EditNote
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.VerticalAlignBottom
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.VerticalAlignTop
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
@@ -57,9 +58,17 @@ fun textEditIcon(op: TextEditAction): ImageVector? = when (op) {
     TextEditAction.COPY -> Icons.Outlined.ContentCopy
     TextEditAction.PASTE -> Icons.Outlined.ContentPaste
     TextEditAction.BACKSPACE -> Icons.AutoMirrored.Outlined.Backspace
+    // The typing grid's own ⌦ glyph, so the two forward delete keys wear the
+    // same face wherever an author puts them (issue #226).
+    TextEditAction.FORWARD_DELETE -> KeyboardIcons.ForwardDelete
     TextEditAction.DOC_START -> Icons.Outlined.VerticalAlignTop
     TextEditAction.DOC_END -> Icons.Outlined.VerticalAlignBottom
     TextEditAction.CUT -> Icons.Outlined.ContentCut
+    TextEditAction.RETYPE_WORD -> Icons.Outlined.EditNote
+    // Drawn as its tie glyph: no icon says "join these" better.
+    TextEditAction.NO_SPACE, TextEditAction.NO_SPACE_NEXT -> null
+    // Read as words: a backspace glyph would pass for the plain delete key.
+    TextEditAction.DELETE_WORD, TextEditAction.DELETE_WORD_FORWARD -> null
     // Select is a toggle rather than a move: it reads as a word, and being lit
     // is what says it is on.
     TextEditAction.SELECT -> null
@@ -96,7 +105,13 @@ internal fun textEditDescription(op: TextEditAction): Int = when (op) {
     TextEditAction.COPY -> CommonR.string.common_copy
     TextEditAction.PASTE -> CommonR.string.common_paste
     TextEditAction.BACKSPACE -> CommonR.string.common_delete
+    TextEditAction.FORWARD_DELETE -> R.string.ime_key_forward_delete
     TextEditAction.DOC_START -> R.string.ime_textedit_doc_start_desc
     TextEditAction.DOC_END -> R.string.ime_textedit_doc_end_desc
     TextEditAction.CUT -> CommonR.string.common_cut
+    TextEditAction.RETYPE_WORD -> R.string.ime_textedit_retype_word_desc
+    TextEditAction.NO_SPACE -> R.string.ime_textedit_no_space_desc
+    TextEditAction.NO_SPACE_NEXT -> R.string.ime_textedit_no_space_next_desc
+    TextEditAction.DELETE_WORD -> R.string.ime_textedit_delete_word_desc
+    TextEditAction.DELETE_WORD_FORWARD -> R.string.ime_textedit_delete_word_forward_desc
 }

@@ -1,9 +1,25 @@
 package com.wasimaster.wmkeyboard.app
 
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Share
+import com.wasimaster.wmkeyboard.app.share.ShareSheetRoute
 import androidx.annotation.StringRes
+import com.wasimaster.wmkeyboard.app.assistant.SettingsAssistantGate
+import com.wasimaster.wmkeyboard.core.providers.ProviderCatalog
+import com.wasimaster.wmkeyboard.core.providers.ProviderEnv
+import com.wasimaster.wmkeyboard.core.providers.ProviderEnvironment
+import com.wasimaster.wmkeyboard.core.providers.ProviderTypes
+import com.wasimaster.wmkeyboard.core.settings.SettingsDepth
+import com.wasimaster.wmkeyboard.core.settings.availableVoiceEngines
+import com.wasimaster.wmkeyboard.core.settings.providerChain
+import com.wasimaster.wmkeyboard.core.settings.resolveProviders
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -13,60 +29,84 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoStories
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.Article
-import androidx.compose.material.icons.automirrored.outlined.Chat
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
-import androidx.compose.material.icons.automirrored.outlined.StickyNote2
-import androidx.compose.material.icons.automirrored.outlined.TextSnippet
-import androidx.compose.material.icons.outlined.AdsClick
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Autorenew
-import androidx.compose.material.icons.outlined.HighlightAlt
-import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.Collections
-import androidx.compose.material.icons.outlined.Phone
-import androidx.compose.material.icons.outlined.PhotoLibrary
-import androidx.compose.material.icons.outlined.PieChart
-import androidx.compose.material.icons.outlined.QueryStats
-import androidx.compose.material.icons.outlined.Wallpaper
-import androidx.compose.material.icons.outlined.Accessibility
-import androidx.compose.material.icons.outlined.AspectRatio
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.ContentPaste
-import androidx.compose.material.icons.outlined.EmojiEmotions
-import androidx.compose.material.icons.outlined.Extension
-import androidx.compose.material.icons.outlined.Gavel
-import androidx.compose.material.icons.outlined.GridOn
-import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Key
-import androidx.compose.material.icons.outlined.Keyboard
-import androidx.compose.material.icons.outlined.Language
-import androidx.compose.material.icons.outlined.Palette
-import androidx.compose.material.icons.outlined.DataSaverOn
-import androidx.compose.material.icons.outlined.Save
-import androidx.compose.material.icons.outlined.Checklist
-import androidx.compose.material.icons.outlined.Schedule
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Fingerprint
-import androidx.compose.material.icons.outlined.Mic
-import androidx.compose.material.icons.outlined.Security
-import androidx.compose.material.icons.outlined.TextFields
-import androidx.compose.material.icons.outlined.TouchApp
-import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material.icons.outlined.ViewAgenda
-import androidx.compose.material.icons.outlined.VisibilityOff
-import androidx.compose.material.icons.outlined.Widgets
-import androidx.compose.material.icons.outlined.MusicNote
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Assistant
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Dns
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.VolunteerActivism
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Devices
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Adjust
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Notifications
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.AutoStories
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.DeleteSweep
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Label
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.SentimentSatisfied
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.StickyNote2
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.ArrowBack
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.Article
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.Rule
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.Chat
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.TextSnippet
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.AdsClick
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.AutoAwesome
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Autorenew
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.HighlightAlt
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.History
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Psychology
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Home
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Handyman
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Hub
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Collections
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Phone
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.PhotoLibrary
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.FileOpen
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.PieChart
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.QueryStats
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Wallpaper
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Accessibility
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.AspectRatio
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Close
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.ContentPaste
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Add
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.EmojiEmotions
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Extension
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Gavel
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.GridOn
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Image
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Info
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Key
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.NetworkCheck
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Keyboard
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Language
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Palette
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.DataSaverOn
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Save
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Checklist
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Public
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Schedule
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Sync
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Search
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Fingerprint
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Mic
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Security
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.TextFields
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.TouchApp
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Tune
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Extension as ExtensionIcon
+import com.wasimaster.wmkeyboard.core.settings.Extension
+import com.wasimaster.wmkeyboard.core.settings.extensionsResolved
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.ViewAgenda
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Tag
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.VisibilityOff
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.VolunteerActivism
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Widgets
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.MusicNote
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.VerticalSplit
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -86,17 +126,24 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import kotlin.math.min
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.animation.EnterExitState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -107,24 +154,40 @@ import androidx.compose.ui.unit.dp
 import com.wasimaster.wmkeyboard.R
 import com.wasimaster.wmkeyboard.common.R as CommonR
 import com.wasimaster.wmkeyboard.core.icons.IconSlots
-import com.wasimaster.wmkeyboard.core.settings.KeyboardSettings
+import com.wasimaster.wmkeyboard.core.icons.SymbolIcons
 import com.wasimaster.wmkeyboard.core.ui.toolAccentPaint
 import com.wasimaster.wmkeyboard.ime.ui.SlotIcon
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
-import androidx.compose.material.icons.outlined.Gesture
-import androidx.compose.material.icons.outlined.Password
-import androidx.compose.material.icons.outlined.Lightbulb
-import androidx.compose.material.icons.outlined.Spellcheck
-import androidx.compose.material.icons.outlined.Shortcut
-import androidx.compose.material.icons.outlined.Preview
-import androidx.compose.material.icons.outlined.Vibration
-import androidx.compose.material.icons.outlined.ViewDay
-import androidx.compose.material.icons.outlined.PanTool
-import androidx.compose.material.icons.outlined.FormatSize
-import androidx.compose.material.icons.outlined.GridView
-import androidx.compose.material.icons.outlined.Apps
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Abc
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Gesture
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Shield
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.SpaceBar
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Swipe
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Password
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Lightbulb
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Sort
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Spellcheck
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Shortcut
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Preview
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Vibration
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.ViewDay
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.FormatSize
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.GridView
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Interests
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Apps
+import androidx.compose.foundation.lazy.rememberLazyListState
+import com.wasimaster.wmkeyboard.core.ui.DisabledReason
+import com.wasimaster.wmkeyboard.core.ui.RailBucket
+import com.wasimaster.wmkeyboard.core.ui.ScrollRailBox
+import com.wasimaster.wmkeyboard.core.ui.rememberScrollRailState
 
 /**
  * The setting the user picked out of search, remembered just long enough for
@@ -191,6 +254,7 @@ internal object SettingsHighlight {
         target = titleRes
         targetItems = emptySet()
         scrollClaimed = false
+        awaitingArrival = true
         serial++
     }
 
@@ -202,7 +266,34 @@ internal object SettingsHighlight {
         target = titleRes
         targetItems = keys.filter { it.isNotBlank() }.toSet()
         scrollClaimed = false
+        awaitingArrival = true
         serial++
+    }
+
+    /**
+     * For a link to a whole screen: nothing to flash, but the screen opens with
+     * every row the settings depth would hide; see [DepthReveal].
+     */
+    fun requestScreen() {
+        awaitingArrival = true
+        serial++
+    }
+
+    /** True while a row or entry is waiting to be flashed. */
+    val pending: Boolean get() = target != 0 || targetItems.isNotEmpty()
+
+    /**
+     * Set by a request and taken by the screen it sent the user to, so one
+     * arrival opens one screen's hidden rows and not those of the next screen
+     * opened while the flash is still running.
+     */
+    private var awaitingArrival = false
+
+    /** True once per request, for the screen the user landed on. */
+    fun takeArrival(): Boolean {
+        val arrived = awaitingArrival
+        awaitingArrival = false
+        return arrived
     }
 
     /** True for the one row that gets to scroll itself into view. */
@@ -218,12 +309,26 @@ internal object SettingsHighlight {
     fun clear() {
         target = 0
         targetItems = emptySet()
+        awaitingArrival = false
     }
 
     /** Clears only if nothing new was requested since [serialAtEntry]. */
     fun clearIfUnchanged(serialAtEntry: Int) {
         if (serial == serialAtEntry) clear()
     }
+
+    /**
+     * Keeps a highlight standing instead of pulsing it once, untinted, and
+     * names it [HIGHLIGHT_TAG] for a test to find.
+     *
+     * Only the docs screenshot run sets this (app/src/docShots): it marks the
+     * setting a page is about, and a pulse that has already faded by the time
+     * the frame is captured marks nothing. Never set in the app.
+     */
+    var hold: Boolean = false
+
+    /** The test tag a held highlight carries; see [hold]. */
+    const val HIGHLIGHT_TAG = "settingHighlight"
 }
 
 /**
@@ -283,6 +388,21 @@ internal fun HighlightableRow(
      * see [HighlightFrame].
      */
     coarse: Boolean = false,
+    /**
+     * Why the row is greyed out, or null while it is usable: the long press
+     * then opens with it (see [settingLinkHold]). The row's own `enabled` is
+     * what decides, so callers pass this only while it is off.
+     */
+    disabledReason: DisabledReason? = null,
+    /**
+     * The row's explanation, the one its "?" opens. At the Simple depth the
+     * "?" is not drawn ([RowExtras]), and the long press offers it as "What is
+     * this?" instead; at any other depth the button is on the row and this
+     * is not read.
+     */
+    info: String? = null,
+    /** The level the depth would need to show this row, when it is here only for a [DepthReveal]. */
+    revealedAt: SettingLevel? = LocalRevealedLevel.current,
     content: @Composable () -> Unit,
 ) {
     val target = SettingsHighlight.target
@@ -292,11 +412,39 @@ internal fun HighlightableRow(
         title == null -> false
         else -> title == stringResource(target)
     }
-    HighlightFrame(
-        requested = requested,
-        rank = if (coarse) HighlightRank.SECTION else HighlightRank.ROW,
-        content = content,
-    )
+    // Sent here, to a row the depth would have hidden: the notice on the screen
+    // names the depth that would keep it.
+    if (requested && revealedAt != null) {
+        val depthReveal = LocalDepthReveal.current
+        SideEffect { depthReveal?.landedOn = revealedAt }
+    }
+    // The same two names are what a row's link is made of (#646), so the row
+    // publishes them for its link button, and a plain row takes the long
+    // press here: its link and its place in favourites (#898). A group's
+    // heading takes its own, in [SettingsGroup]: the whole group would
+    // otherwise answer a hold on any row inside it.
+    CompositionLocalProvider(LocalRowLinkKey provides RowLinkKey(title, highlightKey)) {
+        val bare = LocalSettingsDepth.current.depth == SettingsDepth.SIMPLE
+        val whatIsThis = if (info != null && bare) remember(title, info) { RowInfo(title.orEmpty(), info) } else null
+        val hold = if (coarse) null else rememberRowHold(disabledReason, whatIsThis)
+        // A row an update brought wears a gold border until the user puts the
+        // new settings bar away (#970).
+        val isNew = !coarse && when {
+            highlightKey != 0 -> highlightKey in NewSettings.titles
+            title == null || NewSettings.titles.isEmpty() -> false
+            else -> NewSettings.entries.any { it.title == title }
+        }
+        HighlightFrame(
+            requested = requested,
+            rank = if (coarse) HighlightRank.SECTION else HighlightRank.ROW,
+            modifier = Modifier
+                .settingLinkHold(hold, disabledReason, whatIsThis)
+                .then(if (isNew) Modifier.border(1.5.dp, NewSettingGold, RoundedCornerShape(12.dp)) else Modifier),
+        ) {
+            content()
+            RowHoldMenu(hold)
+        }
+    }
 }
 
 /**
@@ -387,12 +535,22 @@ internal fun ScrollAnchor(active: Boolean, content: @Composable () -> Unit) {
 private fun HighlightFrame(
     requested: Boolean,
     rank: HighlightRank,
+    modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
     var flashing by remember { mutableStateOf(false) }
     val requester = remember { BringIntoViewRequester() }
+    val scroll = LocalScreenScroll.current
+    // Where the row sits, tracked only while it is being held in view. Its
+    // own effect, since the flash's ends when the request is consumed.
+    var holds by remember { mutableIntStateOf(0) }
+    var holding by remember { mutableStateOf(false) }
+    var top by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(holds) {
+        if (holds > 0) holdInView(requester, scroll, { holding = it }) { top }
+    }
     val color by animateColorAsState(
-        targetValue = if (flashing) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+        targetValue = if (flashing && !SettingsHighlight.hold) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
         else Color.Transparent,
         animationSpec = tween(durationMillis = 320),
         label = "settingHighlight",
@@ -409,22 +567,65 @@ private fun HighlightFrame(
         // plus however long this rank owes the narrower ones.
         delay(rank.settleMillis)
         if (rank != HighlightRank.ITEM && SettingsHighlight.scrollTaken()) return@LaunchedEffect
-        if (SettingsHighlight.claimScroll()) requester.bringIntoView()
+        if (SettingsHighlight.claimScroll()) {
+            requester.bringIntoView()
+            holds++
+        }
         flashing = true
+        if (SettingsHighlight.hold) return@LaunchedEffect
         delay(1400)
         flashing = false
         // Consumed: a later visit to the same screen must not flash again.
         SettingsHighlight.clear()
     }
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .bringIntoViewRequester(requester)
+            .then(if (holding) Modifier.onGloballyPositioned { top = it.positionInRoot().y } else Modifier)
+            .then(if (flashing && SettingsHighlight.hold) Modifier.testTag(SettingsHighlight.HIGHLIGHT_TAG) else Modifier)
             .background(color),
     ) {
         content()
     }
 }
+
+/**
+ * Keeps a row the user was sent to on screen while the page settles under it
+ * (#904). The first scroll lands before the page is finished: groups above
+ * still waiting their turn to compose stand in as skeletons of a guessed
+ * height, and rows that appear once a setting has loaded push everything
+ * down, so a row scrolled to at once was carried off screen a moment later.
+ * For [HighlightHoldMs], every move of the row brings it back, until the user
+ * drags the page themselves. [setHolding] switches the position tracking on
+ * for exactly that long; [top] reads where it last saw the row.
+ */
+private suspend fun holdInView(
+    requester: BringIntoViewRequester,
+    scroll: ScrollState?,
+    setHolding: (Boolean) -> Unit,
+    top: () -> Float,
+) {
+    setHolding(true)
+    try {
+        withTimeoutOrNull(HighlightHoldMs) {
+            coroutineScope {
+                val follow = launch {
+                    snapshotFlow(top).drop(1).collect { requester.bringIntoView() }
+                }
+                // The user's own drag is where they want to be.
+                scroll?.interactionSource?.interactions?.first { it is DragInteraction.Start }
+                    ?: awaitCancellation()
+                follow.cancel()
+            }
+        }
+    } finally {
+        setHolding(false)
+    }
+}
+
+/** How long a row the user was sent to is held in view; see [holdInView]. */
+private const val HighlightHoldMs = 3_000L
 
 /**
  * Full-screen search over every setting. Results carry their breadcrumb, and
@@ -446,12 +647,18 @@ internal object SettingsRouteIcons {
     private val map: Map<String, () -> ImageVector> = mapOf(
         "typing" to { Icons.Outlined.Keyboard },
         "typing/corrections" to { Icons.Outlined.Spellcheck },
+        "typing/writing" to { Icons.Outlined.Abc },
         "typing/suggestions" to { Icons.Outlined.Lightbulb },
         "typing/autopilot" to { Icons.Outlined.AdsClick },
+        "typing/octopus" to { Icons.Outlined.Keyboard },
         "typing/chips" to { Icons.Outlined.AutoAwesome },
         "typing/codes" to { Icons.Outlined.Password },
         "typing/gestures" to { Icons.Outlined.Gesture },
-        "typing/hardware" to { Icons.Outlined.Keyboard },
+        "typing/gestures/glide" to { Icons.Outlined.Gesture },
+        "typing/gestures/glide/checkup" to { Icons.Outlined.QueryStats },
+        "typing/gestures/spacebar" to { Icons.Outlined.SpaceBar },
+        "typing/gestures/flicks" to { Icons.Outlined.Swipe },
+        "typing/hardware" to { SymbolIcons.KeyboardExternalInput },
         "keypress" to { Icons.Outlined.TouchApp },
         "keypress/haptics" to { Icons.Outlined.Vibration },
         "keypress/popup" to { Icons.Outlined.Preview },
@@ -469,48 +676,93 @@ internal object SettingsRouteIcons {
         "icons" to { Icons.Outlined.Image },
         "layout" to { Icons.Outlined.AspectRatio },
         "layout/size" to { Icons.Outlined.FormatSize },
-        "layout/onehanded" to { Icons.Outlined.PanTool },
+        "layout/onehanded" to { SymbolIcons.MobileHandLeft },
         "keymaps" to { Icons.Outlined.GridOn },
         "rows" to { Icons.Outlined.ViewAgenda },
+        "rows/symbol" to { Icons.Outlined.Tag },
+        "ai" to { Icons.Outlined.AutoAwesome },
         "ai_actions" to { Icons.Outlined.AutoAwesome },
         "ai_history" to { Icons.Outlined.History },
+        "ai_memory" to { Icons.Outlined.Psychology },
         "ai_chat" to { Icons.AutoMirrored.Outlined.Chat },
+        "settings_assistant" to { Icons.Outlined.Assistant },
+        "ai_mcp" to { Icons.Outlined.Hub },
+        "ai_tools" to { Icons.Outlined.Handyman },
         "modes" to { Icons.Outlined.Tune },
         "emoji" to { Icons.Outlined.EmojiEmotions },
         "emoji/panel" to { Icons.Outlined.GridView },
+        "emoji/mixes" to { Icons.Outlined.Interests },
+        "kaomoji" to { Icons.Outlined.SentimentSatisfied },
+        "kaomoji/faces" to { Icons.Outlined.SentimentSatisfied },
+        "kaomoji/tags" to { Icons.Outlined.Label },
+        "emojicategories" to { Icons.Outlined.Sort },
+        "emojiadded" to { Icons.Outlined.Add },
         "emojikeywords" to { Icons.Outlined.EmojiEmotions },
         "clipboard" to { Icons.Outlined.ContentPaste },
+        "clipboard/history" to { Icons.Outlined.History },
+        "clipboard/chips" to { Icons.Outlined.ContentPaste },
+        "clipboard/rules" to { Icons.Outlined.Shield },
         "voice" to { Icons.Outlined.Mic },
         "expander" to { Icons.AutoMirrored.Outlined.TextSnippet },
         "tools" to { Icons.Outlined.Widgets },
-        "sticker_packs" to { Icons.AutoMirrored.Outlined.StickyNote2 },
+        "sticker_packs" to { SymbolIcons.Sticker },
         "vocab/packs" to { Icons.Outlined.AutoStories },
         "vocab/lists" to { Icons.Outlined.AutoStories },
         "vocab/review" to { Icons.Outlined.AutoStories },
         "vocab/browse" to { Icons.Outlined.AutoStories },
+        "clock" to { Icons.Outlined.Schedule },
+        "homeassistant/entities" to { Icons.Outlined.Home },
+        "notes" to { Icons.Outlined.StickyNote2 },
+        "notes/tags" to { Icons.Outlined.Label },
+        "notes/trash" to { Icons.Outlined.DeleteSweep },
+        "todo" to { Icons.Outlined.Checklist },
         "plugins" to { Icons.Outlined.Extension },
         "addons" to { Icons.Outlined.Extension },
         "accessibility" to { Icons.Outlined.Accessibility },
         "privacy" to { Icons.Outlined.Security },
         "permissions" to { Icons.Outlined.Key },
+        "network_activity" to { Icons.Outlined.NetworkCheck },
         "applock" to { Icons.Outlined.Fingerprint },
+        "automation" to { Icons.Outlined.Checklist },
         "datasaver" to { Icons.Outlined.DataSaverOn },
+        "servers" to { Icons.Outlined.Dns },
+        "notifications" to { Icons.Outlined.Notifications },
         "selection_macros" to { Icons.Outlined.HighlightAlt },
+        "selection_macros/actions" to { Icons.Outlined.Checklist },
+        "selection_macros/ai" to { Icons.Outlined.AutoAwesome },
+        "selection_macros/icons" to { Icons.Outlined.Interests },
+        "selection_macros/zones" to { Icons.Outlined.Public },
         "advanced" to { Icons.Outlined.Tune },
+        "extensions" to { Icons.Outlined.ExtensionIcon },
+        // One bundle's page wears the bundle's own glyph; see ExtensionsScreen.kt.
+        *Extension.entries.map { extensionRoute(it) to { extensionIcon(it) } }.toTypedArray(),
+        FloatingButtonRoute to { Icons.Outlined.Adjust },
+        ShareSheetRoute to { Icons.Outlined.Share },
         "backup" to { Icons.Outlined.Save },
         "backup/auto" to { Icons.Outlined.Schedule },
+        "backup/sync" to { Icons.Outlined.Sync },
         "backup/contents" to { Icons.Outlined.Checklist },
         "about" to { Icons.Outlined.Info },
+        "supporters" to { Icons.Outlined.VolunteerActivism },
+        "import_hub" to { Icons.Outlined.FileOpen },
         "storage" to { Icons.Outlined.PieChart },
+        "feature_libraries" to { Icons.Outlined.Extension },
         "statistics" to { Icons.Outlined.QueryStats },
         "licenses" to { Icons.Outlined.Gavel },
         "debug_log" to { Icons.AutoMirrored.Outlined.Article },
-        "dictionary" to { Icons.AutoMirrored.Outlined.MenuBook },
-        "customdictionaries" to { Icons.AutoMirrored.Outlined.MenuBook },
+        "dictionary" to { SymbolIcons.Dictionary },
+        "customdictionaries" to { SymbolIcons.Dictionary },
         "blacklist" to { Icons.Outlined.VisibilityOff },
+        "learnedcorrections" to { Icons.Outlined.Spellcheck },
         "phoneformats" to { Icons.Outlined.Phone },
-        "hwshortcuts" to { Icons.Outlined.Keyboard },
+        "cliprules" to { Icons.AutoMirrored.Outlined.Rule },
+        "hwshortcuts" to { SymbolIcons.KeyboardExternalInput },
         "musicapps" to { Icons.Outlined.MusicNote },
+        "launchercombos" to { Icons.Outlined.VerticalSplit },
+        "kdeconnect/devices" to { Icons.Outlined.Devices },
+        "send/instances" to { Icons.Outlined.Dns },
+        "send/history" to { Icons.Outlined.History },
+        "supporters" to { Icons.Outlined.VolunteerActivism },
     )
 
     operator fun get(route: String): ImageVector? = map[route]?.invoke()
@@ -523,10 +775,41 @@ internal object SettingsRouteIcons {
 private class SettingsSearchCorpus(
     val index: List<SettingsSearchEntry>,
     val vocabulary: SettingsSearchVocabulary,
-) {
-    /** The entries by [SettingsSearchEntry.key], for the picks the history remembers. */
-    val byKey: Map<String, SettingsSearchEntry> = index.associateBy { it.key }
+)
+
+/**
+ * The last corpus built, kept for the life of the process and keyed by the
+ * locales its strings were read in.
+ *
+ * Coming back from a result used to rebuild it, which left the screen without
+ * results for the frame or two the build takes: the list behind the page
+ * being popped was placeholders, the result's icon had no row to fly back to,
+ * and the rows then arrived late under a stage change. Kept, the results are
+ * there on the very first frame of the way back.
+ */
+private object SearchCorpusCache {
+    @Volatile
+    private var held: Pair<String, SettingsSearchCorpus>? = null
+
+    fun get(locales: String): SettingsSearchCorpus? = held?.takeIf { it.first == locales }?.second
+
+    fun put(locales: String, corpus: SettingsSearchCorpus) {
+        held = locales to corpus
+    }
 }
+
+/**
+ * The flight origin a result takes off under: the search screen plus the
+ * result's own key.
+ *
+ * Several results routinely open the same screen — every row on Corrections
+ * opens Corrections — and keyed on the screen alone they all carried the same
+ * flight key. The heading then matched all of them at once: on the way out the
+ * icons of rows nobody tapped were swallowed into it, and on the way back one
+ * icon flew home to whichever of them registered first while the rest blinked
+ * in at the end. Naming the row makes the tapped one the only match.
+ */
+private fun searchFlightOrigin(entry: SettingsSearchEntry): String = "search#${entry.key}"
 
 /** How many of the rows opened before are offered under an empty search field. */
 private const val RECENT_PICKS_SHOWN = 6
@@ -534,9 +817,11 @@ private const val RECENT_PICKS_SHOWN = 6
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SettingsSearchScreen(
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     onBack: () -> Unit,
     onOpen: (SettingsSearchEntry) -> Unit,
+    /** Opens the Settings assistant (#788) with what is typed so far. */
+    onAsk: ((String) -> Unit)? = null,
 ) {
     // Saveable, so the results are still there when the user backs out of a
     // setting that was not the one they were after (#92).
@@ -548,35 +833,98 @@ internal fun SettingsSearchScreen(
     // animation. Results are empty for the frame or two the build takes,
     // which is less time than reaching for the first key.
     val context = LocalContext.current
-    val corpus by produceState<SettingsSearchCorpus?>(null, context) {
-        value = withContext(Dispatchers.Default) {
+    val locales = context.resources.configuration.locales.toLanguageTags()
+    val corpus by produceState(SearchCorpusCache.get(locales), context, locales) {
+        value = SearchCorpusCache.get(locales) ?: withContext(Dispatchers.Default) {
             val strings = ResourceSearchStrings(context.resources)
             SettingsSearchCorpus(settingsSearchIndex(strings), settingsSearchVocabulary(strings))
+                .also { SearchCorpusCache.put(locales, it) }
         }
     }
+    // What a provider list can hold on this phone. Finding out loads the
+    // voice engines' libraries, so it is read once, off the main thread;
+    // until then every kind is offered.
+    val providerEnv by produceState<ProviderEnv?>(null) {
+        value = withContext(Dispatchers.Default) {
+            ProviderEnvironment.current().copy(voiceEngines = availableVoiceEngines())
+        }
+    }
+    val providerLists = settings.watch { it.providers }
+    // The index as this phone can open it: no provider it cannot run unless
+    // a list has it, and the rows the user added twice or gave a nickname.
+    val searchIndex = remember(corpus, providerEnv, providerLists) {
+        corpus?.let { c ->
+            val current = settings.value
+            val env = providerEnv ?: return@let c.index
+            val instances = ResourceSearchStrings(context.resources).providerInstanceRows(
+                rows = { tool -> current.resolveProviders(tool, env, all = true) },
+                subtitle = { _, row -> providerSetupSummary(row).resolve(context) },
+            )
+            searchableProviderEntries(
+                c.index,
+                instances,
+                runnable = { _, type -> ProviderCatalog.runnable(type, env) },
+                listed = { tool, typeId -> current.providerChain(tool, env).entries.any { it.typeId == typeId } },
+            )
+        }
+    }
+    // By key, for the picks the history remembers: a provider row picked
+    // last time is found again while the user still has it.
+    val searchByKey = remember(searchIndex) { searchIndex?.associateBy { it.key }.orEmpty() }
     val picks = remember(context) { SearchPicks(context) }
-    // Bumped on every pick and on clear, so the ranking and the recent list
-    // see the new history without the store having to be Compose state.
-    var historyVersion by remember { mutableIntStateOf(0) }
-    val results = remember(query, corpus, historyVersion) {
-        corpus?.let { rankSettings(query, it.index, it.vocabulary, picks.history) } ?: SearchResults.EMPTY
+    // The history this visit ranks by: read when the screen is first opened
+    // and held, saved with the screen, through every trip out to a result and
+    // back. A pick is still written to disk the moment it is made, but it only
+    // reorders the next search. Applied at once it moved the tapped row up the
+    // list while the page was leaving — its icon took off from a row in motion
+    // — and the user came back to a list in a different order from the one
+    // they left (#92 is about coming back to the *same* results).
+    var historyText by rememberSaveable { mutableStateOf(picks.history.encode()) }
+    val history = remember(historyText) { SearchHistory.decode(historyText) }
+    // With the Settings assistant turned off (#830), its result would lead
+    // to a row that is not there, and its button to nothing.
+    val assistant = settings.watch { SettingsAssistantGate.offered(it) }
+    // Likewise the screens and tools of a switched-off bundle (Extensions):
+    // a result for one would open the Extensions screen, not the row.
+    val extensions = settings.watch { it.extensionsResolved() }
+    val results = remember(query, corpus, searchIndex, history, assistant, extensions) {
+        corpus?.let { c ->
+            val index = SettingsAssistantGate.searchable(searchIndex ?: c.index, assistant).withExtensions(extensions)
+            rankSettings(query, index, c.vocabulary, history)
+        } ?: SearchResults.EMPTY
     }
     val tokens = remember(query, corpus) {
         corpus?.let { searchTokens(query, it.vocabulary) }.orEmpty()
     }
-    val recent = remember(corpus, historyVersion) {
-        corpus?.let { c -> picks.history.recent(RECENT_PICKS_SHOWN).mapNotNull(c.byKey::get) }.orEmpty()
+    val recent = remember(searchByKey, history) {
+        history.recent(RECENT_PICKS_SHOWN).mapNotNull(searchByKey::get)
+            .filter { assistant || !SettingsAssistantGate.opensAssistant(it) }
     }
+    // Whether this is the screen being come back to from a result rather than
+    // opened. A plain array rather than state: it is read once, here, and its
+    // only job is to be `true` in the bundle the screen is saved into.
+    val visits = rememberSaveable { BooleanArray(1) }
+    val returned = remember { visits[0].also { visits[0] = true } }
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+    val reduceMotion = settings.watch { it.reduceMotion }
     // Only on a fresh search: coming back to results with a query typed, the
-    // user wants to read them, not to have the keyboard cover them again.
-    LaunchedEffect(Unit) { if (query.isEmpty()) focusRequester.requestFocus() }
+    // user wants to read them, not to have the keyboard cover them again. The
+    // asking itself is the field's own job — see [focusOncePlaced] — because
+    // the field lives in a Scaffold top bar, which is subcomposed a pass later
+    // than the screen around it.
+    val takeCaret = remember { query.isEmpty() }
+
+    // The path the result draws under itself, put on the trail before the jump
+    // so the screen it opens wears the path it really lives at rather than the
+    // one step the search screen leaves behind it (#111).
+    val trail = LocalSettingsCrumbTrail.current
+    val homeTitle = stringResource(CommonR.string.common_settings)
 
     fun open(entry: SettingsSearchEntry) {
         keyboard?.hide()
         picks.record(query, entry.key)
-        historyVersion++
+        (searchIndex ?: corpus?.index)?.let { trail?.seed(settingsCrumbSeed(entry, it, homeTitle)) }
         onOpen(entry)
     }
 
@@ -592,7 +940,11 @@ internal fun SettingsSearchScreen(
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
                         trailingIcon = {
-                            if (query.isNotEmpty()) {
+                            AnimatedVisibility(
+                                visible = query.isNotEmpty(),
+                                enter = searchClearEnter(reduceMotion),
+                                exit = searchClearExit(reduceMotion),
+                            ) {
                                 IconButton(onClick = { query = "" }) {
                                     Icon(
                                         Icons.Outlined.Close,
@@ -613,7 +965,7 @@ internal fun SettingsSearchScreen(
                         ),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .focusRequester(focusRequester),
+                            .focusOncePlaced(focusRequester, enabled = takeCaret),
                     )
                 },
                 navigationIcon = {
@@ -624,75 +976,230 @@ internal fun SettingsSearchScreen(
                         )
                     }
                 },
+                actions = {
+                    if (onAsk != null && assistant) {
+                        IconButton(onClick = {
+                            keyboard?.hide()
+                            onAsk(query)
+                        }) {
+                            Icon(
+                                Icons.Outlined.Assistant,
+                                contentDescription = stringResource(R.string.settings_assistant_ask),
+                            )
+                        }
+                    }
+                },
             )
         },
     ) { padding ->
-        when {
-            query.isBlank() -> RecentPicks(
-                recent = recent,
-                settings = settings,
-                onOpen = ::open,
-                onClear = {
-                    picks.clear()
-                    historyVersion++
-                },
-                modifier = Modifier.padding(padding),
+        // Which of the four pages the screen is showing. An enum rather than
+        // the results themselves: the page only changes when the *kind* of
+        // answer changes, so a keystroke that turns one result list into
+        // another edits the list in place — which is where the rows get to
+        // move — instead of replacing the whole page under it.
+        val stage = when {
+            query.isBlank() -> SearchStage.PICKS
+            // The corpus is built off the main thread (a thousand resource
+            // reads), so for a frame or two after the screen opens there is
+            // nothing to match a query against — which is not the same thing
+            // as nothing matching it. Placeholders until it lands, rather than
+            // telling the user their words found nothing.
+            corpus == null -> SearchStage.LOADING
+            results.isEmpty -> SearchStage.EMPTY
+            else -> SearchStage.RESULTS
+        }
+        AnimatedContent(
+            targetState = stage,
+            transitionSpec = { searchStageTransform(reduceMotion) },
+            label = "searchStage",
+            modifier = Modifier.padding(padding).fillMaxSize(),
+        ) { shown ->
+            // The wave is for a list being put on screen. The page shown as
+            // the screen is come back to is the list the reader left, standing
+            // where they left it, with a result's icon flying home into it —
+            // replaying the wave faded and lifted every row under that icon.
+            // A stage entered later, by typing, still arrives.
+            val arrive = remember { !returned || transition.currentState != EnterExitState.Visible }
+            when (shown) {
+                SearchStage.PICKS -> RecentPicks(
+                    recent = recent,
+                    settings = settings,
+                    reduceMotion = reduceMotion,
+                    arrive = arrive,
+                    onOpen = ::open,
+                    onClear = {
+                        picks.clear()
+                        historyText = picks.history.encode()
+                    },
+                )
+                SearchStage.LOADING -> GroupSkeleton(
+                    rowCount = SEARCH_SKELETON_ROWS,
+                    hasTitle = false,
+                )
+                SearchStage.EMPTY -> EmptyResults(query)
+                SearchStage.RESULTS -> ResultList(
+                    results = results,
+                    settings = settings,
+                    tokens = tokens,
+                    reduceMotion = reduceMotion,
+                    arrive = arrive,
+                    onOpen = ::open,
+                )
+            }
+        }
+    }
+}
+
+/** The four pages the search screen swaps between; see [searchStageTransform]. */
+private enum class SearchStage { PICKS, LOADING, EMPTY, RESULTS }
+
+/**
+ * The ranked results, with the weaker ones under their own heading.
+ *
+ * Every row carries both of the list's animations: the wave that puts the list
+ * on screen the first time, and the placement animation that keeps a row the
+ * same row while the query is edited around it. The wave's index runs across
+ * both groups and the heading between them, so the list arrives as one thing
+ * rather than as two lists that happen to be stacked.
+ */
+@Composable
+private fun ResultList(
+    results: SearchResults,
+    settings: LiveSettings,
+    tokens: List<String>,
+    reduceMotion: Boolean,
+    arrive: Boolean,
+    onOpen: (SettingsSearchEntry) -> Unit,
+) {
+    val list = rememberLazyListState()
+    val rail = rememberScrollRailState(list)
+    val reveal = rememberSearchReveal(reduceMotion || !arrive)
+    // Back to the top whenever the query changes the results. A keyed lazy
+    // list otherwise holds on to its first visible row through a change in the
+    // data: delete a letter, the wider search ranks three new rows above the
+    // one that was first, and the list keeps that row at the top of the window
+    // with the three new ones scrolled out of sight above it. Requested rather
+    // than scrolled, so it lands in the same pass that lays the new rows out,
+    // and at the top already it moves nothing and the rows still glide.
+    // Not on the first composition: coming back from a result, the list is
+    // meant to stand where the reader left it.
+    val shownResults = remember { arrayOf(results) }
+    SideEffect {
+        if (shownResults[0] !== results) {
+            shownResults[0] = results
+            list.requestScrollToItem(0)
+        }
+    }
+    // Two stops rather than an alphabet: the hits are ranked, and
+    // what a long result list hides is that a second, weaker set
+    // of matches starts somewhere below.
+    val mentionsTitle = stringResource(R.string.shell_search_mentions_title)
+    // Short enough for the bubble the rail draws beside a finger.
+    val hitsStop = stringResource(R.string.shell_search_results_stop)
+    val mentionsStop = stringResource(R.string.shell_search_mentions_stop)
+    val buckets = remember(results, hitsStop, mentionsStop) {
+        if (results.mentions.isEmpty()) {
+            emptyList()
+        } else {
+            listOf(
+                RailBucket(hitsStop, 0),
+                RailBucket(mentionsStop, results.hits.size),
             )
-            results.isEmpty -> EmptyResults(query, Modifier.padding(padding))
-            else -> LazyColumn(
-                modifier = Modifier
-                    .padding(padding)
-                    .fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
-                items(results.hits, key = { it.key }) { result ->
-                    ResultRow(result, settings, tokens) { open(result) }
+        }
+    }
+    ScrollRailBox(
+        state = rail,
+        modifier = Modifier.fillMaxSize(),
+        fadeColor = MaterialTheme.colorScheme.background,
+        buckets = buckets,
+        // The reader typed to get here. A list that jumps on its
+        // own while they are still typing reads as a glitch.
+        peek = false,
+    ) { rows ->
+        LazyColumn(
+            state = list,
+            modifier = rows.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            itemsIndexed(results.hits, key = { _, it -> it.key }) { index, result ->
+                ResultRow(
+                    result,
+                    settings,
+                    tokens,
+                    modifier = searchItemMotion(reduceMotion).searchReveal(reveal, index),
+                ) { onOpen(result) }
+            }
+            if (results.mentions.isNotEmpty()) {
+                val headingIndex = results.hits.size
+                item(key = "mentions") {
+                    ResultsHeading(
+                        mentionsTitle,
+                        modifier = searchItemMotion(reduceMotion)
+                            .searchReveal(reveal, headingIndex),
+                    )
                 }
-                if (results.mentions.isNotEmpty()) {
-                    item(key = "mentions") {
-                        ResultsHeading(stringResource(R.string.shell_search_mentions_title))
-                    }
-                    items(results.mentions, key = { it.key }) { result ->
-                        ResultRow(result, settings, tokens) { open(result) }
-                    }
+                itemsIndexed(results.mentions, key = { _, it -> it.key }) { index, result ->
+                    ResultRow(
+                        result,
+                        settings,
+                        tokens,
+                        modifier = searchItemMotion(reduceMotion)
+                            .searchReveal(reveal, headingIndex + 1 + index),
+                    ) { onOpen(result) }
                 }
             }
         }
     }
 }
 
+/** How many placeholder rows stand in for results while the corpus loads. */
+private const val SEARCH_SKELETON_ROWS = 6
+
 /**
- * The empty field's screen: how to search, and under it the rows this person
- * opened from here before, newest first. A "Clear" beside the heading forgets
- * them all; the ranking then starts over from the words alone.
+ * The empty field's screen: the rows this person opened from here before,
+ * newest first. A "Clear" beside the heading forgets them all; the ranking
+ * then starts over from the words alone.
+ *
+ * Nothing at all before the first pick is recorded, which is the point — the
+ * field above already says what it is for, and a page of instructions is one
+ * more thing between the reader and the letter they came here to type.
  */
 @Composable
 private fun RecentPicks(
     recent: List<SettingsSearchEntry>,
-    settings: KeyboardSettings,
+    settings: LiveSettings,
+    reduceMotion: Boolean,
+    arrive: Boolean,
     onOpen: (SettingsSearchEntry) -> Unit,
     onClear: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val reveal = rememberSearchReveal(reduceMotion || !arrive)
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        item(key = "hint") { SearchHint() }
         if (recent.isEmpty()) return@LazyColumn
         item(key = "recent") {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = searchItemMotion(reduceMotion)
+                    .searchReveal(reveal, 0)
+                    .fillMaxWidth(),
             ) {
                 ResultsHeading(stringResource(R.string.shell_search_recent_title), Modifier.weight(1f))
                 TextButton(onClick = onClear) { Text(stringResource(CommonR.string.common_clear)) }
             }
         }
-        items(recent, key = { it.key }) { entry ->
-            ResultRow(entry, settings, emptyList()) { onOpen(entry) }
+        itemsIndexed(recent, key = { _, it -> it.key }) { index, entry ->
+            ResultRow(
+                entry,
+                settings,
+                emptyList(),
+                modifier = searchItemMotion(reduceMotion).searchReveal(reveal, index + 1),
+            ) { onOpen(entry) }
         }
     }
 }
@@ -711,20 +1218,40 @@ private fun ResultsHeading(text: String, modifier: Modifier = Modifier) {
 @Composable
 private fun ResultRow(
     entry: SettingsSearchEntry,
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     tokens: List<String>,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val title = remember(entry.title, tokens) { highlightTitle(entry.title, tokens) }
+    // The result's glyph is the glyph of the screen it opens — the same tile,
+    // the same accent — so it flies into that screen's heading instead of the
+    // page appearing from nowhere. The row's own title is a setting's name and
+    // stays where it is: the heading is the screen's name, not the setting's.
+    val origin = searchFlightOrigin(entry)
+    val open = {
+        FlightOrigin.leaving(origin)
+        onClick()
+    }
     androidx.compose.material3.Surface(
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
     ) {
         WmRow(
             title = entry.title,
             titleContent = { Text(title) },
-            leading = { ResultIcon(entry, settings) },
+            // Gone with the rows' own tiles when "Icons in settings" is off:
+            // the result would otherwise be the one tile left in the app.
+            leading = if (!LocalIconReveal.current.present) null else {
+                {
+                    ResultIcon(
+                        entry,
+                        settings,
+                        modifier = Modifier.wmSharedElement(takeOffKey("icon", entry.route, origin)),
+                    )
+                }
+            },
             supporting = {
                 Column {
                     if (entry.subtitle.isNotBlank()) Text(entry.subtitle)
@@ -735,7 +1262,7 @@ private fun ResultRow(
                     )
                 }
             },
-            onClick = onClick,
+            onClick = open,
         )
     }
 }
@@ -785,16 +1312,32 @@ private const val HIGHLIGHT_MIN_LENGTH = 3
  * magnifier is the fallback for a route with no icon of its own.
  */
 @Composable
-private fun ResultIcon(entry: SettingsSearchEntry, settings: KeyboardSettings) {
+internal fun ResultIcon(
+    entry: SettingsSearchEntry,
+    settings: LiveSettings,
+    modifier: Modifier = Modifier,
+) {
+    // A provider itself, rather than a row on its screen, wears its own
+    // tile: the logo its list row and its screen show.
+    if (entry.weight == EntryWeight.TOOL) {
+        val provider = remember(entry.route) {
+            providerOfRoute(entry.route)?.let { (_, key) -> ProviderTypes.of(providerKindOf(key)) }
+        }
+        if (provider != null) {
+            ProviderTile(provider, modifier = modifier)
+            return
+        }
+    }
     val tool = entry.tool
     if (tool != null) {
         // The tile's own wash keeps the raw accent; only the glyph inside is
         // darkened, which is what WmIconTile does for a flat accent too.
-        val paint = toolAccentPaint(tool, settings)
+        val paint = settings.watch { toolAccentPaint(tool, it) }
         val glyph = tileToolPaint(paint)
         WmIconTile(
             accent = paint?.color ?: MaterialTheme.colorScheme.primary,
             brush = paint?.brush,
+            modifier = modifier,
         ) {
             SlotIcon(
                 IconSlots.forTool(tool),
@@ -808,15 +1351,8 @@ private fun ResultIcon(entry: SettingsSearchEntry, settings: KeyboardSettings) {
     WmIconTile(
         SettingsRouteIcons[entry.route] ?: Icons.Outlined.Search,
         accent = routeAccent(entry.route),
+        modifier = modifier,
     )
-}
-
-@Composable
-private fun SearchHint(modifier: Modifier = Modifier) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        Spacer(Modifier.height(16.dp))
-        CaptionText(stringResource(R.string.shell_search_help_body))
-    }
 }
 
 @Composable

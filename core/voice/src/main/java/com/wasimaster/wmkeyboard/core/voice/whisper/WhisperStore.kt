@@ -1,19 +1,31 @@
 package com.wasimaster.wmkeyboard.core.voice.whisper
 
+import com.wasimaster.wmkeyboard.core.download.FileDownloader
 import java.io.File
 
 /**
  * File layout for offline Whisper models. Each catalog entry downloads into
- * `filesDir/whisper/<id>/` as two files — the `.tflite` model and its
- * `filters_vocab_*.bin` — with a `<name>.part` while a file is in flight.
+ * `filesDir/whisper/<id>/`: a LiteRT entry as two files — the `.tflite` model
+ * and its `filters_vocab_*.bin` — and a whisper.cpp entry as its one `.bin`,
+ * with a `<name>.part` while a file is in flight.
  *
  * Atomic-rename contract: a final (non-.part) file exists only once its
  * download finished with the expected byte count, so a model counts as
- * downloaded exactly when **both** final files are present.
+ * downloaded exactly when every one of its [requiredFiles] is present.
  */
 object WhisperStore {
 
     fun rootDir(filesDir: File): File = File(filesDir, "whisper")
+
+    /**
+     * Where an imported `filters_vocab_*.bin` waits for a model to go with.
+     * One vocab serves many models, and the user may bring it before the
+     * graph, so it cannot go into a model's directory yet: a directory holding
+     * one of its two files reads as a download half done.
+     */
+    fun vocabPool(filesDir: File): File = File(rootDir(filesDir), VOCAB_POOL)
+
+    private const val VOCAB_POOL = ".vocab"
 
     fun modelDir(filesDir: File, model: WhisperModel): File =
         File(rootDir(filesDir), model.id)
@@ -24,12 +36,35 @@ object WhisperStore {
     fun vocabFile(filesDir: File, model: WhisperModel): File =
         File(modelDir(filesDir, model), model.vocabFile)
 
-    /** Both files (model, vocab) that must exist for the model to be usable. */
+    /** The files that must exist for the model to be usable: graph and vocab, or the one `.bin`. */
     fun requiredFiles(filesDir: File, model: WhisperModel): List<File> =
-        listOf(modelFile(filesDir, model), vocabFile(filesDir, model))
+        if (model.ggml) {
+            listOf(modelFile(filesDir, model))
+        } else {
+            listOf(modelFile(filesDir, model), vocabFile(filesDir, model))
+        }
 
     fun isDownloaded(filesDir: File, model: WhisperModel): Boolean =
-        requiredFiles(filesDir, model).all { it.isFile }
+        requiredFiles(filesDir, model).all { it.isFile } && !isStale(filesDir, model)
+
+    /**
+     * The model file on disk is a graph this entry no longer uses — one of its
+     * [WhisperModel.retiredModelBytes] — so it must be fetched again rather
+     * than run.
+     */
+    fun isStale(filesDir: File, model: WhisperModel): Boolean {
+        if (model.retiredModelBytes.isEmpty()) return false
+        val file = modelFile(filesDir, model)
+        return file.isFile && file.length() in model.retiredModelBytes
+    }
+
+    /**
+     * Deletes a [isStale] model file. The vocab beside it is kept: it did not
+     * change, and the download skips a file that is already in place.
+     */
+    fun purgeStale(filesDir: File, model: WhisperModel) {
+        if (isStale(filesDir, model)) modelFile(filesDir, model).delete()
+    }
 
     /** True while a partial download for either file is on disk. */
     fun hasPartial(filesDir: File, model: WhisperModel): Boolean =
@@ -39,7 +74,7 @@ object WhisperStore {
 
     /** Bytes already on disk for this model, finished and partial. */
     fun bytesOnDisk(filesDir: File, model: WhisperModel): Long =
-        modelDir(filesDir, model).walkBottomUp().filter { it.isFile }.sumOf { it.length() }
+        FileDownloader.bytesUnder(modelDir(filesDir, model))
 
     /**
      * Resolves the whisperModelId setting to a downloaded model, or null when
@@ -126,7 +161,7 @@ object WhisperStore {
     fun orphanDirs(filesDir: File): List<File> {
         val known = WhisperCatalog.models.map { it.id }.toSet()
         return rootDir(filesDir).listFiles().orEmpty()
-            .filter { it.isDirectory && it.name !in known }
+            .filter { it.isDirectory && it.name !in known && it.name != VOCAB_POOL }
     }
 
     fun orphanBytes(filesDir: File): Long =

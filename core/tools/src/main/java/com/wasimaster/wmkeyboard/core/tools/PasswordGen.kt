@@ -64,6 +64,64 @@ object PasswordGen {
         return chars.take(length).joinToString("")
     }
 
+    /** PIN lengths the generator offers (#899): 4 and 6 are the usual ones. */
+    val PIN_LENGTHS: IntRange = 4..12
+
+    /**
+     * A PIN of [length] digits (#899). With [avoidWeak] it is drawn again
+     * until it is none of the shapes a PIN rule refuses and a guesser tries
+     * first ([isWeakPin]): no PIN is lost to those rules, only the few that
+     * break them.
+     */
+    fun pin(length: Int, avoidWeak: Boolean = true, random: SecureRandom = SecureRandom()): String {
+        val n = length.coerceIn(PIN_LENGTHS)
+        var candidate: String
+        var tries = 0
+        do {
+            candidate = buildString { repeat(n) { append(DIGITS[random.nextInt(DIGITS.length)]) } }
+            tries++
+        } while (avoidWeak && isWeakPin(candidate) && tries < MAX_PIN_TRIES)
+        return candidate
+    }
+
+    /**
+     * Whether [pin] is a shape a bank or phone refuses, or a guesser tries
+     * first: one digit over and over (`1111`), a run up or down (`1234`,
+     * `9876`), a short block repeated (`1212`, `123123`), or a date — a
+     * year (`1987`), a day and month either way round (`2512`, `1225`), and
+     * those with a two- or four-digit year after or before them.
+     */
+    fun isWeakPin(pin: String): Boolean {
+        if (pin.isEmpty() || pin.any { it !in DIGITS }) return false
+        val d = pin.map { it - '0' }
+        if (d.all { it == d[0] }) return true
+        val steps = d.zipWithNext { a, b -> b - a }
+        if (steps.all { it == 1 } || steps.all { it == -1 }) return true
+        for (period in 1..pin.length / 2) {
+            if (pin.length % period == 0 && pin == pin.take(period).repeat(pin.length / period)) return true
+        }
+        return looksLikeDate(pin)
+    }
+
+    private fun looksLikeDate(pin: String): Boolean {
+        fun n(s: String) = s.toInt()
+        fun dayMonth(s: String) = (n(s.take(2)) in 1..31 && n(s.drop(2)) in 1..12) ||
+            (n(s.take(2)) in 1..12 && n(s.drop(2)) in 1..31)
+        fun year4(s: String) = n(s) in 1900..2099
+        return when (pin.length) {
+            4 -> year4(pin) || dayMonth(pin)
+            6 -> dayMonth(pin.take(4)) || dayMonth(pin.drop(2))
+            8 -> (dayMonth(pin.take(4)) && year4(pin.drop(4))) || (year4(pin.take(4)) && dayMonth(pin.drop(4)))
+            else -> false
+        }
+    }
+
+    private const val MAX_PIN_TRIES = 1000
+
+    /** Strength of a PIN in bits, for the panel's meter. */
+    fun pinEntropyBits(length: Int): Int =
+        (length.coerceIn(PIN_LENGTHS) * ln(10.0) / ln(2.0)).roundToInt()
+
     fun passphrase(
         wordlist: List<String>,
         spec: PassphraseSpec,
@@ -98,13 +156,27 @@ object PasswordGen {
         return bits.roundToInt()
     }
 
+    /** The default size of a built wordlist. */
+    const val WORDLIST_LIMIT = 4096
+
+    /**
+     * Whether [word] is passphrase material: short, unambiguous, all lowercase
+     * letters.
+     *
+     * Named rather than inlined into [buildWordlist] because the caller that
+     * builds the list from a trie hands it to the walk as its filter, and the
+     * two must agree on what a passphrase word is.
+     */
+    fun acceptsWord(word: String): Boolean =
+        word.length in 4..8 && word.all { c -> c in 'a'..'z' }
+
     /**
      * Filters a dictionary's words down to passphrase material: common,
      * short, unambiguous, all-lowercase-letter words.
      */
-    fun buildWordlist(words: Sequence<String>, limit: Int = 4096): List<String> =
+    fun buildWordlist(words: Sequence<String>, limit: Int = WORDLIST_LIMIT): List<String> =
         words
-            .filter { it.length in 4..8 && it.all { c -> c in 'a'..'z' } }
+            .filter(::acceptsWord)
             .distinct()
             .take(limit)
             .toList()

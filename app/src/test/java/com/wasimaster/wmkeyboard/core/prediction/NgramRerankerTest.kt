@@ -22,7 +22,8 @@ class NgramRerankerTest {
         prev: String?,
         prev2: String? = null,
         recent: List<String> = emptyList(),
-    ) = RerankContext("wor", prev, recent, prev2)
+        prev3: String? = null,
+    ) = RerankContext("wor", prev, recent, prev2, prev3)
 
     @Test
     fun noContextOrNoEvidenceMeansNoOpinion() {
@@ -135,16 +136,67 @@ class NgramRerankerTest {
     }
 
     @Test
-    fun knownPreviousWordNeverConsultsSkipEvidence() {
+    fun theOovProxyNeverLeaksThroughAKnownPrev() {
         val lexicon = UserLexicon(null)
-        // A massive gappy habit (met -> world) that must NOT leak through a
-        // known prev: "work" is in the dictionary, so only its own direct
-        // followers count, and the modest work -> words habit wins.
+        // A massive ADJACENT habit of the word two back (met -> world) that
+        // must NOT be read as gappy evidence through a known prev: "work" is
+        // in the dictionary, so the proxy stays off, only work's own direct
+        // followers count, and the modest work -> words habit wins. (The
+        // stored skip-gram is the store allowed to speak here; see below.)
         repeat(50) { lexicon.learnBigram("met", "world") }
         repeat(3) { lexicon.learnBigram("work", "words") }
         val r = reranker(lexicon)
         val out = r.rerank(context(prev = "work", prev2 = "met"), listOf("world", "words"))
         assertEquals(listOf("words", "world"), out)
+    }
+
+    @Test
+    fun aStoredSkipGramLiftsOneRankAndNeverTwo() {
+        // The issue's own case (#195): "go to the store" typed often, then a
+        // glide after "the" whose direct evidence is silent. The word two
+        // back vouches on its own and lifts "world" one slot, past the
+        // runner-up but never past a candidate the walk ranked two clear.
+        val lexicon = UserLexicon(null)
+        repeat(50) { lexicon.learnSkip1gram("go", "world") }
+        val r = reranker(lexicon)
+        val out = r.rerank(context(prev = "the", prev2 = "go"), listOf("words", "work", "world"))
+        assertEquals(listOf("words", "world", "work"), out)
+        // Without a word two back there is nothing gappy to read.
+        assertNull(r.rerank(context(prev = "the"), listOf("words", "world")))
+    }
+
+    @Test
+    fun aStoredSkipGramPoolsAcrossTheMiddleWord() {
+        // "deploy the/a/my service": each direct bigram saw the pair once,
+        // which on its own is under a rank and moves nothing. The gappy
+        // store saw deploy -> service three times, and the pooled habit is
+        // what carries "service" past the walk's first pick.
+        val lexicon = UserLexicon(null)
+        listOf("the", "a", "my").forEach { lexicon.learnBigram(it, "service") }
+        val r = reranker(lexicon)
+        val direct = r.rerank(context(prev = "my", prev2 = "deploy"), listOf("servers", "service"))
+        assertEquals(listOf("servers", "service"), direct)
+        repeat(3) { lexicon.learnSkip1gram("deploy", "service") }
+        val pooled = r.rerank(context(prev = "my", prev2 = "deploy"), listOf("servers", "service"))
+        assertEquals(listOf("service", "servers"), pooled)
+    }
+
+    @Test
+    fun theWordThreeBackLiftsOneRankOnlyOnceWellWorn() {
+        // The reporter's own sentence (#195): "gotten so that you've", typed
+        // often, then "that" and two other words in between. The word three
+        // back is weak evidence — two words of anything lie between — so a
+        // handful of sightings moves nothing, a dozen lifts one slot, and no
+        // number of them lifts two.
+        val lexicon = UserLexicon(null)
+        val r = reranker(lexicon)
+        val ctx = context(prev = "the", prev2 = "so", prev3 = "gotten")
+        repeat(5) { lexicon.learnSkip2gram("gotten", "world") }
+        assertEquals(listOf("words", "work", "world"), r.rerank(ctx, listOf("words", "work", "world")))
+        repeat(20) { lexicon.learnSkip2gram("gotten", "world") }
+        assertEquals(listOf("words", "world", "work"), r.rerank(ctx, listOf("words", "work", "world")))
+        // Without a word three back there is nothing to read.
+        assertNull(r.rerank(context(prev = "the", prev2 = "so"), listOf("words", "world")))
     }
 
     @Test

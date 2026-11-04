@@ -65,6 +65,18 @@ class AutoBackupNamingTest {
     }
 
     @Test
+    fun `a WebDAV upload in flight is swept like a part file and never rotated`() {
+        val upload = AutoBackupNaming.name(0L, encrypted = false, zone = utc) +
+            AutoBackupNaming.UPLOAD_SUFFIX
+        // Nextcloud 30+ answers 400 to any name ending in .part (#411).
+        assertFalse(upload.endsWith(".part"))
+        assertTrue(AutoBackupNaming.isPart(upload))
+        assertFalse(AutoBackupNaming.isOurs(upload))
+        assertFalse(AutoBackupNaming.isListed(upload))
+        assertFalse(AutoBackupNaming.isPart("someone-elses.upload"))
+    }
+
+    @Test
     fun `rotation deletes the oldest and keeps the newest`() {
         val entries = listOf(
             entry("c", 300),
@@ -73,6 +85,28 @@ class AutoBackupNamingTest {
             entry("b", 200),
         )
         assertEquals(listOf("a", "b"), AutoBackupNaming.rotation(entries, keep = 2).map { it.name })
+    }
+
+    @Test
+    fun `staggered rotation spares the newest backup of each day, week and month`() {
+        val day = 24L * 60 * 60 * 1000
+        val now = 400 * day
+        // Hourly backups for two days, then one a day back over a year and a half.
+        val hourly = (0 until 48).map { h -> now - h * (day / 24) }
+        val daily = (2 until 540).map { d -> now - d * day }
+        val entries = (hourly + daily).map { t -> entry("t$t", t) }
+        val doomed = AutoBackupNaming.rotation(entries, keep = 3, staggered = true).toSet()
+        val kept = entries.filterNot { it in doomed }.map { it.modifiedAtMs }.toSet()
+        // The three newest, whatever else happens.
+        assertTrue(hourly.take(3).all { it in kept })
+        // One for each of the last seven days, one for each of five weeks, one for each of twelve months.
+        assertTrue(kept.size <= 3 + 7 + 5 + 12)
+        assertTrue((1 until 7).all { d -> kept.any { now - it in d * day until (d + 1) * day } })
+        assertTrue(kept.any { now - it in 300 * day until 330 * day })
+        // Nothing a year old or more.
+        assertTrue(kept.none { now - it >= 365 * day })
+        // Off, it is the plain count.
+        assertEquals(3, entries.size - AutoBackupNaming.rotation(entries, keep = 3).size)
     }
 
     @Test
@@ -108,5 +142,86 @@ class AutoBackupNamingTest {
         // A keep of 0 is not a request to delete everything, whatever the box says.
         assertEquals(listOf("a"), AutoBackupNaming.rotation(entries, keep = 0).map { it.name })
         assertEquals(listOf("a"), AutoBackupNaming.rotation(entries, keep = -5).map { it.name })
+    }
+
+    @Test
+    fun `a name can say which installation and device wrote it`() {
+        val stamp = 1_754_575_353_000L
+        val name = AutoBackupNaming.name(
+            stamp,
+            encrypted = true,
+            zone = utc,
+            installId = "a1b2c3d4",
+            device = "Wasi's Pixel 8 (work)",
+        )
+        assertEquals("wmkeyboard-auto-20250807-140233_a1b2c3d4_Wasi-s-Pixel-8-work.wmconfig.enc", name)
+        assertTrue(AutoBackupNaming.isOurs(name))
+        val parsed = AutoBackupNaming.parse(name, utc)!!
+        assertEquals(stamp, parsed.stampMs)
+        assertEquals("a1b2c3d4", parsed.installId)
+        assertEquals("Wasi-s-Pixel-8-work", parsed.device)
+        assertTrue(parsed.encrypted)
+    }
+
+    @Test
+    fun `a name from before owners still parses, with no owner`() {
+        val parsed = AutoBackupNaming.parse("wmkeyboard-auto-20250807-140233.wmconfig.json", utc)!!
+        assertEquals(1_754_575_353_000L, parsed.stampMs)
+        assertEquals(null, parsed.installId)
+        assertEquals(null, parsed.device)
+        assertFalse(parsed.encrypted)
+    }
+
+    @Test
+    fun `a device name with nothing usable leaves just the id`() {
+        assertEquals("", AutoBackupNaming.deviceSlug("ওয়াসির ফোন"))
+        val name = AutoBackupNaming.name(0L, false, utc, installId = "0badf00d", device = "ওয়াসির ফোন")
+        assertEquals("wmkeyboard-auto-19700101-000000_0badf00d.wmconfig.json", name)
+        assertEquals("0badf00d", AutoBackupNaming.parse(name, utc)!!.installId)
+    }
+
+    @Test
+    fun `a long device name is cut, not the id`() {
+        val slug = AutoBackupNaming.deviceSlug("A".repeat(80))
+        assertEquals(32, slug.length)
+        val name = AutoBackupNaming.name(0L, false, utc, installId = "12345678", device = "A".repeat(80))
+        assertEquals("12345678", AutoBackupNaming.parse(name, utc)!!.installId)
+    }
+
+    @Test
+    fun `strangers do not parse`() {
+        for (name in listOf(
+            "wmkeyboard-backup-20250807-140233.wmconfig.json",
+            "wmkeyboard-auto-20250807-140233_XYZ.wmconfig.json",
+            "wmkeyboard-auto-20250807-140233.wmconfig.json.bak",
+            "tax-return-2025.pdf",
+        )) {
+            assertEquals(name, null, AutoBackupNaming.parse(name, utc))
+        }
+    }
+
+    @Test
+    fun `rotation counts only this installation and the unowned ones`() {
+        fun owned(id: String?, at: Long) = entry(
+            AutoBackupNaming.name(at * 1000, false, utc, installId = id.orEmpty(), device = "Phone"),
+            at,
+        )
+        val mine = (1L..4L).map { owned("aaaaaaaa", it) }
+        val theirs = (5L..9L).map { owned("bbbbbbbb", it) }
+        val legacy = listOf(owned(null, 0L))
+        val doomed = AutoBackupNaming.rotation(mine + theirs + legacy, keep = 2, installId = "aaaaaaaa")
+        // Oldest of mine plus the unowned one go; the other phone's five stay,
+        // though every one of them is newer and there are more than two.
+        assertEquals((legacy + mine.take(2)).map { it.name }, doomed.map { it.name })
+        assertTrue(doomed.none { it in theirs })
+    }
+
+    @Test
+    fun `the other phone rotates its own the same way`() {
+        fun owned(id: String, at: Long) =
+            entry(AutoBackupNaming.name(at * 1000, false, utc, installId = id), at)
+        val all = (1L..3L).map { owned("aaaaaaaa", it) } + (4L..6L).map { owned("bbbbbbbb", it) }
+        val doomed = AutoBackupNaming.rotation(all, keep = 1, installId = "bbbbbbbb")
+        assertEquals(all.subList(3, 5).map { it.name }, doomed.map { it.name })
     }
 }

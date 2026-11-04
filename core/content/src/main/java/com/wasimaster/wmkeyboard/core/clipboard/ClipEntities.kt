@@ -2,6 +2,8 @@ package com.wasimaster.wmkeyboard.core.clipboard
 
 import androidx.annotation.StringRes
 import com.wasimaster.wmkeyboard.content.R
+import com.wasimaster.wmkeyboard.core.location.LocationParser
+import com.wasimaster.wmkeyboard.core.location.ParsedLocation
 
 /**
  * A kind of fragment worth pulling out of a clip on its own: the six digits
@@ -12,7 +14,13 @@ import com.wasimaster.wmkeyboard.content.R
 enum class ClipEntityKind {
     OTP,
     PHONE,
-    URL;
+    URL,
+
+    /**
+     * Coordinates, a Plus code or a `geo:` link (#350). A map link stays a
+     * [URL]: it is one, and the Location tool's Found tab reads both.
+     */
+    PLACE;
 
     /** Two-word noun for the info popup and the chip's accessibility label. */
     @get:StringRes
@@ -21,6 +29,7 @@ enum class ClipEntityKind {
             OTP -> R.string.core_content_clip_entity_otp_label
             PHONE -> R.string.core_content_clip_entity_phone_label
             URL -> R.string.core_content_clip_entity_url_label
+            PLACE -> R.string.core_content_clip_entity_place_label
         }
 
     /** All-caps tag printed on the chip itself. */
@@ -30,6 +39,7 @@ enum class ClipEntityKind {
             OTP -> R.string.core_content_clip_entity_otp_tag
             PHONE -> R.string.core_content_clip_entity_phone_tag
             URL -> R.string.core_content_clip_entity_url_tag
+            PLACE -> R.string.core_content_clip_entity_place_tag
         }
 }
 
@@ -86,6 +96,16 @@ object ClipEntities {
         RegexOption.IGNORE_CASE,
     )
 
+    /**
+     * An address with no `https://` or `www.` in front (#612): `x.com`,
+     * `m.youtube.com/watch?v=…`. Not part of an email address, a longer word
+     * or a path, and only with a known ending; see [ClipLinks.BARE_TLDS].
+     */
+    private val BARE_URL = Regex(
+        """(?<![\w@./-])${ClipLinks.BARE_HOST}(?![\w@-])(?:[/?#][^\s<>"'`]*)?""",
+        RegexOption.IGNORE_CASE,
+    )
+
     // The word-character guards keep digit runs glued to an identifier out —
     // `emoji_864356927` is a filename's tail, not a number to dial.
     private val PHONE = Regex("""(?<![\w+])\+?\d[\d ().\-]{5,18}\d(?!\w)""")
@@ -100,12 +120,48 @@ object ClipEntities {
     /** Separators people write phone numbers with. */
     private const val PHONE_SEPARATORS = " -()."
 
+    /**
+     * The words Chinese, Japanese and Korean senders put beside a code (#992).
+     * A separate alternation because `\b` means nothing next to Han, kana or
+     * Hangul, so these sit outside the Latin group's word boundaries. Shared
+     * with the notification extractor's anchored pattern.
+     */
+    internal const val CJK_OTP_KEYWORDS =
+        "验证码|驗證碼|校验码|校驗碼|动态码|動態碼|动态密码|動態密碼|认证码|認證碼|" +
+            "确认码|確認碼|短信码|激活码|安全码|安全碼|登录码|登錄碼|口令|" +
+            "認証コード|確認コード|認証番号|確認番号|ワンタイムパスワード|セキュリティコード|" +
+            "인증번호|인증 번호|인증코드|확인코드|확인 코드|보안코드|승인번호"
+
     private val OTP_KEYWORD = Regex(
         "\\b(?:otp|one[- ]?time(?: password| passcode| code)?|passcode|pass code|" +
             "verification|verify|confirmation|security code|auth(?:entication)? code|" +
-            "access code|login code|code|pin|2fa)\\b",
+            "access code|login code|code|pin|2fa)\\b|$CJK_OTP_KEYWORDS",
         RegexOption.IGNORE_CASE,
     )
+
+    /**
+     * The user's own code words (#992), from Settings › Typing › One-time
+     * codes, for wordings no built-in list knows. Matched by plain
+     * containment, never `\b`, which does not exist next to Han, Thai or
+     * Khmer. Set by whoever owns the setting; null when there are none.
+     */
+    @Volatile
+    private var userOtpKeyword: Regex? = null
+
+    /** Replaces the user's code words; blank entries are dropped. */
+    fun setUserOtpKeywords(words: List<String>) {
+        val kept = words.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        userOtpKeyword = if (kept.isEmpty()) {
+            null
+        } else {
+            // Longest first, so "动态密码" is not cut short by a "动态" also listed.
+            Regex(kept.sortedByDescending { it.length }.joinToString("|") { Regex.escape(it) }, RegexOption.IGNORE_CASE)
+        }
+    }
+
+    /** [setUserOtpKeywords] from the setting as typed: one list, commas or new lines between. */
+    fun parseOtpKeywords(raw: String): List<String> =
+        raw.split(',', '，', '、', ';', '\n').map { it.trim() }.filter { it.isNotEmpty() }
 
     /**
      * Words that turn a nearby "code" into something that is not a login code.
@@ -116,7 +172,12 @@ object ClipEntities {
         "hex", "sort", "swift", "ifsc", "iban", "bar", "qr", "source", "error",
     )
 
-    private val OTP_TOKEN = Regex("""(?<![\w-])(?:[A-Za-z]-)?[A-Z0-9]{4,8}(?![\w-])""")
+    // ASCII classes rather than `\w`: Android's regex counts Han as a word
+    // character, and a code glued to its keyword ("验证码467321") then had no
+    // start (#992).
+    // Either side of a decimal point or thousands comma is part of an amount:
+    // `OTP for Rs 1500.00 is 482913` (#1049).
+    private val OTP_TOKEN = Regex("""(?<![A-Za-z0-9_-])(?<!\d[.,])(?:[A-Za-z]-)?[A-Z0-9]{4,8}(?![A-Za-z0-9_-])(?![.,]\d)""")
 
     /**
      * Every fragment in [text], with [sourceId] stamped on each. Ranges never
@@ -150,6 +211,16 @@ object ClipEntities {
             if (url.length >= 8 && url.substringAfterLast('.').isNotBlank()) {
                 claim(ClipEntityKind.URL, url, match.range.first)
             }
+        }
+        // After the ones with a scheme, which claim their own host first.
+        for (match in BARE_URL.findAll(text)) {
+            claim(ClipEntityKind.URL, trimUrlTail(match.value), match.range.first)
+        }
+
+        // Before codes and numbers: a Plus code is code-shaped, and the
+        // digits of a coordinate pair could read as either.
+        for (place in LocationParser.findAll(text)) {
+            if (place.kind != ParsedLocation.Kind.LINK) claim(ClipEntityKind.PLACE, place.text, place.start)
         }
 
         for ((start, value) in otpTokens(text)) {
@@ -195,14 +266,41 @@ object ClipEntities {
         return found.sortedBy { it.kind.ordinal }.take(MAX_ENTITIES)
     }
 
+    /**
+     * Each clip's own fragments, by [ClipItem.id] (#472): what the clip cards
+     * count in their corner and offer under Extract. The same rules as
+     * [entitiesIn] (no masked clip, nothing that is the whole clip), but per
+     * clip and uncapped across clips, since every card answers for itself. A
+     * fragment repeated inside one clip is listed once.
+     */
+    fun byClip(
+        items: List<ClipItem>,
+        phoneFormats: List<PhoneMask> = emptyList(),
+    ): Map<Long, List<ClipEntity>> {
+        val out = HashMap<Long, List<ClipEntity>>()
+        for (item in items) {
+            if (!item.kind.isTextual || item.sensitive) continue
+            val text = item.text.take(MAX_SCANNED_CHARS)
+            val whole = text.trim()
+            val found = extract(text, item.id, phoneFormats)
+                .filter { it.value != whole }
+                .distinctBy { it.key }
+                .sortedBy { it.kind.ordinal }
+            if (found.isNotEmpty()) out[item.id] = found
+        }
+        return out
+    }
+
     /** Codes sitting close enough to a code-ish word to be that code. */
     private fun otpTokens(text: String): List<Pair<Int, String>> {
         // Half-open (start, end) spans, so a token butting straight up against
         // a keyword measures a gap of zero rather than minus one.
-        val keywords = OTP_KEYWORD.findAll(text)
+        val builtIn = OTP_KEYWORD.findAll(text)
             .filter { !isDeniedKeyword(text, it.range.first) }
             .map { it.range.first to it.range.last + 1 }
-            .toList()
+        // The user's words skip the deny list: they named the word themselves.
+        val own = userOtpKeyword?.findAll(text).orEmpty().map { it.range.first to it.range.last + 1 }
+        val keywords = (builtIn + own).toList()
         if (keywords.isEmpty()) return emptyList()
         return OTP_TOKEN.findAll(text)
             .filter { isCodeShaped(it.value) }

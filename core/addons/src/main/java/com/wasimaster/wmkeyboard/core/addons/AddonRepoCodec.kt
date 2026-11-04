@@ -1,5 +1,6 @@
 package com.wasimaster.wmkeyboard.core.addons
 
+import com.wasimaster.wmkeyboard.core.endpoints.RepoLocation
 import java.net.URI
 import kotlinx.serialization.json.Json
 
@@ -46,9 +47,30 @@ object AddonRepoCodec {
         // tracked, and an unknown type has no importer. Dropping them beats
         // rejecting the repository over one malformed row.
         val usable = manifest.addons.filter {
-            it.id.isNotBlank() && it.path.isNotBlank() && it.type != AddonType.Unknown
+            it.id.isNotBlank() && it.path.isNotBlank() && it.type != AddonType.Unknown &&
+                !it.id.contains(AddonLocalization.SEPARATOR)
         }
-        return manifest.copy(addons = usable)
+        return manifest.copy(addons = usable.map { it.copy(localizations = usableLocalizations(it)) })
+    }
+
+    /** `owner/repository`, GitHub's own shorthand: no scheme, no host, two parts. */
+    private val GITHUB_SHORTHAND = Regex("""[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+""")
+
+    /** `es`, `es-419`, `pt-BR`, `bn_rom-BD`: a language id, then an optional region. */
+    private val LOCALE = Regex("""[a-z]{2,3}(_[a-z0-9]+)*(-[A-Za-z0-9]{2,8})?""")
+
+    /**
+     * The localizations worth offering: well-formed, with a payload, one per
+     * locale, and none repeating the base list's own language. Same reasoning
+     * as the entry filter above — one bad row drops, the addon stays.
+     */
+    private fun usableLocalizations(entry: AddonEntry): List<AddonLocalization> {
+        if (!entry.type.perLanguage) return emptyList()
+        val seen = HashSet<String>()
+        entry.langId?.takeIf { it.isNotBlank() }?.let { seen += it.lowercase() }
+        return entry.localizations.filter {
+            it.path.isNotBlank() && LOCALE.matches(it.locale) && seen.add(it.locale.lowercase())
+        }
     }
 
     /**
@@ -59,10 +81,14 @@ object AddonRepoCodec {
      * | `github.com/USER/REPO` | `raw.githubusercontent.com/USER/REPO/HEAD/wmkeyboard-repo.json` |
      * | `github.com/USER/REPO/tree/BRANCH` | the same on `BRANCH` |
      * | a direct URL to a `.json` | used as-is |
+     * | a repository page on another forge (Codeberg, a GitLab, SourceHut, Bitbucket, a self-hosted Forgejo) | that forge's raw `wmkeyboard-repo.json` |
      * | any other https URL | treated as a directory; `wmkeyboard-repo.json` appended |
+     * | `user/repo` alone | the GitHub repository, as the first row |
      *
-     * A bare `user/repo`, or a URL with no scheme, is assumed to be https —
-     * people paste addresses without typing the scheme. Returns null for
+     * A URL with no scheme is assumed to be https — people paste addresses
+     * without typing the scheme. A GitHub repository address may also hold a
+     * Clink repository instead; [ClinkRepo.locate] finds its catalogue from
+     * the URL this returns. Returns null for
      * anything that isn't resolvable to an https URL, which includes plain
      * http: it is rejected rather than silently upgraded, so a link that
      * expected to be intercepted fails visibly.
@@ -82,6 +108,14 @@ object AddonRepoCodec {
         // first slash, so this only catches the schemes.
         if (!hasScheme && trimmed.substringBefore('/').contains(':')) return null
 
+        // `owner/repository` alone is a GitHub repository: it is how Clink
+        // asks for one, so it is what someone bringing a Clink repository
+        // pastes. A host always has a dot in it, and this first part has none.
+        if (!hasScheme && GITHUB_SHORTHAND.matches(trimmed)) {
+            val (user, repo) = trimmed.split('/')
+            return "https://raw.githubusercontent.com/$user/${repo.removeSuffix(".git")}/HEAD/$MANIFEST_NAME"
+        }
+
         val withScheme = if (hasScheme) trimmed else "https://$trimmed"
         val uri = runCatching { URI(withScheme) }.getOrNull() ?: return null
         val host = uri.host?.lowercase() ?: return null
@@ -98,6 +132,13 @@ object AddonRepoCodec {
         }
 
         if (path.endsWith(".json", ignoreCase = true)) return withScheme
+        // A repository page on another forge is HTML: appending the file name
+        // to it would fetch a web page. The forge's raw address is the file.
+        RepoLocation.fromPageUrl(withScheme)?.let { (location, dir) ->
+            if (location.isComplete) {
+                return location.rawUrl(if (dir.isEmpty()) MANIFEST_NAME else "$dir/$MANIFEST_NAME")
+            }
+        }
         return "$withScheme/$MANIFEST_NAME"
     }
 

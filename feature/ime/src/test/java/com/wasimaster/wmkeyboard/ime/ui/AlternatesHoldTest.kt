@@ -77,11 +77,92 @@ class AlternatesHoldTest {
         hold.moveTo(Offset(20f, 25f), reach, steerPx = 12f)
         assertEquals(0, hold.selected.intValue)
         // Past the steering distance it follows the finger, and keeps following
-        // it back again.
+        // it back again — to the entry it started on, wherever that is drawn.
         hold.moveTo(Offset(90f, 25f), reach, steerPx = 12f)
         assertEquals(2, hold.selected.intValue)
         hold.moveTo(Offset(22f, 25f), reach, steerPx = 12f)
+        assertEquals(0, hold.selected.intValue)
+    }
+
+    /**
+     * Issue #532: the finger starts over the middle entry of a popup that was
+     * not able to put its first entry over the key. Matched where it stood,
+     * the first slide jumped straight to that middle entry. It steers from
+     * where it started instead, so a slide one entry wide moves one entry.
+     */
+    @Test
+    fun `a slide moves one entry at a time from the first`() {
+        val hold = hold()
+        // Entry 1 (104..144 in the window) is over the finger at x 120.
+        hold.moveTo(Offset(20f, 25f), reach, steerPx = 12f)
+        // Past the steering distance but less than half an entry along.
+        hold.moveTo(Offset(34f, 25f), reach, steerPx = 12f)
+        assertEquals(0, hold.selected.intValue)
+        // One entry's width along.
+        hold.moveTo(Offset(60f, 25f), reach, steerPx = 12f)
         assertEquals(1, hold.selected.intValue)
+    }
+
+    /**
+     * Issue #586: a slide up one row's height reaches the row above, though
+     * the finger is still well below the popup. The highlight stays above the
+     * finger the way it started, rather than the finger climbing onto the row.
+     */
+    @Test
+    fun `a slide up one row reaches the row above`() {
+        val hold = AlternatesHold().apply {
+            open()
+            cell = Rect(100f, 400f, 140f, 450f)
+            popupOffset = IntOffset(60, 290)
+            gridOffset = Offset(4f, 4f)
+            // Entry 0 and 1 on the row nearest the key, entry 2 above entry 0.
+            rects = listOf(
+                Rect(0f, 40f, 40f, 80f),
+                Rect(40f, 40f, 80f, 80f),
+                Rect(0f, 0f, 40f, 40f),
+            )
+        }
+        hold.moveTo(Offset(20f, 25f), reach, steerPx = 12f)
+        hold.moveTo(Offset(20f, -15f), reach, steerPx = 12f)
+        assertEquals(2, hold.selected.intValue)
+        // And back down to the key is the first entry again.
+        hold.moveTo(Offset(20f, 25f), reach, steerPx = 12f)
+        assertEquals(0, hold.selected.intValue)
+    }
+
+    /**
+     * The aim sits a row above the finger, but sliding off the bottom of the
+     * key still backs out: the aim is judged against the popup alone.
+     */
+    @Test
+    fun `sliding down off the key still chooses nothing`() {
+        val hold = hold()
+        hold.moveTo(Offset(20f, 25f), reach, steerPx = 12f)
+        hold.moveTo(Offset(20f, 130f), reach, steerPx = 12f)
+        assertEquals(-1, hold.selected.intValue)
+    }
+
+    /** The entry the finger is aimed at draws biggest, and the far one at rest. */
+    @Test
+    fun `the aimed-at entry is magnified`() {
+        val hold = hold()
+        assertEquals(1f, hold.magnification(1), 0f)
+        hold.moveTo(Offset(20f, 25f), reach, steerPx = 12f)
+        hold.moveTo(Offset(60f, 25f), reach, steerPx = 12f)
+        assertEquals(true, hold.magnification(1) > hold.magnification(0))
+        assertEquals(1f, hold.magnification(2), 0.01f)
+    }
+
+    /** Room on the right: the popup opens rightward from the key. */
+    @Test
+    fun `a popup with room opens rightward from the key`() {
+        assertEquals(80 to false, alternatesAnchoredX(keyX = 100, lead = 20, width = 200, windowWidth = 1000, margin = 8))
+    }
+
+    /** No room on the right: the rows run leftward, the first entry still over the key. */
+    @Test
+    fun `a popup by the right edge runs leftward`() {
+        assertEquals(720 to true, alternatesAnchoredX(keyX = 900, lead = 20, width = 200, windowWidth = 1000, margin = 8))
     }
 
     /** Far enough away is a deliberate move off, and commits nothing. */

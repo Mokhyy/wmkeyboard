@@ -3,39 +3,13 @@ package com.wasimaster.wmkeyboard.app.storage
 import android.content.Context
 import androidx.annotation.StringRes
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoStories
-import com.wasimaster.wmkeyboard.core.vocab.VocabDownloadManager
-import com.wasimaster.wmkeyboard.core.vocab.VocabPacks
-import androidx.compose.material.icons.automirrored.outlined.Article
-import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
-import androidx.compose.material.icons.automirrored.outlined.ShortText
-import androidx.compose.material.icons.automirrored.outlined.VolumeUp
-import androidx.compose.material.icons.outlined.Android
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Cached
-import androidx.compose.material.icons.outlined.CloudDownload
-import androidx.compose.material.icons.outlined.ContentPaste
-import androidx.compose.material.icons.outlined.EmojiEmotions
-import androidx.compose.material.icons.outlined.Extension
-import androidx.compose.material.icons.outlined.Gif
-import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.Interests
-import androidx.compose.material.icons.outlined.Inventory2
-import androidx.compose.material.icons.outlined.Mic
-import androidx.compose.material.icons.outlined.Mood
-import androidx.compose.material.icons.outlined.MoreHoriz
-import androidx.compose.material.icons.outlined.Palette
-import androidx.compose.material.icons.outlined.PhotoCamera
-import androidx.compose.material.icons.outlined.Psychology
-import androidx.compose.material.icons.outlined.QueryStats
-import androidx.compose.material.icons.outlined.Spellcheck
-import androidx.compose.material.icons.outlined.Terminal
-import androidx.compose.material.icons.outlined.TextFields
-import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.wasimaster.wmkeyboard.R
+import com.wasimaster.wmkeyboard.app.STICKER_GENERATOR_ROUTE
+import com.wasimaster.wmkeyboard.app.deleteNeuralPhonetic
+import com.wasimaster.wmkeyboard.app.modules.PlayModules
+import com.wasimaster.wmkeyboard.config.BuildConfig
 import com.wasimaster.wmkeyboard.core.addons.AddonStore
 import com.wasimaster.wmkeyboard.core.aihistory.AiHistoryStore
 import com.wasimaster.wmkeyboard.core.debug.DebugLog
@@ -44,24 +18,89 @@ import com.wasimaster.wmkeyboard.core.emoji.EmojiDictDownloadManager
 import com.wasimaster.wmkeyboard.core.feedback.SoundStore
 import com.wasimaster.wmkeyboard.core.fonts.FontStore
 import com.wasimaster.wmkeyboard.core.icons.IconPackStore
+import com.wasimaster.wmkeyboard.core.icons.SymbolIcons
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.Article
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.LibraryBooks
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.ShortText
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.VolumeUp
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Android
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.AutoAwesome
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.AutoStories
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Cached
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.CloudDownload
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.ContentPaste
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.DocumentScanner
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.EmojiEmotions
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Extension
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Gesture
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.History
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Image
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Interests
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Inventory2
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Mic
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.MoreHoriz
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.NetworkCheck
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Palette
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.PhotoCamera
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Psychology
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.QueryStats
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Search
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Spellcheck
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.SystemUpdate
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Terminal
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.TextFields
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Tune
+import com.wasimaster.wmkeyboard.core.imagegen.ImageGenDownloads
+import com.wasimaster.wmkeyboard.core.imagegen.ImageGenImport
+import com.wasimaster.wmkeyboard.core.imagegen.ImageGenModels
+import com.wasimaster.wmkeyboard.core.upscale.UpscaleModels
 import com.wasimaster.wmkeyboard.core.input.composer.CjkDictCatalog
 import com.wasimaster.wmkeyboard.core.input.composer.CjkDictDownloadManager
 import com.wasimaster.wmkeyboard.core.input.composer.CjkLearning
+import com.wasimaster.wmkeyboard.core.input.mozc.MozcRuntime
+import com.wasimaster.wmkeyboard.core.input.rime.RimeRuntime
 import com.wasimaster.wmkeyboard.core.localllm.LocalLlmCatalog
 import com.wasimaster.wmkeyboard.core.localllm.LocalLlmDownloadManager
 import com.wasimaster.wmkeyboard.core.localllm.LocalLlmStore
+import com.wasimaster.wmkeyboard.core.modules.NativeDelivery
+import com.wasimaster.wmkeyboard.core.modules.NativePin
+import com.wasimaster.wmkeyboard.core.netlog.NetLog
+import com.wasimaster.wmkeyboard.core.ocr.OcrLanguages
+import com.wasimaster.wmkeyboard.core.ocr.OcrPacks
+import com.wasimaster.wmkeyboard.core.ocr.PaddleOcrModel
 import com.wasimaster.wmkeyboard.core.plugins.PluginStore
 import com.wasimaster.wmkeyboard.core.prediction.CustomDictionaries
 import com.wasimaster.wmkeyboard.core.script.LanguageRegistry
+import com.wasimaster.wmkeyboard.core.semantic.SemanticDownloads
+import com.wasimaster.wmkeyboard.core.semantic.SemanticModels
 import com.wasimaster.wmkeyboard.core.settings.LockedSettings
+import com.wasimaster.wmkeyboard.core.settings.SemanticSearchMode
 import com.wasimaster.wmkeyboard.core.settings.SettingsRepository
+import com.wasimaster.wmkeyboard.core.stickers.CutoutModel
 import com.wasimaster.wmkeyboard.core.stickers.StickerPackStore
 import com.wasimaster.wmkeyboard.core.tools.PhotoBackgroundManager
+import com.wasimaster.wmkeyboard.core.tools.offlinegif.OfflineGifPacks
+import com.wasimaster.wmkeyboard.core.tools.yomichan.YomichanDictionaries
+import com.wasimaster.wmkeyboard.core.vocab.VocabDownloadManager
+import com.wasimaster.wmkeyboard.core.vocab.VocabPacks
+import com.wasimaster.wmkeyboard.core.voice.StrongDenoise
+import com.wasimaster.wmkeyboard.core.voice.vad.VadModels
+import com.wasimaster.wmkeyboard.core.voice.punctuation.DictationPunctuation
+import com.wasimaster.wmkeyboard.core.voice.executorch.EtCatalog
+import com.wasimaster.wmkeyboard.core.voice.executorch.EtDownloadManager
+import com.wasimaster.wmkeyboard.core.voice.executorch.EtEngine
+import com.wasimaster.wmkeyboard.core.voice.executorch.EtStore
+import com.wasimaster.wmkeyboard.core.voice.futoswipe.FutoSwipe
+import com.wasimaster.wmkeyboard.core.voice.speech.MmsVoices
 import com.wasimaster.wmkeyboard.core.voice.whisper.WhisperCatalog
 import com.wasimaster.wmkeyboard.core.voice.whisper.WhisperDownloadManager
 import com.wasimaster.wmkeyboard.core.voice.whisper.WhisperStore
+import com.wasimaster.wmkeyboard.core.voice.whistle.WhistleModelDownloadManager
+import com.wasimaster.wmkeyboard.core.voice.whistle.WhistleModelStore
+import com.wasimaster.wmkeyboard.core.xlit.IndicXlitLatinDownloads
 import com.wasimaster.wmkeyboard.ime.ui.mediaImageLoader
 import java.io.File
+import kotlinx.coroutines.flow.first
 
 /**
  * Everything the app keeps on disk, named in words a user recognises.
@@ -130,6 +169,8 @@ internal class StorageItem(
     val deletable: Boolean = true,
     /** An image to draw beside the row, when the item is one. */
     val preview: File? = null,
+    /** The screen a press on the row opens: what this item belongs to. */
+    val route: String? = null,
     /** Whether the row stands for a directory, for the icon it falls back to. */
     val directory: Boolean = false,
 )
@@ -192,19 +233,21 @@ private fun emptyOut(path: File) {
 /**
  * Deletes the sidecars an interrupted import or download leaves behind — every
  * store in the app stages into `.staging_<random>/` and downloads into `*.part`
- * — without touching the files the store itself is tracking.
+ * with its `*.part.ranges` resume map — without touching the files the store itself is tracking.
  */
 private fun sweepLeftovers(dir: File) {
     childrenOf(dir)
-        .filter { it.name.startsWith(".staging_") || it.name.endsWith(".part") }
+        .filter { it.name.startsWith(".staging_") || it.name.endsWith(".part") || it.name.endsWith(".part.ranges") }
         .forEach { it.deleteRecursively() }
 }
 
 internal object StorageCategories {
 
     const val APP_PACKAGE = "app_package"
+    const val PLAY_MODULES = "play_modules"
     const val OTHER_CACHE = "other_cache"
     const val OTHER_DATA = "other_data"
+    const val UPDATES = "updates"
 
     /**
      * The kept sticker sources, listed beside the packs in the sticker
@@ -213,11 +256,33 @@ internal object StorageCategories {
      */
     private const val STICKER_ORIGINALS_ITEM = "sticker_originals"
 
+    /**
+     * The background remover the sticker editor downloads for itself where
+     * there are no Play services to supply one. It is listed with the stickers
+     * because that is the only thing it is for.
+     */
+    private const val STICKER_CUTOUT_ITEM = "sticker_cutout_model"
+
+    /** The upscaler's networks, listed with the sticker generator's models. */
+    private const val UPSCALER_ITEM = "upscaler_models"
+
+    /** Whistle's item among the Whisper model directories, whose ids are catalog ids. */
+    private const val WHISTLE_ITEM_ID = "whistle"
+
+    /** The ExecuTorch engines' items among them: one per model, the catalog id after this prefix. */
+    private const val ET_ITEM_PREFIX = "et:"
+    private const val MMS_ITEM_PREFIX = "mms:"
+    private const val DENOISE_ITEM_ID = "denoise"
+    private const val VAD_ITEM_ID = "vad"
+    private const val PUNCTUATION_ITEM_ID = "punctuation"
+
     fun byId(id: String): StorageCategory? = all.firstOrNull { it.id == id }
 
     /** In display order: the app, then downloads, looks, personal data, caches, the rest. */
     val all: List<StorageCategory> = buildList {
         add(appPackage())
+        // Only Play installs modules; anywhere else the row could only be empty.
+        if (BuildConfig.ENABLE_PLAY_STORE) add(playModules())
         addAll(downloads())
         addAll(looks())
         addAll(personal())
@@ -237,9 +302,11 @@ internal object StorageCategories {
         synthetic = true,
         itemsOf = { env ->
             val info = env.context.applicationInfo
+            // Play's on-demand modules have a row of their own, by name.
+            val modules = installedModuleSplits(env.roots).toSet()
             buildList {
                 add(File(info.sourceDir) to 0)
-                info.splitSourceDirs?.forEach { add(File(it) to 0) }
+                env.roots.appSplits.filterNot { it in modules }.forEach { add(it to 0) }
                 // The only piece whose own name says nothing: the directory is
                 // called after the ABI it holds, `arm64` and the like.
                 info.nativeLibraryDir?.let { add(File(it) to R.string.storage_file_native_libs_label) }
@@ -253,7 +320,60 @@ internal object StorageCategories {
                     deletable = false,
                     directory = true,
                 )
+            }.let { files ->
+                // The system's figure also counts what Android compiled from
+                // the APK, kept beside it where the app cannot list it: the
+                // difference, so the rows add up to the row's own size.
+                val moduleBytes = modules.sumOf { diskUsage(it, env.roots.blockSize) }
+                val compiled = (systemAppBytes(env.context) ?: 0L) - moduleBytes - files.sumOf { it.bytes }
+                if (compiled <= 0L) {
+                    files
+                } else {
+                    files + StorageItem(
+                        id = "compiled",
+                        label = env.context.getString(R.string.storage_app_compiled_label),
+                        detail = env.context.getString(R.string.storage_app_compiled_detail),
+                        bytes = compiled,
+                        deletable = false,
+                    )
+                }
             }
+        },
+    )
+
+    /**
+     * Play's on-demand modules (the Play build only): the features the app
+     * fetched from the Play Store when they were first used, one row each, by
+     * the name Play gave it while it downloaded. Removing one asks Play to
+     * uninstall it, which Play does later, usually with the app in the
+     * background; until then it stays listed, marked as on its way out.
+     */
+    private fun playModules() = StorageCategory(
+        id = PLAY_MODULES,
+        title = R.string.storage_play_modules_title,
+        subtitle = R.string.storage_play_modules_subtitle,
+        icon = Icons.Outlined.Extension,
+        accent = Color(0xFF4DB6AC),
+        group = StorageGroup.APP,
+        danger = Danger.REDOWNLOAD,
+        pathsOf = { roots -> installedPlayModules().flatMap { moduleFiles(roots, it) } },
+        countOf = { _ -> installedPlayModules().size },
+        itemsOf = { env ->
+            installedPlayModules().map { module ->
+                val leaving = module in PlayModules.removing
+                StorageItem(
+                    id = module,
+                    label = playModuleTitle(env.context, module),
+                    detail = if (leaving) env.context.getString(R.string.storage_play_module_removing) else module,
+                    bytes = moduleFiles(env.roots, module).sumOf { diskUsage(it, env.roots.blockSize) },
+                    deletable = !leaving,
+                )
+            }
+        },
+        deleteOne = { _, item -> PlayModules.uninstall(listOf(item.id)) },
+        clearOf = { _ ->
+            val staying = installedPlayModules().filterNot { it in PlayModules.removing }
+            if (staying.isNotEmpty()) PlayModules.uninstall(staying)
         },
     )
 
@@ -270,9 +390,34 @@ internal object StorageCategories {
             danger = Danger.REDOWNLOAD,
             manageRoute = "languages",
             note = R.string.storage_note_mapped,
-            pathsOf = { listOf(File(it.files, "dict"), File(it.files, "cjk_dicts")) },
+            pathsOf = { listOf(File(it.files, "dict"), File(it.files, "cjk_dicts"), File(it.files, "rime"), File(it.files, "mozc")) },
             itemsOf = { env ->
-                languageItems(env, File(env.roots.files, "dict")) +
+                // RIME's unpacked and compiled schemas, with the words it learned:
+                // one item, since they only make sense together.
+                val rime = File(env.roots.files, "rime").takeIf(File::isDirectory)?.let { dir ->
+                    StorageItem(
+                        id = dir.absolutePath,
+                        label = env.context.getString(R.string.storage_rime_label),
+                        detail = dir.name,
+                        bytes = diskUsage(dir, env.roots.blockSize),
+                        files = listOf(dir),
+                        directory = true,
+                    )
+                }
+                // What Mozc learned from the user's picks; its dictionary is a
+                // CJK pack below.
+                val mozc = File(env.roots.files, "mozc").takeIf(File::isDirectory)?.let { dir ->
+                    StorageItem(
+                        id = dir.absolutePath,
+                        label = env.context.getString(R.string.storage_mozc_label),
+                        detail = dir.name,
+                        bytes = diskUsage(dir, env.roots.blockSize),
+                        files = listOf(dir),
+                        directory = true,
+                    )
+                }
+                listOfNotNull(rime, mozc) +
+                    languageItems(env, File(env.roots.files, "dict")) +
                     childrenOf(File(env.roots.files, "cjk_dicts")).map { dir ->
                         // These are named after the input method rather than a
                         // language: `pinyin`, `jyutping`, `cangjie`.
@@ -288,12 +433,18 @@ internal object StorageCategories {
                     }
             },
             deleteOne = { env, item ->
+                // A running Mozc keeps its history in memory and would write
+                // it back, so it forgets it as well.
+                if (item.id == File(env.roots.files, "mozc").absolutePath) MozcRuntime.clearHistory(env.context)
                 item.files.forEach { it.deleteRecursively() }
                 refreshWordlists(env)
             },
             clearOf = { env ->
                 emptyOut(File(env.roots.files, "dict"))
                 emptyOut(File(env.roots.files, "cjk_dicts"))
+                File(env.roots.files, "rime").deleteRecursively()
+                MozcRuntime.clearHistory(env.context)
+                File(env.roots.files, "mozc").deleteRecursively()
                 refreshWordlists(env)
             },
         ),
@@ -355,7 +506,14 @@ internal object StorageCategories {
             danger = Danger.REDOWNLOAD,
             manageRoute = "voice",
             note = R.string.storage_note_mapped,
-            pathsOf = { listOf(WhisperStore.rootDir(it.files)) },
+            pathsOf = {
+                listOf(
+                    WhisperStore.rootDir(it.files),
+                    WhistleModelStore.rootDir(it.files),
+                ) + EtEngine.entries.map { engine -> EtStore.rootDir(it.files, engine) } +
+                    MmsVoices.rootDir(it.files) + StrongDenoise.rootDir(it.files) +
+                    DictationPunctuation.rootDir(it.files) + VadModels.rootDir(it.files)
+            },
             itemsOf = { env ->
                 childrenOf(WhisperStore.rootDir(env.roots.files)).map { dir ->
                     StorageItem(
@@ -365,21 +523,125 @@ internal object StorageCategories {
                         bytes = diskUsage(dir, env.roots.blockSize),
                         files = listOf(dir),
                     )
+                } + listOfNotNull(
+                    // Whistle's one model (#548), downloaded or part-way.
+                    WhistleModelStore.rootDir(env.roots.files).takeIf { it.isDirectory }?.let { dir ->
+                        StorageItem(
+                            id = WHISTLE_ITEM_ID,
+                            label = "Whistle",
+                            bytes = diskUsage(dir, env.roots.blockSize),
+                            files = listOf(dir),
+                        )
+                    },
+                ) + EtCatalog.models.mapNotNull { model ->
+                    // Asr4All, Parakeet and Moonshine models, downloaded or part-way.
+                    EtStore.dir(env.roots.files, model).takeIf { it.isDirectory }?.let { dir ->
+                        StorageItem(
+                            id = ET_ITEM_PREFIX + model.id,
+                            label = model.label,
+                            bytes = diskUsage(dir, env.roots.blockSize),
+                            files = listOf(dir),
+                        )
+                    }
+                } + listOfNotNull(
+                    // Reduce background noise's Strong model, downloaded or part-way.
+                    StrongDenoise.rootDir(env.roots.files).takeIf { it.isDirectory }?.let { dir ->
+                        StorageItem(
+                            id = DENOISE_ITEM_ID,
+                            label = "DPDFNet",
+                            bytes = diskUsage(dir, env.roots.blockSize),
+                            files = listOf(dir),
+                        )
+                    },
+                    // Add punctuation and capitals' model, downloaded or part-way.
+                    DictationPunctuation.rootDir(env.roots.files).takeIf { it.isDirectory }?.let { dir ->
+                        StorageItem(
+                            id = PUNCTUATION_ITEM_ID,
+                            label = "Punctuation (mmBERT)",
+                            bytes = diskUsage(dir, env.roots.blockSize),
+                            files = listOf(dir),
+                        )
+                    },
+                    // The phrase end detectors' models (#976) and an imported one.
+                    VadModels.rootDir(env.roots.files).takeIf { it.isDirectory }?.let { dir ->
+                        StorageItem(
+                            id = VAD_ITEM_ID,
+                            label = "Phrase end detectors (Silero, FireRedVAD, Smart Turn)",
+                            bytes = diskUsage(dir, env.roots.blockSize),
+                            files = listOf(dir),
+                        )
+                    },
+                ) + childrenOf(MmsVoices.rootDir(env.roots.files)).map { dir ->
+                    // Read back's offline voices, one folder per language code.
+                    StorageItem(
+                        id = MMS_ITEM_PREFIX + dir.name,
+                        label = "MMS voice (${dir.name})",
+                        bytes = diskUsage(dir, env.roots.blockSize),
+                        files = listOf(dir),
+                    )
                 }
             },
             deleteOne = { env, item ->
-                // The selection goes first: the keyboard must never be pointed
-                // at a model file that is about to disappear.
-                env.repository.clearWhisperModelAssignments(item.id)
-                item.files.forEach { it.deleteRecursively() }
-                WhisperDownloadManager.refresh(env.roots.files)
+                if (item.id == WHISTLE_ITEM_ID) {
+                    WhistleModelDownloadManager.delete(env.roots.files)
+                } else if (item.id == DENOISE_ITEM_ID) {
+                    StrongDenoise.delete(env.roots.files)
+                } else if (item.id == PUNCTUATION_ITEM_ID) {
+                    DictationPunctuation.deleteAll(env.roots.files)
+                } else if (item.id == VAD_ITEM_ID) {
+                    VadModels.deleteAll(env.roots.files)
+                } else if (item.id.startsWith(ET_ITEM_PREFIX)) {
+                    EtCatalog.byId(item.id.removePrefix(ET_ITEM_PREFIX))
+                        ?.let { EtDownloadManager.delete(env.roots.files, it) }
+                } else if (item.id.startsWith(MMS_ITEM_PREFIX)) {
+                    item.files.forEach { it.deleteRecursively() }
+                } else {
+                    // The selection goes first: the keyboard must never be pointed
+                    // at a model file that is about to disappear.
+                    env.repository.clearWhisperModelAssignments(item.id)
+                    item.files.forEach { it.deleteRecursively() }
+                    WhisperDownloadManager.refresh(env.roots.files)
+                }
             },
             clearOf = { env ->
                 WhisperCatalog.models.forEach { env.repository.clearWhisperModelAssignments(it.id) }
                 env.repository.setWhisperModelId("")
                 emptyOut(WhisperStore.rootDir(env.roots.files))
                 WhisperDownloadManager.refresh(env.roots.files)
+                WhistleModelDownloadManager.delete(env.roots.files)
+                EtCatalog.models.forEach { EtDownloadManager.delete(env.roots.files, it) }
+                emptyOut(MmsVoices.rootDir(env.roots.files))
+                StrongDenoise.delete(env.roots.files)
+                DictationPunctuation.deleteAll(env.roots.files)
+                VadModels.deleteAll(env.roots.files)
             },
+        ),
+        StorageCategory(
+            id = "glide_models",
+            title = R.string.storage_glide_models_title,
+            subtitle = R.string.storage_glide_models_subtitle,
+            icon = Icons.Outlined.Gesture,
+            accent = Color(0xFF5C6BC0),
+            group = StorageGroup.DOWNLOADS,
+            danger = Danger.REDOWNLOAD,
+            manageRoute = "typing/gestures",
+            note = R.string.storage_note_mapped,
+            pathsOf = { listOf(FutoSwipe.rootDir(it.files)) },
+            itemsOf = { env ->
+                // FUTO Swipe's encoder and decoder, downloaded or part-way.
+                listOfNotNull(
+                    FutoSwipe.rootDir(env.roots.files).takeIf { it.isDirectory }?.let { dir ->
+                        StorageItem(
+                            id = "futo-swipe",
+                            label = "FUTO Swipe",
+                            bytes = diskUsage(dir, env.roots.blockSize),
+                            files = listOf(dir),
+                        )
+                    },
+                )
+            },
+            deleteOne = { env, _ -> FutoSwipe.delete(env.roots.files) },
+            clearOf = { env -> FutoSwipe.delete(env.roots.files) },
         ),
         StorageCategory(
             id = "ai_models",
@@ -413,6 +675,306 @@ internal object StorageCategories {
                 LocalLlmDownloadManager.refresh(env.roots.files)
             },
         ),
+        // Search by meaning: EmbeddingGemma's two packs, and the indexes built
+        // from the user's own things with it. The indexes are what make the
+        // models useful and nothing without them, so they go together, and
+        // deleting the text pack turns the feature off: a mode left on with
+        // no model behind it would offer a download nobody asked for.
+        // One model for every Indic phonetic language, so it is one row; the
+        // switches go off with it, as on the language page.
+        StorageCategory(
+            id = "neural_phonetic",
+            title = R.string.storage_neural_phonetic_title,
+            subtitle = R.string.storage_neural_phonetic_subtitle,
+            icon = Icons.Outlined.AutoAwesome,
+            accent = Color(0xFF5C6BC0),
+            group = StorageGroup.DOWNLOADS,
+            danger = Danger.REDOWNLOAD,
+            manageRoute = "languages",
+            pathsOf = { listOf(File(it.noBackupFiles, "xlit")) },
+            itemsOf = { env ->
+                val dir = File(env.roots.noBackupFiles, "xlit")
+                if (childrenOf(dir).isEmpty()) {
+                    emptyList()
+                } else {
+                    listOf(
+                        StorageItem(
+                            id = "xlit",
+                            label = env.context.getString(R.string.storage_neural_phonetic_title),
+                            bytes = diskUsage(dir, env.roots.blockSize),
+                            files = listOf(dir),
+                            directory = true,
+                        ),
+                    )
+                }
+            },
+            deleteOne = { env, _ -> deleteNeuralPhonetic(env.context, env.repository, env.repository.settings.first()) },
+            clearOf = { env -> deleteNeuralPhonetic(env.context, env.repository, env.repository.settings.first()) },
+        ),
+        // Its mirror image, which romanized dictation spells with. No switch
+        // to turn off: without it dictation goes back to the rules.
+        StorageCategory(
+            id = "romanized_dictation",
+            title = R.string.storage_romanized_dictation_title,
+            subtitle = R.string.storage_romanized_dictation_subtitle,
+            icon = Icons.Outlined.AutoAwesome,
+            accent = Color(0xFF5C6BC0),
+            group = StorageGroup.DOWNLOADS,
+            danger = Danger.REDOWNLOAD,
+            manageRoute = "languages",
+            pathsOf = { listOf(File(it.noBackupFiles, "xlit-latin")) },
+            itemsOf = { env ->
+                val dir = File(env.roots.noBackupFiles, "xlit-latin")
+                if (childrenOf(dir).isEmpty()) {
+                    emptyList()
+                } else {
+                    listOf(
+                        StorageItem(
+                            id = "xlit-latin",
+                            label = env.context.getString(R.string.storage_romanized_dictation_title),
+                            bytes = diskUsage(dir, env.roots.blockSize),
+                            files = listOf(dir),
+                            directory = true,
+                        ),
+                    )
+                }
+            },
+            deleteOne = { env, _ -> IndicXlitLatinDownloads.delete(env.context) },
+            clearOf = { env -> IndicXlitLatinDownloads.delete(env.context) },
+        ),
+        StorageCategory(
+            id = "meaning_models",
+            title = R.string.storage_meaning_title,
+            subtitle = R.string.storage_meaning_subtitle,
+            icon = Icons.Outlined.Search,
+            accent = Color(0xFF7E57C2),
+            group = StorageGroup.DOWNLOADS,
+            danger = Danger.REDOWNLOAD,
+            manageRoute = "ai",
+            pathsOf = { listOf(File(it.noBackupFiles, "semantic")) },
+            itemsOf = { env ->
+                val models = SemanticModels.Pack.entries.mapNotNull { pack ->
+                    val files = SemanticModels.parts(pack).flatMap { part ->
+                        listOf(SemanticModels.file(env.roots.noBackupFiles, part), SemanticModels.partFile(env.roots.noBackupFiles, part))
+                    }.filter { it.isFile }
+                    if (files.isEmpty()) return@mapNotNull null
+                    StorageItem(
+                        id = pack.name,
+                        label = env.context.getString(
+                            if (pack == SemanticModels.Pack.TEXT) R.string.storage_meaning_text else R.string.storage_meaning_pictures,
+                        ),
+                        bytes = files.sumOf { diskUsage(it, env.roots.blockSize) },
+                        files = files,
+                    )
+                }
+                val indexDir = File(env.roots.noBackupFiles, "semantic/index")
+                val index = if (childrenOf(indexDir).isEmpty()) emptyList() else listOf(
+                    StorageItem(
+                        id = MEANING_INDEX_ITEM,
+                        label = env.context.getString(R.string.storage_meaning_index),
+                        detail = env.context.getString(R.string.storage_meaning_index_detail),
+                        bytes = diskUsage(indexDir, env.roots.blockSize),
+                        files = listOf(indexDir),
+                        directory = true,
+                    ),
+                )
+                models + index
+            },
+            deleteOne = { env, item ->
+                when (item.id) {
+                    // Copies of private text, rebuilt from the stores; the
+                    // keyboard holds them in memory too, so only turning the
+                    // feature off makes them go for good.
+                    MEANING_INDEX_ITEM -> turnMeaningOff(env)
+                    SemanticModels.Pack.TEXT.name -> turnMeaningOff(env)
+                    else -> {
+                        SemanticDownloads.delete(env.context, SemanticModels.Pack.PICTURES)
+                        env.repository.updateSemanticSearch { s ->
+                            if (s.mode == SemanticSearchMode.TEXT_AND_PICTURES) s.copy(mode = SemanticSearchMode.TEXT) else s
+                        }
+                    }
+                }
+            },
+            clearOf = { env -> turnMeaningOff(env) },
+        ),
+        // The sticker generator's models, catalog and imported, the picture
+        // filter, and the upscaler's two small networks that share its
+        // runtime; all of it comes back with one download.
+        StorageCategory(
+            id = "sticker_models",
+            title = R.string.storage_stickergen_title,
+            subtitle = R.string.storage_stickergen_subtitle,
+            icon = Icons.Outlined.AutoAwesome,
+            accent = Color(0xFFEC407A),
+            group = StorageGroup.DOWNLOADS,
+            danger = Danger.REDOWNLOAD,
+            manageRoute = STICKER_GENERATOR_ROUTE,
+            pathsOf = { listOf(ImageGenModels.root(it.noBackupFiles)) },
+            itemsOf = { env ->
+                val catalog = ImageGenModels.Catalog.entries.mapNotNull { model ->
+                    val dir = ImageGenModels.dir(env.roots.noBackupFiles, model)
+                    if (childrenOf(dir).isEmpty()) return@mapNotNull null
+                    StorageItem(
+                        id = model.id,
+                        label = model.displayName,
+                        bytes = diskUsage(dir, env.roots.blockSize),
+                        files = listOf(dir),
+                        directory = true,
+                    )
+                }
+                val imported = ImageGenImport.installed(env.context).map { model ->
+                    val dir = File(ImageGenModels.importedRoot(env.roots.noBackupFiles), model.id)
+                    StorageItem(
+                        id = model.id,
+                        label = model.name,
+                        bytes = diskUsage(dir, env.roots.blockSize),
+                        files = listOf(dir),
+                        directory = true,
+                    )
+                }
+                val upscaleDir = UpscaleModels.dir(env.roots.noBackupFiles)
+                val upscaler = if (childrenOf(upscaleDir).isEmpty()) {
+                    emptyList()
+                } else {
+                    listOf(
+                        StorageItem(
+                            id = UPSCALER_ITEM,
+                            label = env.context.getString(R.string.storage_upscaler_item),
+                            bytes = diskUsage(upscaleDir, env.roots.blockSize),
+                            files = listOf(upscaleDir),
+                            directory = true,
+                        ),
+                    )
+                }
+                catalog + imported + upscaler
+            },
+            deleteOne = { env, item ->
+                val model = ImageGenModels.Catalog.byId(item.id)
+                when {
+                    item.id == UPSCALER_ITEM -> UpscaleModels.dir(env.roots.noBackupFiles).deleteRecursively()
+                    model != null -> ImageGenDownloads.delete(env.context, model)
+                    else -> ImageGenImport.delete(env.context, item.id)
+                }
+            },
+            clearOf = { env ->
+                ImageGenModels.Catalog.entries.forEach { ImageGenDownloads.cancel(it) }
+                ImageGenModels.root(env.roots.noBackupFiles).deleteRecursively()
+                ImageGenDownloads.refresh(env.context)
+            },
+        ),
+        StorageCategory(
+            id = "ocr_packs",
+            title = R.string.storage_ocr_packs_title,
+            subtitle = R.string.storage_ocr_packs_subtitle,
+            icon = Icons.Outlined.DocumentScanner,
+            accent = Color(0xFF5C6BC0),
+            group = StorageGroup.DOWNLOADS,
+            danger = Danger.REDOWNLOAD,
+            manageRoute = "tool/OCR",
+            pathsOf = { listOf(OcrPacks.dataDir(it.files), PaddleOcrModel.dir(it.files)) },
+            itemsOf = { env ->
+                val dir = OcrPacks.dataDir(env.roots.files)
+                sweepLeftovers(dir)
+                val paddleDir = PaddleOcrModel.dir(env.roots.files)
+                sweepLeftovers(paddleDir)
+                val tesseract = childrenOf(dir).map { file ->
+                    val pack = file.name.removeSuffix(".traineddata")
+                    StorageItem(
+                        id = pack,
+                        label = OcrLanguages.nameOf(pack),
+                        detail = file.name,
+                        bytes = diskUsage(file, env.roots.blockSize),
+                        files = listOf(file),
+                    )
+                }
+                // PaddleOCR's three files are one pack, and one row.
+                val paddleFiles = childrenOf(paddleDir)
+                val paddle = if (paddleFiles.isEmpty()) emptyList() else listOf(
+                    StorageItem(
+                        id = PaddleOcrModel.PACK,
+                        label = OcrLanguages.nameOf(PaddleOcrModel.PACK),
+                        detail = paddleFiles.joinToString(", ") { it.name },
+                        bytes = paddleFiles.sumOf { diskUsage(it, env.roots.blockSize) },
+                        files = paddleFiles,
+                    ),
+                )
+                tesseract + paddle
+            },
+            deleteOne = { env, item -> OcrPacks.delete(env.roots.files, item.id) },
+            clearOf = { env ->
+                OcrPacks.downloaded(env.roots.files).forEach { OcrPacks.delete(env.roots.files, it) }
+                // Also a Paddle download cut short, whose files are not yet a pack.
+                OcrPacks.delete(env.roots.files, PaddleOcrModel.PACK)
+            },
+        ),
+        StorageCategory(
+            id = "gif_packs",
+            title = R.string.storage_gif_packs_title,
+            subtitle = R.string.storage_gif_packs_subtitle,
+            icon = SymbolIcons.GifBox,
+            accent = Color(0xFF7E57C2),
+            group = StorageGroup.DOWNLOADS,
+            danger = Danger.REDOWNLOAD,
+            manageRoute = "tool/GIF",
+            pathsOf = { listOf(File(it.files, "gif_packs")) },
+            itemsOf = { env ->
+                OfflineGifPacks.attach(env.roots.files)
+                OfflineGifPacks.packs().map { pack ->
+                    val dir = File(File(env.roots.files, "gif_packs"), pack.id)
+                    StorageItem(
+                        id = pack.id,
+                        label = pack.name,
+                        detail = pack.id,
+                        bytes = diskUsage(dir, env.roots.blockSize),
+                        files = listOf(dir),
+                        directory = true,
+                    )
+                }
+            },
+            deleteOne = { env, item ->
+                OfflineGifPacks.attach(env.roots.files)
+                OfflineGifPacks.delete(item.id)
+            },
+            clearOf = { env ->
+                OfflineGifPacks.attach(env.roots.files)
+                OfflineGifPacks.packs().forEach { OfflineGifPacks.delete(it.id) }
+                emptyOut(File(env.roots.files, "gif_packs"))
+            },
+        ),
+        StorageCategory(
+            id = "yomichan",
+            title = R.string.storage_yomichan_title,
+            subtitle = R.string.storage_yomichan_subtitle,
+            icon = Icons.AutoMirrored.Outlined.LibraryBooks,
+            accent = Color(0xFF8D6E63),
+            group = StorageGroup.DOWNLOADS,
+            danger = Danger.REDOWNLOAD,
+            manageRoute = "tool/DICTIONARY",
+            pathsOf = { listOf(File(it.files, YomichanDictionaries.DIR_NAME)) },
+            itemsOf = { env ->
+                YomichanDictionaries.attach(env.roots.files)
+                YomichanDictionaries.installed().map { dictionary ->
+                    val dir = File(File(env.roots.files, YomichanDictionaries.DIR_NAME), dictionary.info.id)
+                    StorageItem(
+                        id = dictionary.info.id,
+                        label = dictionary.info.title,
+                        detail = dictionary.info.revision,
+                        bytes = diskUsage(dir, env.roots.blockSize),
+                        files = listOf(dir),
+                        directory = true,
+                    )
+                }
+            },
+            deleteOne = { env, item ->
+                YomichanDictionaries.attach(env.roots.files)
+                YomichanDictionaries.delete(item.id)
+            },
+            clearOf = { env ->
+                YomichanDictionaries.attach(env.roots.files)
+                YomichanDictionaries.installed().forEach { YomichanDictionaries.delete(it.info.id) }
+                emptyOut(File(env.roots.files, YomichanDictionaries.DIR_NAME))
+            },
+        ),
         StorageCategory(
             id = "addon_index",
             title = R.string.storage_addon_index_title,
@@ -428,7 +990,73 @@ internal object StorageCategories {
                 AddonStore.get(env.context).reload()
             },
         ),
+        // The standard GitHub build's interface languages, one pack per
+        // language for this version; a deleted one downloads again when the
+        // language is picked.
+        StorageCategory(
+            id = "language_packs",
+            title = R.string.storage_language_packs_title,
+            subtitle = R.string.storage_language_packs_subtitle,
+            icon = Icons.Outlined.Extension,
+            accent = Color(0xFF81C784),
+            group = StorageGroup.DOWNLOADS,
+            pathsOf = { roots -> listOf(File(roots.noBackupFiles, "langpacks")) },
+            clearOf = { env ->
+                emptyOut(File(env.roots.noBackupFiles, "langpacks"))
+                com.wasimaster.wmkeyboard.core.modules.LanguagePackResources.reload(env.context)
+            },
+        ),
+        // Native delivery (GitHub and F-Droid builds): the libraries features
+        // fetched the first time they were used. One row per library, named
+        // after it rather than its hash directory; a deleted one downloads
+        // again the next time its feature asks.
+        StorageCategory(
+            id = "feature_libraries",
+            title = R.string.storage_feature_libraries_title,
+            subtitle = R.string.storage_feature_libraries_subtitle,
+            icon = Icons.Outlined.Extension,
+            accent = Color(0xFF90A4AE),
+            group = StorageGroup.DOWNLOADS,
+            manageRoute = "feature_libraries",
+            pathsOf = { roots -> listOfNotNull(NativeDelivery.store()?.root?.takeIf { it.startsWith(roots.noBackupFiles) }) },
+            countOf = { _ -> installedLibraries().size },
+            itemsOf = { env ->
+                installedLibraries().map { (pin, file) ->
+                    val info = FeatureLibraryInfo.of(pin.name, pin.gate)
+                    StorageItem(
+                        id = pin.sha256,
+                        label = pin.name,
+                        detail = info?.let { env.context.getString(it.description) } ?: pin.gate,
+                        bytes = file.length(),
+                        files = listOf(file.parentFile ?: file),
+                        route = info?.route,
+                    )
+                }
+            },
+        ),
     )
+
+    /** The storage row's name for search by meaning's indexes, beside its packs. */
+    private const val MEANING_INDEX_ITEM = "meaning_index"
+
+    /**
+     * Search by meaning off, its models and indexes gone. The setting goes
+     * first, so the keyboard drops the indexes it holds in memory rather than
+     * saving them back; the files are deleted here too, for a keyboard that
+     * is not running.
+     */
+    private suspend fun turnMeaningOff(env: StorageEnv) {
+        env.repository.updateSemanticSearch { it.copy(mode = SemanticSearchMode.OFF) }
+        SemanticDownloads.delete(env.context, SemanticModels.Pack.TEXT)
+        File(env.roots.noBackupFiles, "semantic").deleteRecursively()
+    }
+
+    /** The delivered libraries on disk, with the pin each one answers. */
+    // (Interface language packs are listed by their own category below.)
+    private fun installedLibraries(): List<Pair<NativePin, File>> {
+        val store = NativeDelivery.store() ?: return emptyList()
+        return NativeDelivery.pins().filter(store::installed).map { it to store.fileOf(it) }
+    }
 
     // ---- looks and add-ons ----
 
@@ -457,12 +1085,12 @@ internal object StorageCategories {
             id = "stickers",
             title = R.string.storage_stickers_title,
             subtitle = R.string.storage_stickers_subtitle,
-            icon = Icons.Outlined.Mood,
+            icon = SymbolIcons.Sticker,
             accent = Color(0xFFF06292),
             group = StorageGroup.LOOKS,
             danger = Danger.PERSONAL,
             manageRoute = "sticker_packs",
-            pathsOf = { listOf(File(it.files, "stickers")) },
+            pathsOf = { listOf(File(it.files, "stickers"), CutoutModel.dir(it.files)) },
             itemsOf = { env ->
                 val store = StickerPackStore.get(env.context)
                 val packs = store.packs().map { pack ->
@@ -478,18 +1106,35 @@ internal object StorageCategories {
                 // also the only way the sum of the rows matches the category.
                 val originals = store.originalsDir()?.takeIf { it.isDirectory }
                 val keptBytes = originals?.let { diskUsage(it, env.roots.blockSize) } ?: 0L
-                if (keptBytes <= 0L) packs else packs + StorageItem(
-                    id = STICKER_ORIGINALS_ITEM,
-                    label = env.context.getString(R.string.storage_stickers_originals_label),
-                    detail = env.context.getString(R.string.storage_stickers_originals_detail),
-                    bytes = keptBytes,
-                    files = listOfNotNull(originals),
+                val kept = if (keptBytes <= 0L) emptyList() else listOf(
+                    StorageItem(
+                        id = STICKER_ORIGINALS_ITEM,
+                        label = env.context.getString(R.string.storage_stickers_originals_label),
+                        detail = env.context.getString(R.string.storage_stickers_originals_detail),
+                        bytes = keptBytes,
+                        files = listOfNotNull(originals),
+                    ),
                 )
+                val cutoutDir = CutoutModel.dir(env.roots.files)
+                val cutoutBytes = diskUsage(cutoutDir, env.roots.blockSize)
+                val cutout = if (cutoutBytes <= 0L) emptyList() else listOf(
+                    StorageItem(
+                        id = STICKER_CUTOUT_ITEM,
+                        label = env.context.getString(R.string.storage_stickers_cutout_label),
+                        detail = env.context.getString(R.string.storage_stickers_cutout_detail),
+                        bytes = cutoutBytes,
+                        files = listOf(cutoutDir),
+                    ),
+                )
+                packs + kept + cutout
             },
             deleteOne = { env, item ->
                 val store = StickerPackStore.get(env.context)
-                if (item.id == STICKER_ORIGINALS_ITEM) store.clearOriginals()
-                else store.deletePack(item.id)
+                when (item.id) {
+                    STICKER_ORIGINALS_ITEM -> store.clearOriginals()
+                    STICKER_CUTOUT_ITEM -> emptyOut(CutoutModel.dir(env.roots.files))
+                    else -> store.deletePack(item.id)
+                }
             },
             clearOf = { env ->
                 val store = StickerPackStore.get(env.context)
@@ -499,6 +1144,7 @@ internal object StorageCategories {
                 // version left behind.
                 store.clearOriginals()
                 sweepLeftovers(File(env.roots.files, "stickers"))
+                emptyOut(CutoutModel.dir(env.roots.files))
             },
         ),
         StorageCategory(
@@ -668,6 +1314,20 @@ internal object StorageCategories {
             },
         ),
         StorageCategory(
+            id = "netlog",
+            title = R.string.storage_netlog_title,
+            subtitle = R.string.storage_netlog_subtitle,
+            icon = Icons.Outlined.NetworkCheck,
+            accent = Color(0xFFEF5350),
+            group = StorageGroup.PERSONAL,
+            danger = Danger.PERSONAL,
+            manageRoute = "network_activity",
+            pathsOf = { listOf(File(it.files, NetLog.DIR)) },
+            // Through the log, not a raw delete: it holds the rows in memory
+            // and would write them straight back.
+            clearOf = { NetLog.clear() },
+        ),
+        StorageCategory(
             id = "clipboard",
             title = R.string.storage_clipboard_title,
             subtitle = R.string.storage_clipboard_subtitle,
@@ -717,7 +1377,21 @@ internal object StorageCategories {
             pathsOf = { listOf(CustomDictionaries.root(it.files)) },
             itemsOf = { env ->
                 childrenOf(CustomDictionaries.root(env.roots.files)).flatMap { dir ->
-                    childrenOf(dir).map { file ->
+                    // A list and the word pairs and shortcuts beside it are one
+                    // item: deleting the list alone would strand them.
+                    val lists = CustomDictionaries.allLists(env.roots.files, dir.name)
+                    val owned = lists.associateWith { CustomDictionaries.filesOf(it) }
+                    val claimed = owned.values.flatten().toSet()
+                    val grouped = owned.map { (list, files) ->
+                        StorageItem(
+                            id = list.absolutePath,
+                            label = CustomDictionaries.displayName(list).substringBeforeLast('.'),
+                            detail = LanguageRegistry.byId(dir.name).displayName,
+                            bytes = files.sumOf { diskUsage(it, env.roots.blockSize) },
+                            files = files,
+                        )
+                    }
+                    grouped + childrenOf(dir).filter { it !in claimed }.map { file ->
                         StorageItem(
                             id = file.absolutePath,
                             label = file.nameWithoutExtension,
@@ -795,10 +1469,20 @@ internal object StorageCategories {
             id = "cache_media",
             title = R.string.storage_cache_media_title,
             subtitle = R.string.storage_cache_media_subtitle,
-            icon = Icons.Outlined.Gif,
+            icon = SymbolIcons.AnimatedImages,
             accent = Color(0xFF00ACC1),
             group = StorageGroup.CACHE,
             pathsOf = { listOf(File(it.cache, "media")) },
+        ),
+        StorageCategory(
+            id = "cache_llm",
+            title = R.string.storage_cache_llm_title,
+            subtitle = R.string.storage_cache_llm_subtitle,
+            icon = Icons.Outlined.Psychology,
+            accent = Color(0xFF9575CD),
+            group = StorageGroup.CACHE,
+            pathsOf = { listOf(LocalLlmStore.engineCacheDir(it.cache)) },
+            itemsOf = { env -> childrenOf(LocalLlmStore.engineCacheDir(env.roots.cache)).map { engineCacheItem(env, it) } },
         ),
         StorageCategory(
             id = "cache_addons",
@@ -818,13 +1502,10 @@ internal object StorageCategories {
             icon = Icons.Outlined.Cached,
             accent = Color(0xFF90A4AE),
             group = StorageGroup.CACHE,
-            // The loose files sitting straight in the cache root: shared log
-            // exports, manifests, half-imported word lists. Naming them one
-            // prefix at a time would go stale the first time one is added.
-            pathsOf = { roots ->
-                listOf(File(roots.cache, "keysounds"), File(roots.cache, "diagnostics")) +
-                    childrenOf(roots.cache).filter { it.isFile }
-            },
+            pathsOf = ::tempPaths,
+            // One row per directory: what is inside one is a pack's pieces or
+            // a share's copies, named by nothing but a number.
+            itemsOf = { env -> tempPaths(env.roots).filter(File::exists).map { env.namedItem(it) } },
         ),
         StorageCategory(
             id = OTHER_CACHE,
@@ -837,6 +1518,43 @@ internal object StorageCategories {
             itemsOf = { env -> unclaimedItems(env, cacheSide = true) },
         ),
     )
+
+    /**
+     * One of LiteRT-LM's files, named for its model and what it holds:
+     * `gemma-4-E2B-it.litertlm_<mtime>_<bytes>_mldrift_program_cache.bin` is
+     * "gemma-4-E2B-it: GPU programs".
+     */
+    private fun engineCacheItem(env: StorageEnv, file: File): StorageItem {
+        val name = file.name
+        val kind = when {
+            "mldrift_program" in name -> R.string.storage_file_llm_gpu_programs_label
+            "mldrift_weight" in name -> R.string.storage_file_llm_gpu_weights_label
+            "xnnpack" in name -> R.string.storage_file_llm_cpu_weights_label
+            else -> 0
+        }
+        val model = name.substringBefore(".litertlm").substringBefore(".task")
+        return StorageItem(
+            id = file.absolutePath,
+            label = if (kind == 0) name else env.context.getString(kind, model),
+            detail = name.takeIf { kind != 0 },
+            bytes = diskUsage(file, env.roots.blockSize),
+            files = listOf(file),
+        )
+    }
+
+    /**
+     * The app's own scratch directories in the cache root, each refilled the
+     * next time its screen needs it, and the loose files sitting straight in
+     * the root: shared log exports, manifests, half-imported word lists.
+     * Naming those one prefix at a time would go stale the first time one is
+     * added.
+     */
+    private fun tempPaths(roots: StorageRoots): List<File> = listOf(
+        "keysounds", "diagnostics", "layout-previews", "rboard", "gboard_preview",
+        "telegram_stickers", "signal_stickers", "notes", "send", "remote-restore",
+        "keyman-rules", "import_preview", "link-import", "offline_import", "emotic-import",
+        "upscale", "imagegen",
+    ).map { File(roots.cache, it) } + childrenOf(roots.cache).filter { it.isFile }
 
     // ---- the rest ----
 
@@ -853,6 +1571,19 @@ internal object StorageCategories {
             // somewhere to write itself down.
             pathsOf = { listOf(File(it.deFiles, "debug")) },
             clearOf = { DebugLog.clearCrashes() },
+        ),
+        StorageCategory(
+            id = UPDATES,
+            title = R.string.storage_updates_title,
+            subtitle = R.string.storage_updates_subtitle,
+            icon = Icons.Outlined.SystemUpdate,
+            accent = Color(0xFF4DB6AC),
+            group = StorageGroup.SYSTEM,
+            // Only ever holds a downloaded update waiting to be installed, and
+            // the updater deletes it once Android has taken it. Deleting it by
+            // hand costs the download again and nothing else, which is why
+            // this row exists rather than the file being invisible.
+            pathsOf = { listOf(File(it.noBackupFiles, "updates")) },
         ),
         StorageCategory(
             id = OTHER_DATA,
@@ -895,6 +1626,8 @@ internal object StorageCategories {
     private fun refreshWordlists(env: StorageEnv) {
         WordlistDownloadManager.refresh(env.roots.files)
         CjkDictDownloadManager.refresh(env.roots.files)
+        RimeRuntime.recheck(env.context)
+        MozcRuntime.recheck(env.context)
     }
 
     /**
@@ -927,8 +1660,22 @@ internal object StorageCategories {
                 .flatMap { top -> if (top.name == "files") childrenOf(top) else listOf(top) }
         }
         return candidates
-            .filterNot { it.absolutePath in claimed }
+            .flatMap { unclaimedUnder(it, claimed) }
             .map { env.namedItem(it, detail = residualDetail(env, it), deletable = false) }
+    }
+
+    /**
+     * [file] when no category counts it, or the parts of it none does when a
+     * category counts something inside it: `files/ocr` holds two packs that
+     * the text scanner's row already counts, and listing the directory whole
+     * would count them twice under a name that says nothing.
+     */
+    private fun unclaimedUnder(file: File, claimed: Set<String>): List<File> {
+        val path = file.absolutePath
+        if (path in claimed) return emptyList()
+        val prefix = path + File.separator
+        if (claimed.none { it.startsWith(prefix) }) return listOf(file)
+        return childrenOf(file).flatMap { unclaimedUnder(it, claimed) }
     }
 
     /**

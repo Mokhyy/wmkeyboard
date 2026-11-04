@@ -13,8 +13,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Search
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Close
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,13 +39,15 @@ import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import com.wasimaster.wmkeyboard.R
 import com.wasimaster.wmkeyboard.app.CaptionText
+import com.wasimaster.wmkeyboard.app.LiveSettings
 import com.wasimaster.wmkeyboard.app.SettingsGroup
 import com.wasimaster.wmkeyboard.app.SettingsRowIcons
+import com.wasimaster.wmkeyboard.app.StateBanner
 import com.wasimaster.wmkeyboard.app.WmRow
 import com.wasimaster.wmkeyboard.common.R as CommonR
 import com.wasimaster.wmkeyboard.core.settings.DefaultMusicApps
-import com.wasimaster.wmkeyboard.core.settings.KeyboardSettings
 import com.wasimaster.wmkeyboard.core.settings.SettingsRepository
+import com.wasimaster.wmkeyboard.core.settings.ToolbarTool
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -136,10 +138,11 @@ object MusicApps {
  * browser service, or a package with an unrecognisable name, gets found.
  */
 @Composable
-internal fun MusicAppsScreen(repository: SettingsRepository, settings: KeyboardSettings) {
+internal fun MusicAppsScreen(repository: SettingsRepository, settings: LiveSettings) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val ticked = settings.mediaControl.musicApps
+    // Also decides which rows the groups below hold, so it is read here.
+    val ticked = settings.watch { it.mediaControl.musicApps }
     // Loaded once per screen, against the ticks as they were on entry: a list
     // that re-sorted itself under the thumb on every toggle would move the row
     // being tapped. New ticks still show — the group below filters on the live
@@ -150,6 +153,24 @@ internal fun MusicAppsScreen(repository: SettingsRepository, settings: KeyboardS
     var query by remember { mutableStateOf("") }
 
     Spacer(Modifier.height(12.dp))
+
+    // The whole screen answers one question — which apps count as music — and
+    // that question is only asked by the pin-while-playing path, which needs
+    // the media tool switched on as well. A banner rather than fifty greyed
+    // ticks: the ticks are still worth reading and still worth editing ahead
+    // of turning the feature on, they simply do nothing yet.
+    val mediaToolOn = settings.watch { ToolbarTool.MEDIA_CONTROL in it.enabledTools }
+    if (!settings.watch { it.mediaControl.pinWhilePlaying } || !mediaToolOn) {
+        StateBanner(
+            stringResource(R.string.musicapps_off_body),
+            action = stringResource(CommonR.string.common_enable),
+        ) {
+            scope.launch {
+                if (!mediaToolOn) repository.setToolEnabled(ToolbarTool.MEDIA_CONTROL, true)
+                repository.setMediaPinWhilePlaying(true)
+            }
+        }
+    }
 
     val all = entries
     if (all == null) {

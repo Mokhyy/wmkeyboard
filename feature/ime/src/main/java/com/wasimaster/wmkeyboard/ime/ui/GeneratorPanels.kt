@@ -1,9 +1,10 @@
 package com.wasimaster.wmkeyboard.ime.ui
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -25,7 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Refresh
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -47,13 +48,19 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.wasimaster.wmkeyboard.core.prediction.DictionaryLoader
+import com.wasimaster.wmkeyboard.core.dictionaries.DictionaryStore
+import com.wasimaster.wmkeyboard.core.directboot.DirectBoot
+import com.wasimaster.wmkeyboard.core.prediction.MappedTrie
+import com.wasimaster.wmkeyboard.core.prediction.topWords
+import com.wasimaster.wmkeyboard.core.theme.FrostSurface
 import com.wasimaster.wmkeyboard.core.tools.PasswordGen
 import com.wasimaster.wmkeyboard.core.tools.QrCodeGen
 import com.wasimaster.wmkeyboard.common.R as CommonR
 import com.wasimaster.wmkeyboard.ime.FocusRegion
+import com.wasimaster.wmkeyboard.ime.KeyboardClipboard
 import com.wasimaster.wmkeyboard.ime.KeyboardUiState
 import com.wasimaster.wmkeyboard.ime.PanelMode
 import com.wasimaster.wmkeyboard.ime.PwSettingAction
@@ -68,19 +75,30 @@ import kotlinx.coroutines.withContext
 /**
  * Passphrase material, filtered once from the bundled English dictionary
  * (no separate wordlist ships with the app).
+ *
+ * Read from the compiled `en.wmdict` the keyboard itself maps, through the
+ * same device-protected extraction. The plain `en.txt` this used to open left
+ * the APK when dictionaries went binary, and the failed open read as an empty
+ * list: the passphrase tab showed "…" and 0 bits, and refresh did nothing.
  */
 private object PassphraseWords {
     @Volatile private var cached: List<String>? = null
 
     suspend fun load(context: Context): List<String> = cached ?: withContext(Dispatchers.IO) {
-        val words = runCatching {
-            context.assets.open("dictionaries/en.txt").use { stream ->
-                PasswordGen.buildWordlist(
-                    DictionaryLoader.loadEntries(stream).asSequence().map { it.first },
-                )
-            }
-        }.getOrDefault(emptyList())
-        cached = words
+        // Best-first over the trie, not an enumeration of it. `entries()` here
+        // built every word of the English list as a `String` in one list —
+        // some hundred thousand pairs, eight to ten megabytes — and then sorted
+        // the lot by frequency to keep four thousand of them. [topWords] exists
+        // for exactly this and says so: it walks the subtree maxima and emits a
+        // word only once its own frequency reaches the head of the queue, so
+        // the order is the same one the sort produced, without the list.
+        val words = DictionaryStore.ensureBundled(DirectBoot.deviceContext(context), "en")
+            ?.let { MappedTrie.open(it) }
+            ?.topWords(PasswordGen.WORDLIST_LIMIT, accept = PasswordGen::acceptsWord)
+            .orEmpty()
+        // An empty result is not cached, so a failed extraction (disk full)
+        // gets another try the next time the panel opens.
+        if (words.isNotEmpty()) cached = words
         words
     }
 }
@@ -120,15 +138,23 @@ internal fun PasswordPanel(
         excludeAmbiguous = settings.passwordGenerator.pwExcludeAmbiguous,
         symbolPool = settings.toolLimits.passwordSymbols,
     )
-    val passphraseMode = settings.passwordGenerator.pwPassphraseMode
-    val generated = remember(passphraseMode, passwordSpec, passphraseSpec, wordlist, regenerateKey) {
-        if (passphraseMode) PasswordGen.passphrase(wordlist, passphraseSpec, random)
-        else PasswordGen.password(passwordSpec, random)
+    val pinMode = settings.passwordGenerator.pinMode
+    val passphraseMode = !pinMode && settings.passwordGenerator.pwPassphraseMode
+    val pinLength = settings.passwordGenerator.pinLength
+    val pinAvoidWeak = settings.passwordGenerator.pinAvoidWeak
+    val generated = remember(
+        pinMode, passphraseMode, passwordSpec, passphraseSpec, pinLength, pinAvoidWeak, wordlist, regenerateKey,
+    ) {
+        when {
+            pinMode -> PasswordGen.pin(pinLength, pinAvoidWeak, random)
+            passphraseMode -> PasswordGen.passphrase(wordlist, passphraseSpec, random)
+            else -> PasswordGen.password(passwordSpec, random)
+        }
     }
-    val entropy = if (passphraseMode) {
-        PasswordGen.passphraseEntropyBits(passphraseSpec, wordlist.size)
-    } else {
-        PasswordGen.passwordEntropyBits(passwordSpec)
+    val entropy = when {
+        pinMode -> PasswordGen.pinEntropyBits(pinLength)
+        passphraseMode -> PasswordGen.passphraseEntropyBits(passphraseSpec, wordlist.size)
+        else -> PasswordGen.passwordEntropyBits(passwordSpec)
     }
 
     // Read here rather than in the Copy chip's click handler: that lambda is
@@ -137,8 +163,7 @@ internal fun PasswordPanel(
 
     fun copyGenerated() {
         if (generated.isEmpty()) return
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("Password", generated))
+        KeyboardClipboard.copy(context, generated, "Password")
         Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
     }
 
@@ -158,7 +183,13 @@ internal fun PasswordPanel(
         }
     }
     val pg = settings.passwordGenerator
-    val optionEntries: List<() -> Unit> = if (!passphraseMode) {
+    val optionEntries: List<() -> Unit> = if (pinMode) {
+        listOf(
+            { onSetting(PwSettingAction.PinLength(pg.pinLength - 1)) },
+            { onSetting(PwSettingAction.PinLength(pg.pinLength + 1)) },
+            { onSetting(PwSettingAction.PinAvoidWeak(!pg.pinAvoidWeak)) },
+        )
+    } else if (!passphraseMode) {
         listOf(
             { onSetting(PwSettingAction.Length(pg.pwLength - 1)) },
             { onSetting(PwSettingAction.Length(pg.pwLength + 1)) },
@@ -200,32 +231,40 @@ internal fun PasswordPanel(
                 .fillMaxWidth()
                 .padding(vertical = 4.dp)
                 .clip(cardShape)
+                .frostGlass(kb, cardShape, FrostSurface.CARDS)
                 .background(kb.chip)
                 .chipBorder(kb, cardShape)
                 .padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                generated.ifEmpty { "…" },
-                color = kb.chipText,
-                fontSize = 15.sp,
-                fontFamily = FontFamily.Monospace,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(
-                onClick = { regenerateKey++ },
-                modifier = Modifier
-                    .size(30.dp)
-                    .focusRing(focusedAction == 0, CircleShape),
-            ) {
-                Icon(
-                    Icons.Outlined.Refresh,
-                    contentDescription = stringResource(R.string.ime_password_regenerate_desc),
-                    tint = kb.accent,
-                    modifier = Modifier.size(18.dp),
+            // A new value scrambles into place. Display only: Copy and
+            // Insert below act on [generated] itself, so a tap mid-scramble
+            // still takes the real password.
+            ScrambledText(generated.ifEmpty { "…" }, animate = kb.motion.any) { shown ->
+                Text(
+                    shown,
+                    color = kb.chipText,
+                    fontSize = 15.sp,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
+            }
+            IconHint(stringResource(R.string.ime_password_regenerate_desc)) {
+                IconButton(
+                    onClick = { regenerateKey++ },
+                    modifier = Modifier
+                        .size(30.dp)
+                        .focusRing(focusedAction == 0, CircleShape),
+                ) {
+                    Icon(
+                        Icons.Outlined.Refresh,
+                        contentDescription = stringResource(R.string.ime_password_regenerate_desc),
+                        tint = kb.accent,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
             Spacer(Modifier.width(4.dp))
             ToolPanelChip(
@@ -240,8 +279,15 @@ internal fun PasswordPanel(
                 if (generated.isNotEmpty()) onInsert(generated)
             }
         }
+        // The strength figure runs to its new value with the scramble rather
+        // than jumping, so a length step reads as more (or less) strength.
+        val shownEntropy by animateIntAsState(
+            entropy,
+            animationSpec = if (kb.motion.any) tween(SCRAMBLE_MS) else snap(),
+            label = "entropy",
+        )
         Text(
-            stringResource(R.string.ime_password_entropy_info, entropy),
+            stringResource(R.string.ime_password_entropy_info, shownEntropy),
             color = kb.secondaryText,
             fontSize = 11.sp,
             modifier = Modifier
@@ -270,7 +316,22 @@ internal fun PasswordPanel(
         ) {
             // Ring indices mirror [optionEntries]: the stepper's − and + are
             // slots 0 and 1, then the chips in drawing order.
-            if (!passphraseMode) {
+            if (pinMode) {
+                StepperRow(
+                    label = stringResource(R.string.ime_password_length_label),
+                    value = pinLength,
+                    focusedMinus = focusedOption == 0,
+                    focusedPlus = focusedOption == 1,
+                    onChange = { onSetting(PwSettingAction.PinLength(it)) },
+                )
+                ToolPanelChip(
+                    stringResource(R.string.ime_password_pin_avoid_weak_label),
+                    selected = pinAvoidWeak,
+                    modifier = Modifier.focusRing(focusedOption == 2),
+                ) {
+                    onSetting(PwSettingAction.PinAvoidWeak(!pinAvoidWeak))
+                }
+            } else if (!passphraseMode) {
                 StepperRow(
                     label = stringResource(R.string.ime_password_length_label),
                     value = settings.passwordGenerator.pwLength,
@@ -357,18 +418,30 @@ internal fun PasswordPanel(
     }
 }
 
+/**
+ * A labelled − value + row. With [holdSteps] the two buttons also step while
+ * held, faster the longer the hold (see [repeatOnHold]), for a count that
+ * may be a long way from where it is.
+ */
 @Composable
-private fun StepperRow(
+internal fun StepperRow(
     label: String,
     value: Int,
     focusedMinus: Boolean = false,
     focusedPlus: Boolean = false,
+    holdSteps: Boolean = false,
+    labelWidth: Dp = 52.dp,
     onChange: (Int) -> Unit,
 ) {
     val kb = LocalKbTheme.current
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = kb.secondaryText, fontSize = 12.sp, modifier = Modifier.width(52.dp))
-        ToolPanelChip("−", modifier = Modifier.focusRing(focusedMinus)) { onChange(value - 1) }
+        Text(label, color = kb.secondaryText, fontSize = 12.sp, modifier = Modifier.width(labelWidth))
+        ToolPanelChip(
+            "−",
+            modifier = Modifier
+                .repeatOnHold(holdSteps) { onChange(value - 1) }
+                .focusRing(focusedMinus),
+        ) { onChange(value - 1) }
         Text(
             "$value",
             color = kb.modifierKeyText,
@@ -377,7 +450,12 @@ private fun StepperRow(
             textAlign = TextAlign.Center,
             modifier = Modifier.width(36.dp),
         )
-        ToolPanelChip("+", modifier = Modifier.focusRing(focusedPlus)) { onChange(value + 1) }
+        ToolPanelChip(
+            "+",
+            modifier = Modifier
+                .repeatOnHold(holdSteps) { onChange(value + 1) }
+                .focusRing(focusedPlus),
+        ) { onChange(value + 1) }
     }
 }
 
@@ -399,11 +477,11 @@ internal fun QrGeneratorPanel(
     val content = state.mediaQuery
     // Preview renders small and cheap; the inserted PNG uses the size setting.
     val qrMaxChars = state.settings.toolLimits.qrMaxChars
-    val bitmap = remember(content, state.settings.qrEcc, qrMaxChars) {
+    val bitmap = remember(content, state.settings.scanner.qrEcc, qrMaxChars) {
         QrCodeGen.bitmap(
             content,
             sizePx = 384,
-            ecc = state.settings.qrEcc.name,
+            ecc = state.settings.scanner.qrEcc.name,
             maxChars = qrMaxChars,
         )
     }
@@ -427,6 +505,7 @@ internal fun QrGeneratorPanel(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(18.dp))
+                .frostGlass(kb, RoundedCornerShape(18.dp), FrostSurface.CHIPS)
                 .background(kb.chip)
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -496,7 +575,7 @@ internal fun QrGeneratorPanel(
                             R.plurals.ime_qr_meta_info,
                             content.length,
                             content.length,
-                            state.settings.qrEcc.name,
+                            state.settings.scanner.qrEcc.name,
                         ),
                         color = kb.secondaryText,
                         fontSize = 10.sp,

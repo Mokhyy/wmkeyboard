@@ -223,6 +223,32 @@ class LayoutRepairTest {
     }
 
     /**
+     * Issue #231, and quietly for the same reason the column count is: a repeat
+     * on a key that cannot use one is a flag nothing reads, not a grid that will
+     * not draw. It has to go, though, or the key's hold is spent on nothing.
+     */
+    @Test
+    fun `a repeat on a key that cannot use one is dropped quietly`() {
+        val spec = letters(
+            listOf(
+                Key("\u2190", action = KeyAction.SendKey(21), repeatOnHold = true),
+                Key("?123", action = KeyAction.Symbols, longPress = listOf("@"), repeatOnHold = true),
+                Key("\u304b", flick = mapOf(FlickDirection.LEFT to "\u304d"), repeatOnHold = true),
+            ) + usableBottomRow,
+        )
+
+        assertTrue(spec.canBeEnabled())
+
+        val repaired = spec.repair()
+        val keys = repaired.spec.lettersKeys().associateBy { it.label }
+        assertTrue("a raw arrow is exactly what the switch is for", keys.getValue("\u2190").repeatOnHold)
+        assertFalse("a layer switch has nothing to repeat", keys.getValue("?123").repeatOnHold)
+        assertTrue("and it keeps the hold it had", keys.getValue("?123").opensAlternatesPopup())
+        assertFalse("the flick pad owns the gesture", keys.getValue("\u304b").repeatOnHold)
+        assertTrue("repair notes were ${repaired.repairNotes}", repaired.repairNotes.isEmpty())
+    }
+
+    /**
      * Repair's whole contract in one test: whatever went in, what comes out can
      * be turned on. A braille dot outside 1..6 used to slip through — validate
      * blocked it, repair had no branch for it, and the import sheet reported
@@ -347,6 +373,58 @@ class LayoutRepairTest {
         val spec = letters(listOf(Key("a", longPress = listOf("@", "", "à"))) + usableBottomRow)
         val key = spec.repair().spec.lettersKeys().first { it.label == "a" }
         assertEquals(listOf("@", "à"), key.longPress)
+    }
+
+    /**
+     * Discussion #103: the letter set and the anchor a key commits have to agree,
+     * and until this rule existed a hand-written file that got it wrong was
+     * accepted in silence and then typed words nobody had pressed the keys for.
+     */
+    @Test
+    fun `a key that stands for several letters is made to type the first of them`() {
+        val spec = letters(listOf(Key("QW", output = "z", letters = "qw")) + usableBottomRow)
+        val repaired = spec.repair()
+        val key = repaired.spec.lettersKeys().first { it.label == "QW" }
+        assertEquals("qw", key.letters)
+        assertEquals("q", key.output)
+        assertTrue(
+            "the fix has to be reported, or the file's author never learns of it",
+            repaired.repairNotes.any { it.stringRes == R.string.core_lang_repair_key_letters_anchored },
+        )
+    }
+
+    @Test
+    fun `a letter set is cleaned of repeats, case and anything that is not a letter`() {
+        val spec = letters(listOf(Key("QW", letters = "Q w2q")) + usableBottomRow)
+        val key = spec.repair().spec.lettersKeys().first { it.label == "QW" }
+        assertEquals("qw", key.letters)
+        assertEquals("q", key.output)
+    }
+
+    @Test
+    fun `a letter set holding no letters at all leaves an ordinary key`() {
+        val spec = letters(listOf(Key("1", output = "1", letters = "123")) + usableBottomRow)
+        val repaired = spec.repair()
+        val key = repaired.spec.lettersKeys().first { it.label == "1" }
+        assertNull(key.letters)
+        assertEquals("the output is the key's own, untouched", "1", key.output)
+        assertTrue(
+            repaired.repairNotes.any { it.stringRes == R.string.core_lang_repair_key_letters_dropped },
+        )
+    }
+
+    @Test
+    fun `an ordinary key is left alone by the letter rule`() {
+        val spec = letters(listOf(Key("a"), Key("b", output = "B")) + usableBottomRow)
+        val repaired = spec.repair()
+        assertTrue(
+            "no letter note belongs on a layout with no letter sets",
+            repaired.repairNotes.none {
+                it.stringRes == R.string.core_lang_repair_key_letters_anchored ||
+                    it.stringRes == R.string.core_lang_repair_key_letters_dropped
+            },
+        )
+        assertEquals("B", repaired.spec.lettersKeys().first { it.label == "b" }.output)
     }
 
     @Test

@@ -19,7 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -28,16 +28,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.Backspace
-import androidx.compose.material.icons.automirrored.outlined.Undo
-import androidx.compose.material.icons.outlined.Keyboard
-import androidx.compose.material.icons.outlined.KeyboardDoubleArrowUp
-import androidx.compose.material.icons.outlined.Menu
-import androidx.compose.material.icons.outlined.Mic
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.SwapHoriz
-import androidx.compose.material.icons.outlined.SwapVert
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.ArrowBack
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.Backspace
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.Undo
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Keyboard
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.KeyboardDoubleArrowUp
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Menu
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Mic
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Settings
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.SwapHoriz
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.SwapVert
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -64,6 +64,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -77,17 +78,21 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.wasimaster.wmkeyboard.common.R as CommonR
 import com.wasimaster.wmkeyboard.core.layout.Key
 import com.wasimaster.wmkeyboard.core.layout.KeyAction
-import com.wasimaster.wmkeyboard.core.script.LanguageRegistry
+import com.wasimaster.wmkeyboard.core.settings.dictationLanguages
 import com.wasimaster.wmkeyboard.core.settings.VoiceBarSettings
+import com.wasimaster.wmkeyboard.core.theme.FrostSurface
 import com.wasimaster.wmkeyboard.ime.KeyboardUiState
 import com.wasimaster.wmkeyboard.ime.R
 import com.wasimaster.wmkeyboard.ime.VoiceBarAction
 import com.wasimaster.wmkeyboard.ime.VoiceStatus
+import com.wasimaster.wmkeyboard.ime.clipBased
+import com.wasimaster.wmkeyboard.ime.undoReady
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import com.wasimaster.wmkeyboard.core.ui.DisabledReason
 
 /**
  * The collapsed voice bar (Gboard's voice-typing toolbar): the keyboard gives
@@ -111,7 +116,6 @@ internal fun VoiceBarLayer(
     onOpenVoiceSettings: () -> Unit,
     onRestoreKeyboard: () -> Unit,
     onAction: (VoiceBarAction) -> Unit,
-    onLayoutSelect: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -135,7 +139,7 @@ internal fun VoiceBarLayer(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
-            .navigationBarsPadding()
+            .windowInsetsPadding(navigationBarInsets())
             .padding(VoiceBarMargin),
     ) {
         val boxW = constraints.maxWidth
@@ -259,7 +263,6 @@ internal fun VoiceBarLayer(
                         onRestoreKeyboard = onRestoreKeyboard,
                         onAction = onAction,
                         onUndo = onUndo,
-                        onLayoutSelect = onLayoutSelect,
                     )
                 } else {
                     HorizontalBarContent(
@@ -271,7 +274,6 @@ internal fun VoiceBarLayer(
                         onOpenVoiceSettings = onOpenVoiceSettings,
                         onRestoreKeyboard = onRestoreKeyboard,
                         onAction = onAction,
-                        onLayoutSelect = onLayoutSelect,
                     )
                 }
             }
@@ -393,7 +395,6 @@ private fun HorizontalBarContent(
     onOpenVoiceSettings: () -> Unit,
     onRestoreKeyboard: () -> Unit,
     onAction: (VoiceBarAction) -> Unit,
-    onLayoutSelect: (String) -> Unit,
 ) {
     val kb = LocalKbTheme.current
     val feedback = LocalKeyPressFeedback.current
@@ -431,7 +432,7 @@ private fun HorizontalBarContent(
                 onUndo = onUndo,
                 onVertical = { onAction(VoiceBarAction.SetVertical(true)) },
                 onOpenVoiceSettings = onOpenVoiceSettings,
-                onLayoutSelect = onLayoutSelect,
+                onAction = onAction,
                 closeMenu = { menuOpen = false },
             )
         } else {
@@ -449,11 +450,10 @@ private fun HorizontalBarContent(
                 onOpenVoiceSettings = onOpenVoiceSettings,
                 modifier = Modifier.weight(1f),
             )
-            val voice = state.voice
-            val idle = voice.status != VoiceStatus.LISTENING &&
-                voice.status != VoiceStatus.FINISHING &&
-                voice.status != VoiceStatus.TRANSCRIBING
-            if (voice.canUndo && idle) {
+            if (hasPermission && state.voiceMicSwitchVisible()) {
+                VoiceMicSwitch(state, onCycle = { onAction(VoiceBarAction.CycleMic) }, size = VoiceBarButton)
+            }
+            if (state.voice.undoReady()) {
                 VoiceBarIconButton(
                     icon = Icons.AutoMirrored.Outlined.Undo,
                     description = stringResource(R.string.ime_voice_strip_undo_desc),
@@ -463,7 +463,7 @@ private fun HorizontalBarContent(
                 }
             }
             VoiceBarExitButton(state, onAction, onRestoreKeyboard)
-            VoiceBarDeleteButton(onAction)
+            VoiceBarDeleteButton(state, onAction)
             VoiceBarMic(
                 state = state,
                 hasPermission = hasPermission,
@@ -482,7 +482,7 @@ private fun RowScope.HorizontalMenuPage(
     onUndo: () -> Unit,
     onVertical: () -> Unit,
     onOpenVoiceSettings: () -> Unit,
-    onLayoutSelect: (String) -> Unit,
+    onAction: (VoiceBarAction) -> Unit,
     closeMenu: () -> Unit,
 ) {
     val feedback = LocalKeyPressFeedback.current
@@ -501,13 +501,14 @@ private fun RowScope.HorizontalMenuPage(
         VoiceBarIconButton(
             icon = Icons.AutoMirrored.Outlined.Undo,
             description = stringResource(R.string.ime_voice_strip_undo_desc),
-            enabled = state.voice.canUndo,
+            enabled = state.voice.undoReady(),
+            disabledReason = DisabledReason(stringResource(R.string.ime_disabled_voice_undo)),
         ) {
             feedback()
             onUndo()
             closeMenu()
         }
-        VoiceBarLanguageChip(state, onLayoutSelect, closeMenu)
+        VoiceBarLanguageChip(state, onAction, onOpenVoiceSettings, closeMenu)
         VoiceBarIconButton(
             icon = Icons.Outlined.SwapVert,
             description = stringResource(R.string.ime_voice_bar_vertical_desc),
@@ -535,7 +536,6 @@ private fun VerticalBarContent(
     onRestoreKeyboard: () -> Unit,
     onAction: (VoiceBarAction) -> Unit,
     onUndo: () -> Unit,
-    onLayoutSelect: (String) -> Unit,
 ) {
     val kb = LocalKbTheme.current
     val feedback = LocalKeyPressFeedback.current
@@ -574,13 +574,14 @@ private fun VerticalBarContent(
             VoiceBarIconButton(
                 icon = Icons.AutoMirrored.Outlined.Undo,
                 description = stringResource(R.string.ime_voice_strip_undo_desc),
-                enabled = state.voice.canUndo,
+                enabled = state.voice.undoReady(),
+                disabledReason = DisabledReason(stringResource(R.string.ime_disabled_voice_undo)),
             ) {
                 feedback()
                 onUndo()
                 menuOpen = false
             }
-            VoiceBarLanguageChip(state, onLayoutSelect) { menuOpen = false }
+            VoiceBarLanguageChip(state, onAction, onOpenVoiceSettings) { menuOpen = false }
             VoiceBarIconButton(
                 icon = Icons.Outlined.SwapHoriz,
                 description = stringResource(R.string.ime_voice_bar_horizontal_desc),
@@ -602,8 +603,13 @@ private fun VerticalBarContent(
                 onToggle = onToggle,
                 onRequestPermission = onRequestPermission,
             )
-            VoiceBarDeleteButton(onAction)
+            VoiceBarDeleteButton(state, onAction)
             VoiceBarExitButton(state, onAction, onRestoreKeyboard)
+            // No status line on the upright bar, so the switch is the only
+            // word on which microphone is in use (#581): its icon.
+            if (hasPermission && state.voiceMicSwitchVisible()) {
+                VoiceMicSwitch(state, onCycle = { onAction(VoiceBarAction.CycleMic) }, size = VoiceBarButton)
+            }
             VoiceBarIconButton(
                 icon = Icons.Outlined.Menu,
                 description = stringResource(R.string.ime_voice_bar_menu_desc),
@@ -671,11 +677,18 @@ private fun VoiceBarStatus(
 
     // Which *kind* of line is up. Fading keyed on this rather than the text
     // keeps a growing partial from strobing the line on every word.
+    // The strip's rule (#581): the line says which microphone is in use
+    // until the first words arrive.
+    val micNotice = rememberVoiceMicNotice(state)
     val statusKind = when {
         voice.status == VoiceStatus.NEED_PERMISSION || !hasPermission -> 1
         voice.status == VoiceStatus.UNAVAILABLE -> 2
+        voice.status == VoiceStatus.MIC_BLOCKED -> 10
         voice.whisperNeedsModel -> 3
-        listening && voice.whisper -> 4
+        voice.serverNeedsSetup -> 11
+        micNotice != null && voice.partial.isEmpty() && voice.status != VoiceStatus.ERROR -> 13
+        listening && voice.clipBased && voice.secondsLeft > 0 -> 12
+        listening && voice.clipBased && voice.partial.isEmpty() -> 4
         listening -> 5
         transcribing -> 6
         voice.status == VoiceStatus.FINISHING -> 7
@@ -696,10 +709,14 @@ private fun VoiceBarStatus(
     val statusText = when (statusKind) {
         1 -> stringResource(R.string.ime_voice_strip_permission)
         2 -> stringResource(R.string.ime_voice_strip_unavailable)
+        10 -> stringResource(R.string.ime_voice_strip_mic_blocked)
         3 -> stringResource(R.string.ime_voice_strip_no_model)
+        11 -> stringResource(R.string.ime_voice_strip_no_server)
+        12 -> pluralStringResource(R.plurals.ime_voice_status_stops_in, voice.secondsLeft, voice.secondsLeft)
+        13 -> micNotice.orEmpty()
         4 -> stringResource(R.string.ime_voice_strip_listening_hint)
-        5 -> voice.partial.ifEmpty { speakNow }
-        6 -> stringResource(R.string.ime_voice_status_transcribing)
+        5 -> voiceLineTail(voice.partial).ifEmpty { speakNow }
+        6 -> voiceLineTail(voice.partial).ifEmpty { stringResource(voice.transcribingLabelRes()) }
         7 -> "…"
         8 -> voice.errorMessage ?: stringResource(R.string.ime_voice_status_error)
         else -> stringResource(R.string.ime_voice_bar_paused)
@@ -710,7 +727,7 @@ private fun VoiceBarStatus(
     ) {
         Text(
             statusText,
-            color = if (listening && voice.partial.isNotEmpty()) {
+            color = if ((listening || transcribing) && voice.partial.isNotEmpty()) {
                 kb.toolbarIcon
             } else {
                 kb.secondaryText
@@ -724,7 +741,7 @@ private fun VoiceBarStatus(
         )
         val action = when (statusKind) {
             1 -> stringResource(R.string.ime_voice_strip_allow_action) to onRequestPermission
-            3 -> stringResource(R.string.ime_voice_strip_settings_action) to onOpenVoiceSettings
+            3, 11 -> stringResource(R.string.ime_voice_strip_settings_action) to onOpenVoiceSettings
             else -> null
         }
         if (action != null) {
@@ -800,6 +817,7 @@ private fun VoiceBarMic(
             modifier = Modifier
                 .size(38.dp)
                 .clip(CircleShape)
+                .frostGlass(kb, CircleShape, FrostSurface.CHIPS)
                 .background(if (listening) kb.toolCircleActive else kb.chip)
                 .clickable(enabled = !busy) {
                     if (hasPermission) onToggle() else onRequestPermission()
@@ -828,35 +846,27 @@ private fun VoiceBarMic(
     }
 }
 
-/** Backspace with the rail's press-and-hold repeat. */
+/** Backspace with the rail's press-and-hold repeat, and its delete swipe (#925). */
 @Composable
-private fun VoiceBarDeleteButton(onAction: (VoiceBarAction) -> Unit) {
+private fun VoiceBarDeleteButton(state: KeyboardUiState, onAction: (VoiceBarAction) -> Unit) {
     val kb = LocalKbTheme.current
     val feedback = LocalKeyPressFeedback.current
-    val scope = rememberCoroutineScope()
     val description = stringResource(CommonR.string.common_delete)
+    val settings = state.settings
+    val swipe = LocalDeleteSwipe.current
+    val byWord = settings.textEditing.backspaceSwipeUnit == com.wasimaster.wmkeyboard.core.settings.BackspaceSwipeUnit.WORD
+    val currentFeedback = androidx.compose.runtime.rememberUpdatedState(feedback)
+    // Remembered, so a recomposition mid-drag does not restart the gesture.
+    val drag = androidx.compose.runtime.remember(swipe, byWord, settings.backspaceSwipeDelete) {
+        if (settings.backspaceSwipeDelete) railDeleteDrag(swipe, byWord) { currentFeedback.value() } else null
+    }
     Box(
         modifier = Modifier
             .size(VoiceBarButton)
             .clip(kb.toolShape())
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onPress = {
-                        feedback()
-                        onAction(VoiceBarAction.RailKey(Key("⌫", action = KeyAction.Delete)))
-                        val repeat: Job = scope.launch {
-                            delay(400)
-                            while (true) {
-                                onAction(
-                                    VoiceBarAction.RailKey(Key("⌫", action = KeyAction.Delete)),
-                                )
-                                delay(120)
-                            }
-                        }
-                        tryAwaitRelease()
-                        repeat.cancel()
-                    },
-                )
+            .railKeyGestures(repeatable = true, drag = drag) {
+                feedback()
+                onAction(VoiceBarAction.RailKey(Key("⌫", action = KeyAction.Delete)))
             },
         contentAlignment = Alignment.Center,
     ) {
@@ -869,44 +879,60 @@ private fun VoiceBarDeleteButton(onAction: (VoiceBarAction) -> Unit) {
     }
 }
 
-/** EN ⇄ bn chip, only when both an English and a non-English language are on. */
+/**
+ * The language dictation listens for (#416), the panel chip's twin: shown
+ * while there is a choice to make, and a tap opens the same menu of them.
+ */
 @Composable
 private fun VoiceBarLanguageChip(
     state: KeyboardUiState,
-    onLayoutSelect: (String) -> Unit,
+    onAction: (VoiceBarAction) -> Unit,
+    onOpenVoiceSettings: () -> Unit,
     closeMenu: () -> Unit,
 ) {
     val kb = LocalKbTheme.current
     val feedback = LocalKeyPressFeedback.current
-    val languages = state.settings.enabledLanguages.ifEmpty {
-        listOf(LanguageRegistry.byId("en"))
-    }
-    if (!(languages.any { it.isEnglish } && languages.any { !it.isEnglish })) return
-    val english = state.voice.languageTag.startsWith("en")
-    Text(
-        text = if (english) "EN" else "বাং",
-        color = kb.secondaryText,
-        fontSize = 12.sp,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier
-            .clip(kb.chipShape())
-            .background(kb.chip)
-            .chipBorder(kb, kb.chipShape())
-            .clickable {
-                feedback()
-                val other = if (english) {
-                    languages.first { !it.isEnglish }
-                } else {
-                    languages.firstOrNull { it.isEnglish } ?: LanguageRegistry.byId("en")
+    val chosen = state.settings.whisper.languages
+    val enabled = state.settings.enabledLanguages.map { it.id }
+    if (enabled.size < 2 && chosen.isEmpty()) return
+    var menuOpen by remember { mutableStateOf(false) }
+    Box {
+        Text(
+            text = voiceLanguagesLabel(state.settings.whisper.dictationLanguages(state.language.id)),
+            color = if (chosen.isEmpty()) kb.secondaryText else kb.toolbarIcon,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            modifier = Modifier
+                .clip(kb.chipShape())
+                .frostGlass(kb, kb.chipShape(), FrostSurface.CHIPS)
+                .background(kb.chip)
+                .chipBorder(kb, kb.chipShape())
+                .clickable(onClickLabel = stringResource(R.string.ime_voice_language_menu_title)) {
+                    feedback()
+                    menuOpen = true
                 }
-                val layoutId = other.layoutIds.firstOrNull {
-                    it in state.settings.enabledLayoutIds
-                } ?: other.layoutIds.firstOrNull()
-                if (layoutId != null) onLayoutSelect(layoutId)
-                closeMenu()
-            }
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-    )
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+        )
+        if (menuOpen) {
+            StripMenuScrim(onDismiss = { menuOpen = false })
+            VoiceLanguageMenu(
+                chosen = chosen,
+                enabled = enabled,
+                onDismiss = { menuOpen = false },
+                onPick = { ids ->
+                    menuOpen = false
+                    onAction(VoiceBarAction.PickLanguages(ids))
+                    closeMenu()
+                },
+                onMore = {
+                    menuOpen = false
+                    feedback()
+                    onOpenVoiceSettings()
+                },
+            )
+        }
+    }
 }
 
 /** One round bar button. Disabled draws at reduced alpha and swallows taps. */
@@ -915,24 +941,28 @@ private fun VoiceBarIconButton(
     icon: ImageVector,
     description: String,
     enabled: Boolean = true,
+    /** What holding the button says while it is greyed out; see [IconHint]. */
+    disabledReason: DisabledReason? = null,
     onClick: () -> Unit,
 ) {
     val kb = LocalKbTheme.current
-    Box(
-        modifier = Modifier
-            .size(VoiceBarButton)
-            .clip(kb.toolShape())
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            icon,
-            contentDescription = description,
+    IconHint(description, disabledReason = disabledReason.takeUnless { enabled }) {
+        Box(
             modifier = Modifier
-                .size(20.dp)
-                .graphicsLayer { alpha = if (enabled) 1f else 0.4f },
-            tint = kb.toolbarIcon,
-        )
+                .size(VoiceBarButton)
+                .clip(kb.toolShape())
+                .clickable(enabled = enabled, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = description,
+                modifier = Modifier
+                    .size(20.dp)
+                    .graphicsLayer { alpha = if (enabled) 1f else 0.4f },
+                tint = kb.toolbarIcon,
+            )
+        }
     }
 }
 

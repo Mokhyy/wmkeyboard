@@ -1,294 +1,112 @@
 package com.wasimaster.wmkeyboard.core.gesture
 
 /**
- * Pooled state store, alignment columns and index heap for [GlideBeam].
+ * [GlideBeam]'s sizes: how finely a stroke is resampled, how large a learned
+ * shape is, how many states a decode may hold.
  *
- * One instance per decoding thread. Everything a decode needs is allocated on
- * first use and reused forever after, so a swipe costs no garbage beyond the
- * words it emits — the same contract `BeamWorkspace` holds for the typing beam,
- * and it matters more here: a preview decodes several times per stroke.
- *
- * The one thing this workspace has that `BeamWorkspace` does not is [cols], the
- * dynamic-programming columns. Each state owns [SAMPLE_POINTS] floats recording,
- * for every position along the drawn path, the best cost of having spelled this
- * state's prefix by that position. That is what makes the search exact rather
- * than greedy, and it is also why [MAX_STATES] exists: a column is 192 bytes, so
- * an unbounded frontier would be megabytes per decode rather than a fixed
- * [CAPACITY_BYTES_NOTE].
+ * The pooled state store itself, the alignment columns and the heap, moved
+ * to Rust with the decoder (`wm-engine`'s `glide::workspace`, one per decoding
+ * thread), and the Kotlin decoder that used this class kept it in the test
+ * sources as the reference. An instance carries nothing. Callers that pool
+ * one per thread can keep passing it, and [GlideBeam] ignores it.
  */
 class GlideWorkspace {
-
-    var node = IntArray(INITIAL); private set
-    var parent = IntArray(INITIAL); private set
-    var viaLabel = CharArray(INITIAL); private set
-
-    /**
-     * Code point of the last whole letter spelled on this path, 0 at the root.
-     * [viaLabel] is one trie edge, and a letter outside the BMP is two edges —
-     * the high surrogate, then the low — so a state that has consumed only the
-     * first half carries its parent's letter here, and the doubled-letter test
-     * compares letters rather than halves.
-     */
-    var letterCp = IntArray(INITIAL); private set
-
-    /** Key index the last consumed character sits on; -1 at the root. */
-    var lastKey = IntArray(INITIAL); private set
-
-    /** Characters spelled so far, repeats included. */
-    var length = ShortArray(INITIAL); private set
-
-    /** Cost accumulated outside the alignment: doubled letters, for now. */
-    var extra = FloatArray(INITIAL); private set
-
-    /** Best (lowest) value in this state's column — the admissible remainder. */
-    var floorCost = FloatArray(INITIAL); private set
-
-    var bound = DoubleArray(INITIAL); private set
-
-    /** [SAMPLE_POINTS] alignment costs per state, laid end to end. */
-    var cols = FloatArray(INITIAL * SAMPLE_POINTS); private set
-
-    private var size = 0
-    private var heap = IntArray(INITIAL)
-    var heapSize = 0; private set
-
-    /** Resampled path: key-width coordinates and the sample clock. */
-    val pathX = FloatArray(SAMPLE_POINTS)
-    val pathY = FloatArray(SAMPLE_POINTS)
-    val pathT = LongArray(SAMPLE_POINTS)
-
-    /**
-     * Arc length between consecutive samples, in key widths. Because the
-     * resampling is by arc length this single number converts a gap in sample
-     * indices into a distance the finger actually travelled, which is the whole
-     * basis of the decoder's second cost term.
-     */
-    var arcStep = 0f
-
-    /** `pointCost[i * keyCount + k]`, filled per decode by [GlideBeam]. */
-    var pointCost = FloatArray(SAMPLE_POINTS * INITIAL_KEYS); private set
-
-    /**
-     * How long the finger lingered on each key, 0 (flew past) to 1 (stopped
-     * dead). The one thing a stroke's shape cannot say is whether a letter was
-     * written twice, and this is the only evidence there is.
-     */
-    var keyDwell = FloatArray(INITIAL_KEYS); private set
-
-    /** Keys the drawn path passes close enough to be spelling. */
-    var nearKey = BooleanArray(INITIAL_KEYS); private set
-
-    /** Keys close enough to the stroke's first sample to start a word. */
-    var startKey = BooleanArray(INITIAL_KEYS); private set
-
-    /** Keys close enough to the stroke's last sample to end one. */
-    var endKey = BooleanArray(INITIAL_KEYS); private set
-
-    val children = com.wasimaster.wmkeyboard.core.prediction.ChildBuffer()
-
-    /**
-     * Where a candidate column is built before anyone knows whether it is worth
-     * keeping. The bound that decides that is read off the column itself, so
-     * the alternative would be allocating a state to hold a column we then
-     * throw away — which at this state count is most of them.
-     */
-    val scratch = FloatArray(SAMPLE_POINTS)
-
-    /**
-     * The drawn stroke and a candidate's ideal path, each translated to its own
-     * centroid and scaled to its own size, for the shape rescore. Held here
-     * rather than allocated per candidate: the rescore runs over a handful of
-     * words on every preview event.
-     */
-    val drawnShapeX = FloatArray(SAMPLE_POINTS)
-    val drawnShapeY = FloatArray(SAMPLE_POINTS)
-    val idealShapeX = FloatArray(SAMPLE_POINTS)
-    val idealShapeY = FloatArray(SAMPLE_POINTS)
-
-    /** A candidate word's key centres, before resampling. */
-    val idealX = FloatArray(MAX_IDEAL_POINTS)
-    val idealY = FloatArray(MAX_IDEAL_POINTS)
-
-    private val sb = StringBuilder(24)
-
-    /** True once the state pool is full — the decode is running on a backstop. */
-    var saturated = false; private set
-
-    fun reset() {
-        size = 0
-        heapSize = 0
-        saturated = false
-    }
-
-    /** Grows the per-key scratch to cover a grid of [keyCount] keys. */
-    fun prepareKeys(keyCount: Int) {
-        if (nearKey.size < keyCount) {
-            nearKey = BooleanArray(keyCount)
-            startKey = BooleanArray(keyCount)
-            endKey = BooleanArray(keyCount)
-            keyDwell = FloatArray(keyCount)
-        } else {
-            nearKey.fill(false, 0, keyCount)
-            startKey.fill(false, 0, keyCount)
-            endKey.fill(false, 0, keyCount)
-            keyDwell.fill(0f, 0, keyCount)
-        }
-        val needed = SAMPLE_POINTS * keyCount
-        if (pointCost.size < needed) pointCost = FloatArray(needed)
-    }
-
-    /**
-     * Appends a state and schedules it for expansion, returning its id — or -1
-     * when the pool is full, which the caller treats as "do not explore this".
-     */
-    @Suppress("LongParameterList")
-    fun push(
-        node: Int,
-        parent: Int,
-        viaLabel: Char,
-        lastKey: Int,
-        length: Int,
-        extra: Float,
-        floorCost: Float,
-        bound: Double,
-        letterCp: Int,
-    ): Int {
-        if (size >= MAX_STATES) {
-            saturated = true
-            return -1
-        }
-        ensure(size + 1)
-        val id = size++
-        this.node[id] = node
-        this.parent[id] = parent
-        this.viaLabel[id] = viaLabel
-        this.letterCp[id] = letterCp
-        this.lastKey[id] = lastKey
-        this.length[id] = length.toShort()
-        this.extra[id] = extra
-        this.floorCost[id] = floorCost
-        this.bound[id] = bound
-        heapPush(id)
-        return id
-    }
-
-    /** Start of state [id]'s column within [cols]. */
-    fun columnOf(id: Int): Int = id * SAMPLE_POINTS
-
-    /** Commits [scratch] as state [id]'s column. */
-    fun storeScratch(id: Int) {
-        System.arraycopy(scratch, 0, cols, id * SAMPLE_POINTS, SAMPLE_POINTS)
-    }
-
-    /** Copies one state's column onto another — a repeated letter reuses it. */
-    fun copyColumn(from: Int, to: Int) {
-        System.arraycopy(cols, from * SAMPLE_POINTS, cols, to * SAMPLE_POINTS, SAMPLE_POINTS)
-    }
-
-    fun popBest(): Int {
-        val top = heap[0]
-        heapSize--
-        if (heapSize > 0) {
-            heap[0] = heap[heapSize]
-            siftDown(0)
-        }
-        return top
-    }
-
-    /**
-     * Rebuilds the word for state [s] from its parent chain.
-     *
-     * The chain is walked leaf to root and reversed by hand, one UTF-16 unit at
-     * a time. `StringBuilder.reverse()` will not do: it keeps any high-low pair
-     * it finds together, and the leaf-first sequence of a word outside the BMP
-     * is full of *low-high* pairs that it reads as the pairs of the next letter
-     * along — every Osage or Warang Citi word came out with a stray surrogate
-     * at each end and its letters' halves swapped.
-     */
-    fun materialize(s: Int): String {
-        sb.setLength(0)
-        var cur = s
-        while (cur >= 0) {
-            val label = viaLabel[cur]
-            if (label != NO_LABEL) sb.append(label)
-            cur = parent[cur]
-        }
-        val n = sb.length
-        val chars = CharArray(n)
-        for (i in 0 until n) chars[i] = sb[n - 1 - i]
-        return String(chars)
-    }
-
-    private fun ensure(needed: Int) {
-        if (node.size >= needed) return
-        var capacity = node.size
-        while (capacity < needed) capacity *= 2
-        capacity = minOf(capacity, MAX_STATES)
-        node = node.copyOf(capacity)
-        parent = parent.copyOf(capacity)
-        viaLabel = viaLabel.copyOf(capacity)
-        letterCp = letterCp.copyOf(capacity)
-        lastKey = lastKey.copyOf(capacity)
-        length = length.copyOf(capacity)
-        extra = extra.copyOf(capacity)
-        floorCost = floorCost.copyOf(capacity)
-        bound = bound.copyOf(capacity)
-        cols = cols.copyOf(capacity * SAMPLE_POINTS)
-    }
-
-    private fun heapPush(id: Int) {
-        if (heapSize == heap.size) heap = heap.copyOf(heap.size * 2)
-        heap[heapSize] = id
-        var i = heapSize++
-        while (i > 0) {
-            val up = (i - 1) ushr 1
-            if (bound[heap[up]] >= bound[heap[i]]) break
-            val tmp = heap[up]
-            heap[up] = heap[i]
-            heap[i] = tmp
-            i = up
-        }
-    }
-
-    private fun siftDown(start: Int) {
-        var i = start
-        while (true) {
-            val left = i * 2 + 1
-            if (left >= heapSize) break
-            val right = left + 1
-            var best = left
-            if (right < heapSize && bound[heap[right]] > bound[heap[left]]) best = right
-            if (bound[heap[i]] >= bound[heap[best]]) break
-            val tmp = heap[i]
-            heap[i] = heap[best]
-            heap[best] = tmp
-            i = best
-        }
-    }
 
     companion object {
         /**
          * Path samples the drawn stroke is resampled to. The alignment is
          * O(SAMPLE_POINTS) per trie edge and a column is 4 bytes a sample, so
-         * this is the decoder's one real size dial.
+         * this is the decoder's one real size dial. This is the most a
+         * stroke gets; most get [SHORT_SAMPLES].
+         *
+         * 48 for everything left a long word two and a half samples a key:
+         * with a finger's rounded corners, "internationalization" decoded
+         * from 5 of 30 noisy strokes, the walk spending its budget on short
+         * readings before a twenty-letter one fit. At 64 it decodes from 26.
+         * 64 for everything also cost about 40% more CPU on every stroke,
+         * so only a stroke of [LONG_STROKE] key widths or more gets it.
+         *
+         * 64 was also the most any stroke got, and a 26-letter compound
+         * crosses the board twice as far as a 13-letter one (issue #966):
+         * past [LONG_STROKE] a stroke now earns [SAMPLES_PER_LETTER] more
+         * samples for every [LETTER_ARC] it runs on, up to this. See
+         * [samplesFor].
          */
-        const val SAMPLE_POINTS = 48
+        const val SAMPLE_POINTS = 96
+
+        /** Samples a stroke shorter than [LONG_STROKE] is resampled to. */
+        const val SHORT_SAMPLES = 48
+
+        /** Stroke length, in key widths, from which a stroke gets [LONG_SAMPLES] samples. */
+        const val LONG_STROKE = 40f
+
+        /** Samples a stroke of exactly [LONG_STROKE] gets. */
+        const val LONG_SAMPLES = 64
 
         /**
-         * Frontier cap, worth ~590 KB of columns once the pool has grown into
-         * it (MAX_STATES × SAMPLE_POINTS × 4 bytes). Best-first order means the
-         * states that matter are expanded first, so hitting this is a backstop
-         * rather than a bound anyone should reach; [saturated] records when it
-         * happened so the harness can see it rather than reading a quietly
-         * worse number.
+         * A letter's worth of stroke, in key widths: the mean key-to-key
+         * step over the English list, drawn centre to centre, is 2.95.
          */
-        const val MAX_STATES = 3072
+        const val LETTER_ARC = 3f
 
-        /** Longest key sequence a candidate's ideal path can have. */
-        const val MAX_IDEAL_POINTS = 32
+        /** Samples each [LETTER_ARC] past [LONG_STROKE] adds. */
+        const val SAMPLES_PER_LETTER = 2
 
-        private const val INITIAL = 256
-        private const val INITIAL_KEYS = 48
+        /**
+         * Letters a glide spells at most: `wm-engine`'s `MAX_WORD_LENGTH`.
+         * 24 until issue #966, which left a 26-letter compound unreadable.
+         */
+        const val MAX_WORD_LENGTH = 32
+
+        /**
+         * How many samples a stroke of [arc] key widths is resampled to:
+         * [SHORT_SAMPLES] under [LONG_STROKE], [LONG_SAMPLES] at it, and
+         * [SAMPLES_PER_LETTER] more for every [LETTER_ARC] beyond, up to
+         * [SAMPLE_POINTS] (issue #966 §5.3). The letter count is read off
+         * the arc because the stroke is resampled before any word is known.
+         * Every stroke under [LONG_STROKE] is sampled exactly as before.
+         * `wm-engine`'s `glide::workspace::samples_for`, to the bit; the
+         * decoder runs there, and this is what [GlideBeam.Alignment.sampleCount]
+         * comes back as.
+         */
+        fun samplesFor(arc: Float): Int =
+            if (arc < LONG_STROKE) {
+                SHORT_SAMPLES
+            } else {
+                val letters = ((arc - LONG_STROKE) / LETTER_ARC).toInt()
+                minOf(SAMPLE_POINTS, LONG_SAMPLES + SAMPLES_PER_LETTER * letters)
+            }
+
+        /**
+         * Samples a *shape* has, apart from the alignment's: the learned
+         * shapes are saved at this size, and a stored shape of another size
+         * is skipped, so changing it would forget every shape a user has
+         * taught. The shape channel resamples the stroke down to it.
+         */
+        const val SHAPE_POINTS = 48
+
+        /**
+         * Frontier cap, worth ~2 MB of columns once the pool has grown into
+         * it on a long stroke (MAX_STATES × 64 samples × 4 bytes; 3 MB at
+         * [SAMPLE_POINTS], which only the longest strokes reach). Best-first order means the
+         * states that matter are expanded first, so hitting this is a backstop
+         * rather than a bound anyone should reach.
+         *
+         * It was 3072, and on a long word it was reached every time: a German
+         * stroke of fifteen letters or more saturated the pool on every one of
+         * 300 synthetic strokes, and the word drawn was never pushed (issue
+         * #714). At 8192 none of them do, and the walk ends on its pop budget
+         * or its floor instead, in the same time per decode.
+         */
+        const val MAX_STATES = 8192
+
+        /**
+         * Longest key sequence a candidate's ideal path can have: a word of
+         * [MAX_WORD_LENGTH] letters visits at most that many keys, plus the
+         * two anchor leads the shape channel adds. [NativeGlide.align]'s
+         * out buffer is sized by it, so it matches `wm-engine`'s.
+         */
+        const val MAX_IDEAL_POINTS = 34
 
         /** Stands in for "unreachable" in a column without overflowing on add. */
         const val UNREACHABLE = Float.MAX_VALUE / 4f

@@ -22,6 +22,35 @@ class ConfigBackupTest {
         appVersion: Int = 42,
     ) = ConfigBackup.encode(appVersion, "1.2.3", sections)
 
+    // ---- checking a staged file without building it (#1080) ----
+
+    @Test
+    fun `a whole bundle is complete and a cut one is not`() {
+        val payload = buildJsonObject { put("a", JsonPrimitive("x".repeat(100_000))) }
+        val text = bundle(sections = mapOf(ConfigBackup.Section.SETTINGS to payload))
+        assertTrue(ConfigBackup.isComplete(text.byteInputStream()))
+        assertFalse(ConfigBackup.isComplete(text.dropLast(20).byteInputStream()))
+        assertFalse(ConfigBackup.isComplete(text.take(text.length / 2).byteInputStream()))
+    }
+
+    @Test
+    fun `another format or a newer version is not complete`() {
+        assertFalse(ConfigBackup.isComplete("""{"format":"other","version":1,"sections":{}}""".byteInputStream()))
+        assertFalse(
+            ConfigBackup.isComplete(
+                """{"format":"${ConfigBackup.FORMAT}","version":${ConfigBackup.VERSION + 1},"sections":{}}""".byteInputStream(),
+            ),
+        )
+    }
+
+    @Test
+    fun `the stream encoder writes what the string encoder writes`() {
+        val sections = mapOf(ConfigBackup.Section.SETTINGS to buildJsonObject { put("a", JsonPrimitive(1)) })
+        val out = java.io.ByteArrayOutputStream()
+        ConfigBackup.encodeTo(out, 42, "1.2.3", sections)
+        assertEquals(ConfigBackup.encode(42, "1.2.3", sections), out.toString(Charsets.UTF_8.name()))
+    }
+
     // ---- round trip ----
 
     @Test
@@ -63,6 +92,35 @@ class ConfigBackupTest {
             ),
         )
         assertEquals(forwards, backwards)
+    }
+
+    @Test
+    fun `clock encodes after notes and the to-do list comes last`() {
+        // Sections encode in declaration order and older builds read bundles
+        // positionally, so a new section may only ever be appended.
+        assertEquals(ConfigBackup.Section.TODO, ConfigBackup.Section.entries.last())
+        assertEquals(ConfigBackup.Section.AI_MEMORY, ConfigBackup.Section.entries[ConfigBackup.Section.entries.size - 2])
+        val payload = buildJsonObject { put("a", JsonPrimitive(1)) }
+        val text = ConfigBackup.encode(
+            1,
+            "x",
+            linkedMapOf(
+                ConfigBackup.Section.CLOCK to payload,
+                ConfigBackup.Section.NOTES to payload,
+                ConfigBackup.Section.SWIPE to payload,
+            ),
+        )
+        assertTrue(text.indexOf("\"swipe\"") < text.indexOf("\"notes\""))
+        assertTrue(text.indexOf("\"notes\"") < text.indexOf("\"clock\""))
+        val parsed = requireNotNull(ConfigBackup.decode(text))
+        assertTrue(parsed.has(ConfigBackup.Section.NOTES))
+        assertTrue(parsed.has(ConfigBackup.Section.CLOCK))
+    }
+
+    @Test
+    fun `AI memory is never a sync section`() {
+        assertFalse(ConfigBackup.Section.AI_MEMORY.syncable)
+        assertTrue(ConfigBackup.Section.entries.filter { it != ConfigBackup.Section.AI_MEMORY }.all { it.syncable })
     }
 
     @Test

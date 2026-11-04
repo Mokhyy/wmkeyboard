@@ -51,9 +51,9 @@ class ShippedCountsTest {
     }
 
     companion object {
-        const val LANGUAGES = 843
-        const val BUILT_IN_LAYOUTS = 18
-        const val ASSET_LAYOUTS = 1_256
+        const val LANGUAGES = 1_555
+        const val BUILT_IN_LAYOUTS = 39
+        const val ASSET_LAYOUTS = 3_649
         const val KEYMAN_LAYOUTS = 862
         const val TOTAL_LAYOUTS = BUILT_IN_LAYOUTS + ASSET_LAYOUTS
 
@@ -69,6 +69,8 @@ class ShippedCountsTest {
          * - `docs/src/content/docs/languages/overview.mdx`
          * - `docs/src/content/docs/languages/custom-layouts.mdx`
          * - `docs/src/content/docs/reference/settings/languages.mdx`
+         * - `docs/src/content/docs/reference/settings/keymaps.mdx`
+         * - `FEATURES.md`
          *
          * The docs' language and wordlist tables are generated; rerun
          * `docs/scripts/extract_data.py` rather than editing the JSON it writes

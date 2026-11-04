@@ -18,6 +18,24 @@ enum class AiInputMode {
     BEFORE_CURSOR,
 }
 
+/**
+ * Which panel an action belongs to.
+ *
+ * One type covers both because everything around a spec — the editor, the
+ * order, the hide list, the storage codec — is worth having twice as much as
+ * it is worth writing twice, and a tone the user writes should be able to do
+ * what a shipped one does. The surface is what keeps the two lists apart on
+ * screen; it is a stored field with a default, so a spec written before the
+ * reply tool existed decodes as a [TRANSFORM] and nothing has to be migrated.
+ */
+enum class AiActionSurface {
+    /** The AI tool: something to do to text the user has already written. */
+    TRANSFORM,
+
+    /** The AI reply tool (#234): a tone to answer somebody else's message in. */
+    REPLY,
+}
+
 /** What the Replace button does with the answer. */
 enum class AiInsertMode {
     /** Puts the answer in place of the text the action ran on. */
@@ -87,6 +105,11 @@ data class AiActionSpec(
      * The panel keeps this button live when the others turn grey.
      */
     val worksWithoutText: Boolean = false,
+    /**
+     * Which panel draws this one. Last, with a default, so every spec stored
+     * before the reply tool existed still decodes.
+     */
+    val surface: AiActionSurface = AiActionSurface.TRANSFORM,
 )
 
 private val aiActionJson = Json {
@@ -126,6 +149,9 @@ object BuiltInAiActions {
     const val SUMMARIZE_ID = "builtin_summarize"
     const val TRANSLATE_ID = "builtin_translate"
     const val IMPROVE_ID = "builtin_improve"
+    const val FORMAL_ID = "builtin_formal"
+    const val SHORTER_ID = "builtin_shorter"
+    const val FRIENDLY_ID = "builtin_friendly"
     const val FIX_GRAMMAR_ID = "builtin_fix_grammar"
     const val EXPLAIN_ID = "builtin_explain"
     const val CONTINUE_ID = "builtin_continue"
@@ -158,6 +184,24 @@ object BuiltInAiActions {
             name = "Improve",
             task = "improve the input text's writing — stronger word choice, better " +
                 "structure — keeping the same voice, meaning and language.",
+        ),
+        AiActionSpec(
+            id = FORMAL_ID,
+            name = "Formal",
+            task = "rewrite the input text in a formal, professional register, with no " +
+                "slang and no contractions, keeping its meaning, length and language.",
+        ),
+        AiActionSpec(
+            id = SHORTER_ID,
+            name = "Shorter",
+            task = "shorten the input text to about half its length, keeping every " +
+                "essential point, its tone and its language.",
+        ),
+        AiActionSpec(
+            id = FRIENDLY_ID,
+            name = "Friendly",
+            task = "rewrite the input text in a warm, friendly, conversational tone, " +
+                "keeping its meaning and language.",
         ),
         AiActionSpec(
             id = FIX_GRAMMAR_ID,
@@ -208,6 +252,9 @@ object BuiltInAiActions {
         spec.id == SUMMARIZE_ID -> R.string.core_tools_ai_action_summarize_label
         spec.id == TRANSLATE_ID -> R.string.core_tools_ai_action_translate_label
         spec.id == IMPROVE_ID -> R.string.core_tools_ai_action_improve_label
+        spec.id == FORMAL_ID -> R.string.core_tools_ai_action_formal_label
+        spec.id == SHORTER_ID -> R.string.core_tools_ai_action_shorter_label
+        spec.id == FRIENDLY_ID -> R.string.core_tools_ai_action_friendly_label
         spec.id == FIX_GRAMMAR_ID -> R.string.core_tools_ai_action_fix_grammar_label
         spec.id == EXPLAIN_ID -> R.string.core_tools_ai_action_explain_label
         spec.id == CONTINUE_ID -> R.string.core_tools_ai_action_continue_label
@@ -240,10 +287,22 @@ fun aiInitialInstruction(
  * own. A stored spec whose id matches a built-in is an *edit* of that built-in
  * and takes its slot rather than appearing twice.
  */
-fun resolveAiActions(custom: List<AiActionSpec>): List<AiActionSpec> {
+fun resolveAiActions(
+    custom: List<AiActionSpec>,
+    surface: AiActionSurface = AiActionSurface.TRANSFORM,
+): List<AiActionSpec> {
+    val shipped = when (surface) {
+        AiActionSurface.TRANSFORM -> BuiltInAiActions.actions
+        AiActionSurface.REPLY -> BuiltInAiReplyTones.tones
+    }
+    val shippedIds = shipped.mapTo(HashSet()) { it.id }
     val overrides = custom.associateBy { it.id }
-    val builtIns = BuiltInAiActions.actions.map { overrides[it.id] ?: it }
-    return builtIns + custom.filter { !BuiltInAiActions.isBuiltIn(it.id) }
+    val builtIns = shipped.map { overrides[it.id] ?: it }
+    // A spec of the user's own belongs to the surface it names. An edit of a
+    // shipped one is already placed above, so the filter is by id as well as
+    // by surface: a stored edit carries whatever surface it was saved with,
+    // and the shipped list is the authority on where it is drawn.
+    return builtIns + custom.filter { it.id !in shippedIds && it.surface == surface }
 }
 
 /**
@@ -251,8 +310,12 @@ fun resolveAiActions(custom: List<AiActionSpec>): List<AiActionSpec> {
  * goes to the end in its shipped order, so a new shipped action appears rather
  * than being silently dropped, and a stale id is ignored.
  */
-fun orderedAiActions(custom: List<AiActionSpec>, order: List<String>): List<AiActionSpec> {
-    val all = resolveAiActions(custom)
+fun orderedAiActions(
+    custom: List<AiActionSpec>,
+    order: List<String>,
+    surface: AiActionSurface = AiActionSurface.TRANSFORM,
+): List<AiActionSpec> {
+    val all = resolveAiActions(custom, surface)
     if (order.isEmpty()) return all
     val byId = all.associateBy { it.id }
     val ordered = order.mapNotNull { byId[it] }
@@ -265,10 +328,11 @@ fun visibleAiActions(
     custom: List<AiActionSpec>,
     order: List<String>,
     hidden: List<String>,
+    surface: AiActionSurface = AiActionSurface.TRANSFORM,
 ): List<AiActionSpec> {
-    if (hidden.isEmpty()) return orderedAiActions(custom, order)
+    if (hidden.isEmpty()) return orderedAiActions(custom, order, surface)
     val off = hidden.toHashSet()
-    return orderedAiActions(custom, order).filter { it.id !in off }
+    return orderedAiActions(custom, order, surface).filter { it.id !in off }
 }
 
 /**
@@ -280,6 +344,7 @@ fun visibleAiActions(
  * would make that restored prompt invisible for good. Doing the merge every
  * time costs a map lookup and is always right.
  *
+ * @param custom the action list as it stands today.
  * @param legacy built-in id to the whole stored prompt, as it used to be saved.
  */
 fun mergeLegacyAiPrompts(

@@ -1,101 +1,144 @@
 package com.wasimaster.wmkeyboard.app
 
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.input.OffsetMapping
-import androidx.compose.ui.text.input.TransformedText
-import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.withStyle
+import com.wasimaster.wmkeyboard.core.util.JsonPretty
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
 
 /**
- * Colours the JSON edited on-screen. Purely a recolour: every character is kept
- * in place and the length never changes, so the mapping stays the identity and
- * the text cursor lands where the user tapped. Works on whatever is typed,
- * valid JSON or not — it tokenises leniently and never throws.
+ * JSON, as [CodeEditor] needs it: coloured, tidied, paired up and parsed.
  *
- * No extra dependency: it is a hand-rolled tokeniser feeding an AnnotatedString,
- * so both build flavors get it.
+ * The colouring is a hand-rolled tokeniser, so both build flavors get it with
+ * no extra dependency. It is purely a recolour: every character stays in place
+ * and the length never changes, which is what lets the editor keep the identity
+ * offset mapping and put the caret where the user tapped. It works on whatever
+ * is typed, valid JSON or not, and never throws.
  */
+internal object JsonCode : CodeLanguage {
 
-/** The four span colours the highlighter paints, derived from the app theme. */
-private data class JsonPalette(
-    val key: Color,
-    val string: Color,
-    val number: Color,
-    val keyword: Color,
-    val punctuation: Color,
-)
-
-/** A JSON syntax highlighter bound to the current theme's colours. */
-@Composable
-internal fun rememberJsonSyntaxHighlighter(): VisualTransformation {
-    val scheme = MaterialTheme.colorScheme
-    val palette = JsonPalette(
-        key = scheme.primary,
-        string = scheme.tertiary,
-        number = scheme.secondary,
-        keyword = scheme.error,
-        punctuation = scheme.onSurfaceVariant,
-    )
-    return remember(palette) { JsonSyntaxTransformation(palette) }
-}
-
-private class JsonSyntaxTransformation(private val palette: JsonPalette) : VisualTransformation {
-    override fun filter(text: AnnotatedString): TransformedText =
-        TransformedText(highlightJson(text.text, palette), OffsetMapping.Identity)
-}
-
-/**
- * Walks [source] once, emitting a coloured run per token. Strings are told apart
- * from the keys that name them by peeking past trailing whitespace for a colon —
- * that is the only place a string acts as a key in JSON.
- */
-private fun highlightJson(source: String, palette: JsonPalette): AnnotatedString =
-    AnnotatedString.Builder(source.length).apply {
-        var i = 0
-        while (i < source.length) {
-            val c = source[i]
+    /**
+     * One pass, one allocation per token *range* rather than per token.
+     *
+     * The naive shape of this (an `AnnotatedString.Builder`, a `substring` per
+     * token and a fresh `SpanStyle` per token) allocated four objects per token
+     * and copied the whole document through the builder. On a real layout that
+     * is thousands of allocations on every keystroke. Here the source string is
+     * handed over whole and the styles are the same four instances throughout.
+     *
+     * Braces, colons and commas carry no span at all: they take the field's own
+     * colour, which is what the palette's `text` is for. That halves the span
+     * count, and the span count is what the text layout pays for.
+     */
+    override fun highlight(source: String, colors: CodeColors): AnnotatedString {
+        val keyStyle = SpanStyle(color = colors.key)
+        val stringStyle = SpanStyle(color = colors.string)
+        val numberStyle = SpanStyle(color = colors.number)
+        val keywordStyle = SpanStyle(color = colors.keyword)
+        val spans = ArrayList<AnnotatedString.Range<SpanStyle>>()
+        var index = 0
+        while (index < source.length) {
+            val character = source[index]
             when {
-                c == '"' -> {
-                    val end = stringEnd(source, i)
-                    val isKey = colonFollows(source, end)
-                    withStyle(SpanStyle(color = if (isKey) palette.key else palette.string)) {
-                        append(source.substring(i, end))
-                    }
-                    i = end
+                character == '"' -> {
+                    val end = stringEnd(source, index)
+                    val style = if (colonFollows(source, end)) keyStyle else stringStyle
+                    spans += AnnotatedString.Range(style, index, end)
+                    index = end
                 }
-                c == '-' || c.isDigit() -> {
-                    val end = numberEnd(source, i)
-                    withStyle(SpanStyle(color = palette.number)) { append(source.substring(i, end)) }
-                    i = end
+                character == '-' || character.isDigit() -> {
+                    val end = numberEnd(source, index)
+                    spans += AnnotatedString.Range(numberStyle, index, end)
+                    index = end
                 }
-                atKeyword(source, i, "true") -> { keyword(palette, "true"); i += 4 }
-                atKeyword(source, i, "false") -> { keyword(palette, "false"); i += 5 }
-                atKeyword(source, i, "null") -> { keyword(palette, "null"); i += 4 }
-                c == '{' || c == '}' || c == '[' || c == ']' || c == ':' || c == ',' -> {
-                    withStyle(SpanStyle(color = palette.punctuation)) { append(c) }
-                    i++
+                atKeyword(source, index, "true") -> {
+                    spans += AnnotatedString.Range(keywordStyle, index, index + 4)
+                    index += 4
                 }
-                else -> { append(c); i++ }
+                atKeyword(source, index, "false") -> {
+                    spans += AnnotatedString.Range(keywordStyle, index, index + 5)
+                    index += 5
+                }
+                atKeyword(source, index, "null") -> {
+                    spans += AnnotatedString.Range(keywordStyle, index, index + 4)
+                    index += 4
+                }
+                else -> index++
             }
         }
-    }.toAnnotatedString()
+        return AnnotatedString(source, spans)
+    }
 
-/** Appends a literal keyword in the keyword colour. */
-private fun AnnotatedString.Builder.keyword(palette: JsonPalette, word: String) {
-    withStyle(SpanStyle(color = palette.keyword)) { append(word) }
+    /**
+     * Indents the document through the one printer everything a person reads
+     * goes through, so pressing Format prints what reopening the screen prints.
+     */
+    override fun format(source: String): String? = JsonPretty.reprint(source)
+
+    override fun problem(source: String): CodeProblem? {
+        if (source.isBlank()) return null
+        return try {
+            Json.parseToJsonElement(source)
+            null
+        } catch (failure: SerializationException) {
+            // The parser names the character it stopped on. That offset is what
+            // the gutter marks and what the status line jumps to.
+            CodeProblem(OFFSET.find(failure.message.orEmpty())?.groupValues?.get(1)?.toIntOrNull())
+        }
+    }
+
+    /**
+     * The offsets of the curly and square brackets that structure the document,
+     * with the ones inside strings left out. One forward pass, so a bracket in
+     * a key name never pairs with a real one.
+     */
+    override fun brackets(source: String): List<Int> {
+        val found = ArrayList<Int>()
+        var index = 0
+        while (index < source.length) {
+            val character = source[index]
+            when {
+                character == '"' -> index = stringEnd(source, index)
+                character == '{' || character == '}' || character == '[' || character == ']' -> {
+                    found += index
+                    index++
+                }
+                else -> index++
+            }
+        }
+        return found
+    }
+
+    override fun matchingBracket(source: String, brackets: List<Int>, caret: Int): Pair<Int, Int>? {
+        if (brackets.isEmpty()) return null
+        // The bracket behind the caret wins, which is where a caret sits after
+        // the user has typed one.
+        val behind = if (caret > 0) brackets.binarySearch(caret - 1) else -1
+        val start = when {
+            behind >= 0 -> behind
+            else -> brackets.binarySearch(caret).takeIf { it >= 0 } ?: return null
+        }
+        val at = brackets[start]
+        if (at >= source.length) return null
+        var depth = 0
+        if (source[at] == '{' || source[at] == '[') {
+            for (i in start until brackets.size) {
+                depth += if (opensAt(source, brackets[i])) 1 else -1
+                if (depth == 0) return at to brackets[i]
+            }
+        } else {
+            for (i in start downTo 0) {
+                depth += if (opensAt(source, brackets[i])) -1 else 1
+                if (depth == 0) return brackets[i] to at
+            }
+        }
+        return null
+    }
 }
 
-/** True if [word] sits at [at] as a whole token, not the prefix of a longer one. */
-private fun atKeyword(source: String, at: Int, word: String): Boolean {
-    if (!source.startsWith(word, at)) return false
-    val after = at + word.length
-    return after >= source.length || !source[after].let { it.isLetterOrDigit() || it == '_' }
-}
+private val OFFSET = Regex("offset (\\d+)")
+
+private fun opensAt(source: String, at: Int): Boolean = source[at] == '{' || source[at] == '['
 
 /**
  * Index one past the closing quote of the string starting at [start] (which is
@@ -103,12 +146,12 @@ private fun atKeyword(source: String, at: Int, word: String): Boolean {
  * end of input so a half-typed line still colours cleanly.
  */
 private fun stringEnd(source: String, start: Int): Int {
-    var i = start + 1
-    while (i < source.length) {
-        when (source[i]) {
-            '\\' -> i += 2
-            '"' -> return i + 1
-            else -> i++
+    var index = start + 1
+    while (index < source.length) {
+        when (source[index]) {
+            '\\' -> index += 2
+            '"' -> return index + 1
+            else -> index++
         }
     }
     return source.length
@@ -116,15 +159,22 @@ private fun stringEnd(source: String, start: Int): Int {
 
 /** Index one past the last character of the number token starting at [start]. */
 private fun numberEnd(source: String, start: Int): Int {
-    var i = start
-    if (i < source.length && source[i] == '-') i++
-    while (i < source.length && (source[i].isDigit() || source[i] in ".eE+-")) i++
-    return i
+    var index = start
+    if (index < source.length && source[index] == '-') index++
+    while (index < source.length && (source[index].isDigit() || source[index] in ".eE+-")) index++
+    return index
 }
 
-/** True if the next non-whitespace character at or after [from] is a colon. */
+/** True if the next character that is not a space at or after [from] is a colon. */
 private fun colonFollows(source: String, from: Int): Boolean {
-    var i = from
-    while (i < source.length && source[i].isWhitespace()) i++
-    return i < source.length && source[i] == ':'
+    var index = from
+    while (index < source.length && source[index].isWhitespace()) index++
+    return index < source.length && source[index] == ':'
+}
+
+/** True if [word] sits at [at] as a whole token, not the start of a longer one. */
+private fun atKeyword(source: String, at: Int, word: String): Boolean {
+    if (!source.startsWith(word, at)) return false
+    val after = at + word.length
+    return after >= source.length || !source[after].let { it.isLetterOrDigit() || it == '_' }
 }

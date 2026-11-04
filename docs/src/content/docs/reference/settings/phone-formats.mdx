@@ -7,17 +7,18 @@ sidebar:
 
 import PhoneFrame from '@components/PhoneFrame.astro';
 import SettingsPath from '@components/SettingsPath.astro';
+import Shot from '@components/Shot.astro';
 
 <SettingsPath path="Clipboard / Phone number formats" />
 
-The clipboard's [entity chips](/tools/clipboard/#pulling-codes-and-links-out-of-a-clip) pull one-time codes, links and phone numbers out of what you copy. A code has a shape and a link has a scheme, but a phone number is just digits, so with nothing to go on the detector keeps every run of 7 to 15 of them. That's how an invoice total, an order reference or a column out of a spreadsheet ends up wearing a phone chip. This screen is where you tell it what your numbers look like, and it stops guessing.
+The clipboard's [entity chips](/tools/clipboard/#pulling-codes-and-links-out-of-a-clip) pull one-time codes, links and phone numbers out of what you copy. A code has a shape and a link has a scheme, but a phone number is only digits, so with nothing to go on the detector keeps every run of 7 to 15 of them. That's how an invoice total, an order reference or a column out of a spreadsheet ends up wearing a phone chip. This screen is where you tell it what your numbers look like, and it stops guessing.
 
 The list is not empty to begin with. It starts with one mask for your own country, read off your phone's region the same way the calendar tool picks its alternate calendars: a phone in Bangladesh opens on `+880 XXXX-XXXXXX`, one in the US on `+1 XXX-XXX-XXXX`. The table covers about 110 regions, and it's mobile numbers, so a country whose landlines run to a different length will drop those. Edit the mask, add a second one, or delete it and go back to catching every number. A region the table doesn't know, and one it deliberately leaves out because its numbers have no single length (Germany and Austria), start with nothing.
 
 The row that opens it sits on the Clipboard tool's own settings and only appears while **Detect codes, numbers and links** is on, since there would be nothing to filter otherwise. Its subtitle counts your saved masks, or reads "Keep only the numbers that look like the ones you copy. Every number becomes a chip now" once you have deleted them all. Settings search indexes the screen either way, so searching "phone number formats" reaches it even with the toggle off.
 
 <PhoneFrame caption="Phone number formats: the explanation, Add a format, the saved masks, and the Test a number field.">
-  {/* shot: reference/settings/phone-formats-screen */}
+  <Shot id="reference/settings/phone-formats-screen" alt="Phone number formats: the explanation, Add a format, the saved masks, and the Test a number field." />
 </PhoneFrame>
 
 ## Adding a format
@@ -101,7 +102,7 @@ The list has no cap: add one per country you deal with. It's a set rather than a
 - **Masks are settings, so they travel.** They're stored with the rest of your preferences and ride along in a [settings export](/privacy/backup/), not in the clipboard section of a backup (that section carries clips).
 - **Written formats keep your separators, examples keep the example's.** The mask is stored as typed apart from the `x`/`#` folding, so `+880 1XXX-XXXXXX` and `+8801XXXXXXXXX` both sit in the list looking like what you gave it, and match identically.
 - **The dial-code rules are rules, not a table of countries.** They cover every dial code in three lines instead of two hundred rows, which is why a mask you wrote without separators is split where E.164 says rather than where a particular country's list says.
-- **No edition differences.** The screen and the matching behave the same on the full and lite builds.
+- **No build differences.** The screen and the matching behave the same in every build.
 
 ## Related pages
 

@@ -38,9 +38,25 @@ class SettingsSearchRankingTest {
     private fun first(query: String, name: String) = Case(query, name) { it.named(name) }
     private fun screen(query: String, route: String) = Case(query, "screen $route") { it.at(route) }
 
+    /** A provider's own screen, by the kind it names. */
+    private fun provider(query: String, route: String) =
+        Case(query, "provider $route") { it.route == route && it.weight == EntryWeight.TOOL }
+
     /** The meant row must be first. */
     private val top1 = listOf(
         // The switch that is the feature, by its own name or by a synonym.
+        // Hidden keywords: a feature found by the name another keyboard gave
+        // it, which is the whole point of the table (see SettingsSearchKeywords).
+        first("octopus", "typing_group_octopus_title"),
+        first("blackberry", "typing_group_octopus_title"),
+        first("flow", "typing_glide_typing_title"),
+        first("swype", "typing_glide_typing_title"),
+        first("grammarly", "fonts_tool_grammar_title"),
+        first("monkeytype", "fonts_tool_typing_test_title"),
+        first("tenor", "ime_tool_gif"),
+        first("dyslexia", "accessibility_readable_font_title"),
+        first("jyutping", "languages_cjk_lazy_title"),
+        first("bitwarden", "typing_inline_autofill_title"),
         first("vibrate", "keypress_haptics_title"),
         first("vibration", "keypress_haptics_title"),
         first("autocorrect", "typing_autocorrect_title"),
@@ -48,15 +64,13 @@ class SettingsSearchRankingTest {
         first("number row", "layout_number_row_title"),
         first("key height", "layout_key_height_title"),
         first("height", "layout_key_height_title"),
-        first("glide", "typing_glide_typing_title"),
-        first("swipe typing", "typing_glide_typing_title"),
         first("long press delay", "keypress_long_press_delay_title"),
         first("caps lock", "keypress_caps_lock_title"),
         first("skin tone", "langemoji_emoji_skin_tone_title"),
         first("clipboard history", "clipboard_history_title"),
         first("key sound", "hardware_sound_key_title"),
         first("double space", "typing_double_space_title"),
-        first("space", "typing_double_space_title"),
+        screen("space", "typing/gestures/spacebar"),
         first("delete", "typing_backspace_swipe_title"),
         first("emoji row", "langemoji_emoji_row_title"),
         first("add language", "langemoji_lang_add_title"),
@@ -89,16 +103,28 @@ class SettingsSearchRankingTest {
         screen("gestures", "typing/gestures"),
         screen("toolbar", "appearance/toolbar"),
         screen("dictionary", "dictionary"),
-        screen("fingerprint", "applock"),
         screen("storage", "storage"),
         screen("otp", "typing/codes"),
         // The tool's page, when only a tool is called that.
         first("translate", "ime_tool_translate"),
-        first("calculator", "ime_tool_calculator"),
+        // A provider by its own name: its screen, over the rows that mention it.
+        provider("deepl", "provider/translate/deepl"),
+        provider("whisper", "provider/voice/whisper"),
+        provider("ollama", "provider/ai/ollama"),
+        provider("google translate", "provider/translate/google_translate"),
     )
 
     /** The meant row must be in the first three: two rows are equally good answers. */
     private val top3 = listOf(
+        // #898: the tracker cleaner sat behind a row called Copy rules.
+        first("trackers", "clipboard_clean_links_title"),
+        first("remove trackers", "clipboard_clean_links_title"),
+        first("utm", "clipboard_clean_links_title"),
+        // The toggle, with the page and the check-up that share its first word.
+        first("glide", "typing_glide_typing_title"),
+        first("swipe typing", "typing_glide_typing_title"),
+        first("space", "typing_double_space_title"),
+        first("calculator", "ime_tool_calculator"),
         first("haptic", "keypress_haptics_title"),
         first("haptics", "keypress_haptics_title"),
         first("auto correct", "typing_autocorrect_title"),
@@ -110,11 +136,17 @@ class SettingsSearchRankingTest {
         first("split", "layout_split_title"),
         first("floating", "layout_floating_title"),
         first("capitalize", "typing_auto_capitalize_title"),
-        first("sound", "hardware_sound_key_title"),
         first("volume", "hardware_sound_volume_title"),
         first("keyboard height", "layout_key_height_title"),
         first("backspace", "typing_backspace_swipe_title"),
-        first("shift", "typing_shift_enter_title"),
+        // Four rows start with Shift now; the recase ones (#662) sit on a
+        // deeper screen and lead, Shift and Enter after them.
+        first("shift", "typing_shift_recase_title"),
+        // The screen is "App lock" now, so "fingerprint" reaches it through its
+        // search words only, and the permission row named exactly "Fingerprint"
+        // keeps its own name (see SettingsSearchKeywords). "Offer the fingerprint
+        // first" sits on the lock screen, so two of the first three open it.
+        screen("fingerprint", "applock"),
         first("otp", "typing_otp_chip_title"),
         first("codes", "typing_otp_chip_title"),
         first("suggestions", "typing_suggestions_title"),
@@ -179,7 +211,7 @@ class SettingsSearchRankingTest {
     }
 
     @Test
-    fun `dumpRankings`() {
+    fun dumpRankings() {
         val out = File("build/reports/settings-search-rankings.txt")
         out.parentFile.mkdirs()
         val queries = (top1 + top3).map { it.query } + listOf(

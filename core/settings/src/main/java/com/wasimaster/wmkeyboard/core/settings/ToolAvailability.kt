@@ -3,20 +3,23 @@ package com.wasimaster.wmkeyboard.core.settings
 import com.wasimaster.wmkeyboard.core.layout.secondaryLayouts
 
 import com.wasimaster.wmkeyboard.config.BuildConfig
+import com.wasimaster.wmkeyboard.core.providers.ProviderTool
 
 /**
- * Whether the two search tools have a key to search with: the one the user
- * pasted into their settings, or the one baked into this build.
+ * Whether the two search tools have somewhere to search: a row of the search
+ * provider list that is on and set up (a SearXNG instance, a Tavily key, or a
+ * Brave key, theirs or the one baked into this build).
  *
- * Brave is the only provider behind both of them and it has no anonymous tier,
- * so with no key there is nothing for the panel to do but apologise. The tools
+ * Any one will do, and none excludes the others. The F-Droid build ships no
+ * Brave key, so in practice its answer comes from the instance; but a user of
+ * that build who has their own key is not stopped from using it. The tools
  * module resolves the same pair for the request itself
  * (`ToolApiKeys.hasSearchProvider`); this lives down here because the toolbar,
  * the toolbox and the settings screens all have to ask the question long before
  * anything reaches a network client.
  */
 fun hasSearchKey(settings: KeyboardSettings): Boolean =
-    settings.braveApiKey.isNotBlank() || BuildConfig.BRAVE_API_KEY.isNotBlank()
+    settings.resolveProviders(ProviderTool.SEARCH).isNotEmpty()
 
 /**
  * Whether a tool can do its job right now — as opposed to [isSupportedTool],
@@ -43,18 +46,44 @@ enum class ToolBlocker {
     /** Web and image search: no search API key is configured. */
     NEEDS_SEARCH_KEY,
 
-    /** The Custom layout tool: the user has not made a secondary layout yet. */
+    /**
+     * Web and image search on the F-Droid build: no SearXNG instance is named.
+     *
+     * Separate from [NEEDS_SEARCH_KEY] because the remedy is different and the
+     * screens say so: that one wants a key pasted, this one wants the address
+     * of a server. Offering a key field for a problem no key can fix is the
+     * exact mistake this enum was introduced to make impossible.
+     */
+    NEEDS_SEARCH_INSTANCE,
+
+    /** The Secondary layout tool: the user has not made a secondary layout yet. */
     NEEDS_SECONDARY_LAYOUT,
+
+    /** The Voice tool: voice typing is switched off on the Voice typing screen (#578). */
+    VOICE_OFF,
+
+    /** The emoji mixes panel: no source is added and switched on under Emoji › Emoji mixes. */
+    NEEDS_MIX_SOURCE,
+
+    /** The Music ID tool: no recogniser on its list is on and set up with its key. */
+    NEEDS_MUSIC_PROVIDER,
 }
 
 /** Why [tool] cannot run right now, or null when it can; see [ToolBlocker]. */
 fun toolBlocker(tool: ToolbarTool, settings: KeyboardSettings): ToolBlocker? = when (tool) {
     ToolbarTool.WEB_SEARCH, ToolbarTool.IMAGE_SEARCH ->
-        if (hasSearchKey(settings)) null else ToolBlocker.NEEDS_SEARCH_KEY
+        when {
+            hasSearchKey(settings) -> null
+            BuildConfig.ENABLE_FDROID -> ToolBlocker.NEEDS_SEARCH_INSTANCE
+            else -> ToolBlocker.NEEDS_SEARCH_KEY
+        }
     // Nothing to show until the user has built a secondary layout; a button
     // that does nothing is worse than no button.
     ToolbarTool.CUSTOM_LAYOUT ->
         if (secondaryLayouts(settings.customLayouts).isNotEmpty()) null else ToolBlocker.NEEDS_SECONDARY_LAYOUT
+    ToolbarTool.VOICE -> if (settings.voiceBar.enabled) null else ToolBlocker.VOICE_OFF
+    ToolbarTool.EMOJI_MIX -> if (settings.emoji.mix.active) null else ToolBlocker.NEEDS_MIX_SOURCE
+    ToolbarTool.MUSIC_ID -> if (settings.resolveProviders(ProviderTool.MUSIC).isNotEmpty()) null else ToolBlocker.NEEDS_MUSIC_PROVIDER
     else -> null
 }
 
@@ -63,5 +92,23 @@ fun toolBlocker(tool: ToolbarTool, settings: KeyboardSettings): ToolBlocker? = w
  * that take a whole set (the hardware shortcuts, the smart suggestions, the
  * tool picker) rather than filtering tool by tool.
  */
-fun usableTools(settings: KeyboardSettings): Set<ToolbarTool> =
-    settings.enabledTools.filterTo(mutableSetOf()) { isUsableTool(it, settings) }
+fun usableTools(settings: KeyboardSettings): Set<ToolbarTool> {
+    usableToolsMemo?.takeIf { it.settings === settings }?.let { return it.tools }
+    val tools: Set<ToolbarTool> = settings.enabledTools.filterTo(mutableSetOf()) { isUsableTool(it, settings) }
+    usableToolsMemo = UsableToolsMemo(settings, tools)
+    return tools
+}
+
+/**
+ * The last answer of [usableTools], for the settings it was worked out from.
+ *
+ * The keyboard asks on every keystroke — the composition does, for the
+ * selection bar's Ask AI button, and so does the smart-suggestion pass — and
+ * the answer is a pure function of one [KeyboardSettings] instance, which only
+ * changes when a preference is written. Keyed on identity: an equal copy is
+ * not worth the comparison, and a stale hit is impossible.
+ */
+private class UsableToolsMemo(val settings: KeyboardSettings, val tools: Set<ToolbarTool>)
+
+@Volatile
+private var usableToolsMemo: UsableToolsMemo? = null

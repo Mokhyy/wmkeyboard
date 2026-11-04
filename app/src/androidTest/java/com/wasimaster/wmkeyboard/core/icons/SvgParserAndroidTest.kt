@@ -64,12 +64,12 @@ class SvgParserAndroidTest {
         try {
             val store = IconPackStore(dir)
             val bytes = buildPack()
-            val result = IconPackFile.import(bytes.inputStream(), store)
+            val result = IconPackFile.import(bytes.inputStream(), store, defaultName = "Test icons")
             assertTrue("import said: $result", result is IconImportResult.Imported)
             val pack = (result as IconImportResult.Imported).pack
             assertTrue("no slots survived", pack.slots.isNotEmpty())
             // And the parsed form the keyboard renders from is populated.
-            assertTrue("nothing parsed back out", store.docs(pack.id).isNotEmpty())
+            assertTrue("nothing parsed back out", store.art(pack.id).isNotEmpty())
         } finally {
             dir.deleteRecursively()
         }

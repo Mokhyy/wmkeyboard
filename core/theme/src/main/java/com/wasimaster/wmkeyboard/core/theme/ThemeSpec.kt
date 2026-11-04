@@ -2,6 +2,7 @@ package com.wasimaster.wmkeyboard.core.theme
 
 import android.content.Context
 import android.util.Base64
+import com.wasimaster.wmkeyboard.core.share.RemixCredit
 import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
@@ -43,8 +44,16 @@ data class GradientSpec(
  * sliders; the rest set their own corners from the key's size, because their
  * whole look is the proportion (a half-height arch, a hexagon's points).
  *
- * Order is the order the shape picker lists them in: the four plain outlines
- * first, then the decorative ones.
+ * NONE is no outline at all (issue #149): a key at rest draws no face, border
+ * or texture, only its label. A transparent key colour only looks like that
+ * until the theme has a border or a texture, and it fades the pressed colour
+ * derived from it too. A key with no shape still lights up while it is pressed
+ * or latched, in the rounded outline [keyShapeFor] hands back for it. Only keys
+ * may have it: every other surface names its shape as a string, and
+ * [keyShapeKindOrNull] turns NONE away there.
+ *
+ * Order is the order the shape picker lists them in: no shape first, then the
+ * four plain outlines, then the decorative ones.
  *
  * A value added here is not readable by an older build — `ThemeCodec.decode`
  * drops a theme whose enum name it does not know — so a theme exported with
@@ -52,6 +61,7 @@ data class GradientSpec(
  * price of the field being an enum, which it already was.
  */
 enum class KeyShapeKind {
+    NONE,
     ROUNDED,
     SHARP,
     PILL,
@@ -70,9 +80,15 @@ enum class KeyShapeKind {
  * A [KeyShapeKind] by name, or null when this build has no such shape — for
  * the shape fields that travel as strings so an unknown name costs the field
  * rather than the whole theme.
+ *
+ * Those fields are all surfaces that have to be seen (popups, menus, tools,
+ * chips, cards), so [KeyShapeKind.NONE] is turned away like an unknown name and
+ * the field falls back to its default. Only the key shape may be none.
  */
 fun keyShapeKindOrNull(name: String?): KeyShapeKind? =
-    name?.let { wanted -> KeyShapeKind.entries.firstOrNull { it.name == wanted } }
+    name?.let { wanted ->
+        KeyShapeKind.entries.firstOrNull { it.name == wanted && it != KeyShapeKind.NONE }
+    }
 
 /**
  * The shape a container (list-menu popup, panel card) may safely inherit from
@@ -109,6 +125,8 @@ fun safeContainerKind(kind: KeyShapeKind): KeyShapeKind = when (kind) {
  */
 fun castsElevationShadow(kind: KeyShapeKind): Boolean = when (kind) {
     KeyShapeKind.SCALLOP, KeyShapeKind.TICKET -> false
+    // Draws the rounded outline wherever it draws at all.
+    KeyShapeKind.NONE,
     KeyShapeKind.ROUNDED,
     KeyShapeKind.SHARP,
     KeyShapeKind.PILL,
@@ -201,6 +219,45 @@ data class ThemeSpec(
     val backgroundPhoto: PhotoAttribution? = null,
     /** Who took [backgroundImageLandscape], when it came from a photo service. */
     val backgroundPhotoLandscape: PhotoAttribution? = null,
+    /**
+     * Fill behind the bars above and below the keys: the suggestion strip, the
+     * emoji, symbol, dictionary and fancy-text rows, the selection macros and
+     * the toolbar's own row. They stack against each other with nothing
+     * between them, so they take one colour rather than one each.
+     *
+     * Null inherits the board, which is what every theme drew before this
+     * field existed and what keeps a board gradient, image or animation
+     * running unbroken behind the words (issue #109).
+     *
+     * Alpha is honoured like everywhere else here, so a half-transparent bar
+     * is a tint over the board rather than a lid on it.
+     */
+    val suggestionBarBackground: Long? = null,
+    /**
+     * Fill behind the toolbar's tools wherever they are drawn: the tools' own
+     * row, and the suggestion strip while it is showing the tools instead of
+     * words. Null follows [suggestionBarBackground], so the two bars stay one
+     * colour until a theme pulls them apart (issue #504). Alpha is honoured.
+     */
+    val toolbarBackground: Long? = null,
+    /**
+     * Fill of the side rail shown in one-handed mode, and the colour of the two
+     * buttons on it.
+     *
+     * Null leaves the fill transparent, so the board runs on behind the rail,
+     * and draws the glyphs in [secondaryText] — which is what the rail already
+     * did. The rail was never unthemed; it simply had no way to differ from the
+     * board, and a stylesheet states it as its own element.
+     */
+    val oneHandedPanelBackground: Long? = null,
+    val oneHandedPanelIcon: Long? = null,
+    /**
+     * Fill for the band the system navigation bar sits on, below the bottom key
+     * row. Null inherits the board, as above. Only the gesture bar's own inset
+     * is painted, not the extra breathing room the bottom-padding setting adds:
+     * that padding belongs to the keyboard, this band belongs to the system.
+     */
+    val navigationBarBackground: Long? = null,
     // Keys
     val keyShape: KeyShapeKind = KeyShapeKind.ROUNDED,
     /**
@@ -246,6 +303,25 @@ data class ThemeSpec(
     val pressedKeyBackground: Long? = null,
     val keyBorderColor: Long? = null,
     val keyBorderWidthDp: Float = 0f,
+    /**
+     * How far each key is lifted off the board, in dp; 0 draws no shadow.
+     *
+     * The bordered variants of nearly every popular FlorisBoard theme lift
+     * their keys 2 dp, and a converted theme without it reads as flatter than
+     * the one the user picked. A shape that cannot cast a shadow without
+     * hanging the RenderThread draws none whatever this says — see
+     * [castsElevationShadow], and a key whose fill is see-through draws none
+     * either, since a shadow under nothing is just a smudge.
+     */
+    val keyElevationDp: Float = 0f,
+    /**
+     * Colour of that shadow, alpha honoured. Null draws the platform's own
+     * black. Gboard (`shadow_color` on the key top) and FlorisBoard
+     * (`shadow-color`) themes both carry one, and a coloured glow under each
+     * key is half of what some of them look like. The platform ignores it
+     * below Android 9, where every shadow is black.
+     */
+    val keyShadowColor: Long? = null,
     // Accent (shift-on tint, gesture trail, active tools, links/buttons in panels)
     val accent: Long = 0xFF8AB4F8,
     /**
@@ -267,6 +343,23 @@ data class ThemeSpec(
     val popupBorderColor: Long? = null,
     val popupBorderWidthDp: Float = 0f,
     /**
+     * How far the preview bubble and the long-press alternates are lifted, in
+     * dp. Null keeps the 6 dp every popup drew before this field existed.
+     */
+    val popupElevationDp: Float? = null,
+    /**
+     * The highlight under the alternate your finger is on, and under the
+     * selected row of a menu. Null follows [accent], which is what every popup
+     * did before this field existed.
+     *
+     * Its own field because a stylesheet states it outright, as the focus state
+     * of the popup's items, and a theme whose accent is loud often wants the
+     * highlight quieter than it.
+     */
+    val popupSelectedBackground: Long? = null,
+    /** Text on that highlight; null derives a legible colour from its fill. */
+    val popupSelectedText: Long? = null,
+    /**
      * Image painted inside the preview bubble, over [popupBackground] and
      * under the label, clipped to the popup shape. Fit and alpha follow
      * [keyTextureScale] and [keyTextureOpacity]. Never set in exports — the
@@ -286,15 +379,53 @@ data class ThemeSpec(
     val toolCircleBackground: Long? = null,
     val toolCircleActiveBackground: Long? = null,
     /**
+     * Colour of the glyph on an *active* toolbar tool. Null derives a legible
+     * colour from that tool's fill, which is what every theme did before this
+     * field existed.
+     *
+     * Its own field because the active fill and the glyph on it are separate
+     * elements in a FlorisBoard stylesheet, and deriving one from the other
+     * throws away a colour the theme stated outright.
+     */
+    val toolCircleActiveIcon: Long? = null,
+    /**
      * Outline around the background of every toolbar tool. Null draws none,
      * exactly like [keyBorderColor], and [toolBorderWidthDp] still has to be
      * above 0 for it to show.
      */
     val toolBorderColor: Long? = null,
     val toolBorderWidthDp: Float = 0f,
+    /** How far the background behind a toolbar tool is lifted, in dp; 0 is flat. */
+    val toolElevationDp: Float = 0f,
     // Panels (clipboard/snippet cards, emoji search bar)
     val chipBackground: Long? = null,
     val suggestionText: Long? = null,
+    /**
+     * The suggestions beside the primary one on the strip: the runner-up on
+     * its left and the rest on its right. Null draws them in [suggestionText],
+     * which is what every theme did before the field existed (issue #504).
+     */
+    val secondarySuggestionText: Long? = null,
+    /**
+     * Their size, as a multiple of the primary suggestion's: null or 1 keeps
+     * them the same size, 0.8 draws them a fifth smaller. A ratio rather than
+     * a size so it rides on the user's own suggestion-size slider. Held to
+     * [SECONDARY_SUGGESTION_SCALE_RANGE] where it is read.
+     */
+    val secondarySuggestionScale: Float? = null,
+    /**
+     * The quieter text beside the main one: a suggestion's secondary word, a
+     * clipboard entry's kind and timestamp, a panel subheading. Null draws
+     * [suggestionText] at 65% alpha, which is what this was before the field
+     * existed.
+     */
+    val secondaryText: Long? = null,
+    /**
+     * Hairlines between the parts of a panel and between suggestions. Null
+     * draws [suggestionText] at 25% alpha, as before. Alpha is honoured, so a
+     * theme can keep the rule faint in a hue of its own.
+     */
+    val dividerColor: Long? = null,
     // Chips (tool-panel buttons, style strips, plugin buttons)
     /** Text on an unselected chip; null derives from the modifier-key text. */
     val chipText: Long? = null,
@@ -305,6 +436,8 @@ data class ThemeSpec(
     /** Outline around every chip; null draws none, like [keyBorderColor]. */
     val chipBorderColor: Long? = null,
     val chipBorderWidthDp: Float = 0f,
+    /** How far a panel card is lifted off the panel, in dp; 0 is flat. */
+    val cardElevationDp: Float = 0f,
     /**
      * Chip outline shape, as a [KeyShapeKind] name; null keeps the soft
      * rectangle every chip has always drawn. A string for the same reason
@@ -346,11 +479,16 @@ data class ThemeSpec(
     val toolWidthDp: Int? = null,
     val toolbarHeightDp: Int? = null,
     /**
-     * Height of the key-preview bubble, in dp. Null follows the global slider,
-     * which keeps a separate value for the on-key and the floating bubble; the
-     * override applies to whichever of the two is switched on.
+     * Height of the key-preview bubble in its on-key style, in dp; null follows
+     * the global slider's own on-key value. One field per style, the way the
+     * setting itself is stored: an on-key bubble is measured from the bottom
+     * of the key it covers and a floating one from above the key, so a single
+     * height seeded while the bubble floated (65 dp) handed the on-key bubble
+     * a height under the key's own and hid it under the finger (#87).
      */
     val popupHeightDp: Int? = null,
+    /** The floating style's bubble height, in dp; see [popupHeightDp]. */
+    val popupFloatingHeightDp: Int? = null,
     val keyHeightDp: Int? = null,
     val keyGapScale: Float? = null,
     /**
@@ -472,6 +610,28 @@ data class ThemeSpec(
      */
     val keyOverrides: Map<String, KeyOverride> = emptyMap(),
     /**
+     * Glyphs this theme draws on the action keys, as icon-slot id → local path.
+     *
+     * Keys are the ids in `core.icons.IconSlots` (`key.backspace`,
+     * `key.shift_on`, `key.enter_send`, …), as plain strings: `:core:icons`
+     * depends on `:core:settings`, which depends on this module, so the two
+     * cannot see each other and `GboardIconSlotsTest` pins the spellings
+     * together instead. An id this build has no slot for costs its entry.
+     *
+     * Here because a Gboard theme is as likely to replace the delete, shift and
+     * enter glyphs as to recolour them — 264 of the 491 themes in the Rboard
+     * repository do, always as PNGs — and dropping them was the one loss that
+     * made a converted theme look like a different theme. The files are
+     * app-private, written by [withExtractedImages] like every other image
+     * here; the bytes travel in [assets] under [ASSET_KEY_ICON_PREFIX].
+     *
+     * They reach the keyboard through `applyThemeOverrides`, which lays them
+     * onto `IconSettings.themeIcons` — under the user's own icon pack and their
+     * per-slot picks, so a theme dresses the slots nobody has claimed and never
+     * overrules a standing choice.
+     */
+    val keyIcons: Map<String, String> = emptyMap(),
+    /**
      * Auxiliary image bytes for transport, keyed by slot name — the key
      * textures today (`"keyTexture"`, `"keyTextureModifier"`, …), whatever
      * needs to travel tomorrow. The generic sibling of
@@ -481,6 +641,44 @@ data class ThemeSpec(
      * the whole thing and a slot it doesn't know costs that slot alone.
      */
     val assets: Map<String, String> = emptyMap(),
+    /**
+     * Whether the colours follow the wallpaper, the way the Default theme's do
+     * with Material You on. Off keeps the fixed colours every theme has always
+     * had. Android 12 and later only: an older phone has no wallpaper palette,
+     * and the theme draws its stored colours there. See [followingWallpaper]
+     * for how a theme that was not written against the wallpaper is moved onto
+     * it.
+     */
+    val followWallpaper: Boolean = false,
+    /**
+     * The Material You roles the theme was written against, each with the
+     * colour it had when the theme was made: `dark:primary` to `0xFF…`. Set by
+     * a FlorisBoard import, whose stylesheets name roles instead of colours;
+     * empty everywhere else. With [followWallpaper] on, a colour still equal to
+     * one of these values takes that role's value from the wallpaper now.
+     * Keys are built by [wallpaperRoleKey].
+     */
+    val wallpaperRoles: Map<String, Long> = emptyMap(),
+    /**
+     * Frosted glass: which surfaces show what is behind them blurred, and how
+     * the glass is dressed; see [FrostSpec]. Null is no glass at all, which is
+     * every theme written before the field existed. A nested nullable class so
+     * an older build drops the one key and imports a plain translucent theme.
+     */
+    val frost: FrostSpec? = null,
+    /**
+     * What the keys are made of: a raised cap, brushed metal, wood, neon and
+     * the rest; see [KeyMaterialSpec]. Null draws the flat keys every theme
+     * had before the field existed. Under a [keySkin] it still dresses the
+     * labels but not the faces, which the skin draws.
+     */
+    val keyMaterial: KeyMaterialSpec? = null,
+    /** Something moving on the board behind the keys; see [BoardEffectSpec]. */
+    val boardEffect: BoardEffectSpec? = null,
+    /** How the keys light up, on their own or as they are pressed; see [KeyLightingSpec]. */
+    val keyLighting: KeyLightingSpec? = null,
+    /** Hand-drawn key art that replaces the key faces; see [KeySkinSpec]. */
+    val keySkin: KeySkinSpec? = null,
     /**
      * The family's display name, when this theme heads one (see [variants]).
      * Null on every variant and on themes with no variants; built-in families
@@ -499,6 +697,14 @@ data class ThemeSpec(
      * format.
      */
     val variants: List<ThemeSpec> = emptyList(),
+    /**
+     * The repository addon this theme was installed from, and so the one an
+     * edited copy is a remix of. Set by the addon installer, carried through
+     * every copy, and sent along when the theme is published to the community
+     * repository so the original author is credited. Null for a theme made
+     * here.
+     */
+    val basedOn: RemixCredit? = null,
 )
 
 /**
@@ -521,13 +727,17 @@ fun ThemeSpec.withSidePad(left: Float? = null, right: Float? = null): ThemeSpec 
 }
 
 /**
- * One key's own style, overriding the class-level colours. Everything is
+ * One key's own style, overriding the class-level look. Everything is
  * nullable: a key that only recolours its popup carries exactly that.
  *
  * The map key naming these (see [ThemeSpec.keyOverrides]) is the key's
  * lowercase label for letter keys — so the override follows the letter across
  * layouts and languages — and the action's name (`ENTER`, `SHIFT`, `SPACE`,
  * `DELETE`, `SYMBOLS`, …) for the special keys.
+ *
+ * Every field here is a *replacement*, never a scaling of the theme's answer:
+ * the point of a single-key style is to say what this one key does instead of
+ * what the rest of the board does (issue #107).
  */
 @Serializable
 data class KeyOverride(
@@ -536,11 +746,79 @@ data class KeyOverride(
     val border: Long? = null,
     val popupBackground: Long? = null,
     val popupText: Long? = null,
+    /**
+     * The corner hint's colour on this one key; null follows
+     * [ThemeSpec.hintText], which itself falls back to the faded label.
+     */
+    val hint: Long? = null,
+    /**
+     * This key's own texture, as a local image path — the per-key twin of
+     * [ThemeSpec.keyTexture], drawn with the theme's own fit and opacity so a
+     * board's textures still read as one set. Never set in exports; the bytes
+     * travel in [ThemeSpec.assets] under `keyOverrideTexture:<id>`.
+     */
+    val texture: String? = null,
+    /**
+     * The particle burst *this* key throws, as a [KeyEffectKind] name; null
+     * follows the theme's own effect. A string for the usual forward-compat
+     * reason; read through [keyEffectKindOrNull].
+     *
+     * `CUSTOM_IMAGE` is not offered per key: its particles are image files,
+     * and a per-key image set is a transport and memory cost out of all
+     * proportion to "the enter key throws hearts". An override naming it is
+     * read as no effect of its own.
+     */
+    val effect: String? = null,
+    /** The emoji this key's `EMOJI` effect throws; see [ThemeSpec.keyEffectParam]. */
+    val effectParam: String? = null,
+    /**
+     * How big this key's label draws, as a multiple of an ordinary letter's
+     * size — the theme-side twin of `Key.labelScale`, which a layout may set
+     * for the same key. The key's own authored scale wins: the layout is the
+     * more specific answer, and a theme is worn by every layout.
+     */
+    val labelScale: Float? = null,
+    /**
+     * Whether this key's label draws bold; null follows the board (the theme's
+     * [ThemeSpec.boldKeyLabels] and the accessibility switch under it).
+     */
+    val bold: Boolean? = null,
+    /**
+     * This key's own outline, as a [KeyShapeKind] name; null follows the
+     * board's [ThemeSpec.keyShape]. A string for the usual forward-compat
+     * reason; read through [keyShapeKindOrNull].
+     *
+     * A single round enter key on a grid of soft rectangles is a signature a
+     * whole family of themes is built on, and it is the one thing a per-key
+     * style could not say. The key's own radius still comes from the board:
+     * one number per theme is the shape the radius slider has, and a shape
+     * that needs its own is [KeyShapeKind.CIRCLE] or [KeyShapeKind.PILL],
+     * neither of which reads a radius.
+     */
+    val shape: String? = null,
 ) {
     val isEmpty: Boolean
         get() = background == null && text == null && border == null &&
-            popupBackground == null && popupText == null
+            popupBackground == null && popupText == null && hint == null &&
+            texture == null && effect == null && effectParam == null &&
+            labelScale == null && bold == null && shape == null
+
+    /**
+     * The kind of burst this key throws on its own, or null when it follows
+     * the theme. `CUSTOM_IMAGE` is filtered here rather than at each reader,
+     * so a hand-written theme naming it cannot reach the glyph loader.
+     */
+    val effectKind: KeyEffectKind?
+        get() = keyEffectKindOrNull(effect)?.takeIf { it != KeyEffectKind.CUSTOM_IMAGE }
 }
+
+/**
+ * Bounds a per-key label scale is held to. The same numbers `KeyLabelScaleRange`
+ * holds an authored `Key.labelScale` to — the two cannot be one constant
+ * because `:core:theme` does not see the layout module, so they are pinned
+ * together by `KeyOverrideLabelScaleRangeTest` instead.
+ */
+val KEY_OVERRIDE_LABEL_SCALE_RANGE = 0.3f..2f
 
 /**
  * One decorative sticker laid over the key grid — a character leaning on the
@@ -565,6 +843,13 @@ data class DecalSpec(
 
 /** The most decals a theme may carry; past a handful they are just occlusion. */
 const val MAX_DECALS = 6
+
+/**
+ * Bounds for [ThemeSpec.secondarySuggestionScale]. Below half the words are
+ * unreadable beside the primary; a little above one is allowed so a theme can
+ * make the runner-ups the loud ones if it wants to.
+ */
+val SECONDARY_SUGGESTION_SCALE_RANGE = 0.5f..1.2f
 
 /** The most looks one theme may carry; the editor's Add stops here. */
 const val MAX_THEME_VARIANTS = 12
@@ -702,6 +987,12 @@ fun ThemeSpec.withEmbeddedImages(): ThemeSpec {
         keyEffectImages.forEachIndexed { index, path ->
             encode(path)?.let { put("$ASSET_EFFECT_IMAGE_PREFIX$index", it) }
         }
+        for ((key, override) in keyOverrides) {
+            encode(override.texture)?.let { put("$ASSET_KEY_OVERRIDE_TEXTURE_PREFIX$key", it) }
+        }
+        for ((slot, path) in keyIcons) {
+            encode(path)?.let { put("$ASSET_KEY_ICON_PREFIX$slot", it) }
+        }
     }
     return copy(
         backgroundImage = null,
@@ -722,6 +1013,8 @@ fun ThemeSpec.withEmbeddedImages(): ThemeSpec {
         popupTexture = null,
         decals = decals.map { it.copy(image = null) },
         keyEffectImages = emptyList(),
+        keyOverrides = keyOverrides.mapValues { (_, override) -> override.copy(texture = null) },
+        keyIcons = emptyMap(),
         assets = embedded,
         // Each variant embeds its own images; the nested-variant strip keeps
         // the one-level contract even for hand-edited files.
@@ -751,6 +1044,18 @@ const val ASSET_DECAL_PREFIX = "decal:"
 
 /** Prefix of a press-effect image's transport slot; its list index follows. */
 const val ASSET_EFFECT_IMAGE_PREFIX = "effectImage:"
+
+/**
+ * Prefix of a single-key texture's transport slot; the override's own map key
+ * follows it (`keyOverrideTexture:a`, `keyOverrideTexture:ENTER`).
+ */
+const val ASSET_KEY_OVERRIDE_TEXTURE_PREFIX = "keyOverrideTexture:"
+
+/**
+ * Prefix of a theme key glyph's transport slot; the icon-slot id follows it
+ * (`keyIcon:key.backspace`). See [ThemeSpec.keyIcons].
+ */
+const val ASSET_KEY_ICON_PREFIX = "keyIcon:"
 
 /**
  * Inverse of [withEmbeddedImages]: writes any embedded base64 image(s) into
@@ -795,6 +1100,32 @@ fun ThemeSpec.withExtractedImages(dir: File): ThemeSpec {
                 write("${id}_fx_$index.img", assets["$ASSET_EFFECT_IMAGE_PREFIX$index"])
             }
             extracted.ifEmpty { keyEffectImages }
+        },
+        keyOverrides = keyOverrides.mapValues { (key, override) ->
+            // The map key is a letter or an action name, so it is safe in a
+            // filename once the non-word characters are out of it — the only
+            // ids that carry any are hand-written ones.
+            val tag = key.filter { it.isLetterOrDigit() }.ifEmpty { "k" }
+            override.copy(
+                texture = write(
+                    "${id}_keytex_$tag.img",
+                    assets["$ASSET_KEY_OVERRIDE_TEXTURE_PREFIX$key"],
+                ) ?: override.texture,
+            )
+        },
+        // Driven off the asset keys rather than off `keyIcons`, because on the
+        // way in that map is empty and the slots are only named in `assets`.
+        // The file name carries no extension: what the bytes are is settled by
+        // sniffing them, the same way a pack's own icon is.
+        keyIcons = run {
+            val extracted = assets.keys
+                .filter { it.startsWith(ASSET_KEY_ICON_PREFIX) }
+                .mapNotNull { key ->
+                    val slot = key.removePrefix(ASSET_KEY_ICON_PREFIX)
+                    val tag = slot.filter { it.isLetterOrDigit() }.ifEmpty { "i" }
+                    write("${id}_keyicon_$tag.img", assets[key])?.let { slot to it }
+                }
+            if (extracted.isEmpty()) keyIcons else extracted.toMap()
         },
         assets = emptyMap(),
         // Variant filenames key off each variant's own id, which is globally
@@ -896,7 +1227,7 @@ fun Long.alphaFraction(): Float = ((this ushr 24) and 0xFFL) / 255f
  * anything added to [ThemeSpec] later — silently, and with no compiler
  * complaint — which is how attribution would have gone missing on every reseed.
  *
- * The five nullable overrides below are deliberately cleared rather than kept:
+ * The nullable overrides below are deliberately cleared rather than kept:
  * they are per-theme exceptions to a palette that no longer exists, so a reseed
  * returns them to following the new colours.
  */
@@ -929,6 +1260,14 @@ fun ThemeSpec.reseeded(seed: Long, dark: Boolean): ThemeSpec {
         toolbarIcon = null,
         toolCircleActiveBackground = null,
         suggestionText = null,
+        secondarySuggestionText = null,
+        suggestionBarBackground = null,
+        toolbarBackground = null,
+        navigationBarBackground = null,
+        // The recorded roles described the palette that has just been replaced,
+        // so nothing on the theme matches them any more. Clearing them lets
+        // [followWallpaper] map the new palette by tone instead of doing nothing.
+        wallpaperRoles = emptyMap(),
     )
 }
 
@@ -1065,6 +1404,177 @@ private val SnowVariants: List<ThemeSpec> = listOf(
 )
 
 /**
+ * The Frost family's glass: every surface, a strong rim, colours lifted a
+ * little. Window blur on, so on Android 12 and later the app behind shows
+ * through the board blurred; where it cannot, the board is drawn almost
+ * opaque and the keys keep their rims.
+ */
+private val FrostGlass = FrostSpec(
+    windowBlur = true,
+    windowBlurRadiusDp = 28,
+    fallbackOpacity = 0.94f,
+    surfaces = FrostSurface.ALL_NAMES,
+    backdropBlur = 16f,
+    saturation = 1.3f,
+    brightness = 0f,
+    rim = 0.6f,
+    grain = 0.06f,
+)
+
+/** The sheen the Frost keys wear: a catch of light across the top of each pane. */
+private val FrostSheen = GradientSpec(listOf(0x2EFFFFFF, 0x00FFFFFF), GradientType.LINEAR, 90f)
+
+/**
+ * The Frost family's other looks. Frost wallpaper stands on the wallpaper
+ * rather than the app behind — a steady backdrop that never changes with the
+ * app, and the look every phone and the gallery can show; the light look is
+ * the same glass for a light phone.
+ */
+private val FrostVariants: List<ThemeSpec> = listOf(
+    ThemeSpec(
+        id = "builtin_frost_wallpaper",
+        name = "Frost wallpaper",
+        dark = true,
+        // A scrim over the wallpaper: the wallpaper's band is the board, the
+        // keys are the frosted panes over it.
+        boardBackground = 0x800A1020,
+        keyBackground = 0x33FFFFFF,
+        keyText = 0xFFF4F7FF,
+        // The same pane as a letter, so the glass reads as one material.
+        modifierKeyBackground = 0x33FFFFFF,
+        enterKeyBackground = 0xE68AB4F8,
+        enterKeyText = 0xFF0B1220,
+        pressedKeyBackground = 0x73FFFFFF,
+        accent = 0xFF9CC9FF,
+        popupBackground = 0xCC223047,
+        popupText = 0xFFF4F7FF,
+        toolCircleBackground = 0x33FFFFFF,
+        chipBackground = 0x33FFFFFF,
+        suggestionText = 0xFFF4F7FF,
+        keyGradient = FrostSheen,
+        keyCornerRadiusDp = 12,
+        frost = FrostGlass.copy(windowBlur = false, backdrop = FrostBackdropSource.WALLPAPER.name),
+    ),
+    ThemeSpec(
+        id = "builtin_frost_light",
+        name = "Frost light",
+        dark = false,
+        boardBackground = 0xB3F2F5FA,
+        keyBackground = 0x99FFFFFF,
+        keyText = 0xFF1A2130,
+        modifierKeyBackground = 0x99FFFFFF,
+        enterKeyBackground = 0xFF3B6FD6,
+        enterKeyText = 0xFFFFFFFF,
+        pressedKeyBackground = 0xD9FFFFFF,
+        accent = 0xFF2F62C4,
+        popupBackground = 0xD9FFFFFF,
+        popupText = 0xFF1A2130,
+        toolCircleBackground = 0x80FFFFFF,
+        chipBackground = 0x80FFFFFF,
+        suggestionText = 0xFF1A2130,
+        keyGradient = GradientSpec(listOf(0x59FFFFFF, 0x00FFFFFF), GradientType.LINEAR, 90f),
+        keyCornerRadiusDp = 12,
+        frost = FrostGlass.copy(fallbackOpacity = 0.95f),
+    ),
+    // The author's own daily look, tuned on a CPH2481: liquid panes over the
+    // blurred app, a board barely there, a bright rim and no grain, the
+    // action keys a quieter pane than the letters and Enter a pale grey.
+    // Backdrop NONE: where the blur cannot run, the board goes near opaque
+    // rather than standing on the wallpaper.
+    ThemeSpec(
+        id = "builtin_frost_liquid",
+        name = "Frost liquid",
+        dark = true,
+        boardBackground = 0x27000000,
+        keyBackground = 0x2EFFFFFF,
+        keyText = 0xFFF4F7FF,
+        modifierKeyBackground = 0x1FFFFFFF,
+        enterKeyBackground = 0xE6CBCBCB,
+        enterKeyText = 0xFF0B1220,
+        pressedKeyBackground = 0x73FFFFFF,
+        accent = 0xFFCBCBCB,
+        popupBackground = 0x9A00172F,
+        popupText = 0xFFF4F7FF,
+        popupSelectedBackground = 0xFFCCCCCC,
+        toolCircleBackground = 0x2EFFFFFF,
+        chipBackground = 0x2EFFFFFF,
+        suggestionText = 0xFFF4F7FF,
+        keyGradient = GradientSpec(listOf(0x26FFFFFF, 0x00FFFFFF), GradientType.LINEAR, 90f),
+        keyCornerRadiusDp = 12,
+        frost = FrostGlass.copy(
+            windowBlurRadiusDp = 20,
+            fallbackOpacity = 0.96f,
+            backdrop = FrostBackdropSource.NONE.name,
+            backdropBlur = 5f,
+            saturation = 1.15f,
+            brightness = 0.03f,
+            rim = 0.71f,
+            grain = 0f,
+            style = FrostStyle.LIQUID.name,
+            refraction = 1f,
+            dispersion = 0.2f,
+        ),
+    ),
+)
+
+/**
+ * Frost: the look FrostKeys ships as its frosted glass, so the two read the
+ * same side by side. Its night defaults, from its `KeyboardTheme.kt`: a 65 px
+ * window blur (25 dp on a 2.6x phone), the board the wallpaper's accent
+ * container at 80/255, every letter the wallpaper's primary at about 28%, the
+ * action keys (shift, delete, ?123, enter) a solid mid accent blue, rounder
+ * keys, no borders, no grain.
+ *
+ * The thin board is the point of the look and its cost: over a white app the
+ * labels sit on a pale blur, as they do in FrostKeys. Where the blur cannot
+ * run the board is drawn nearly opaque, and `FrostThemeContrastTest` holds
+ * that case and the dark-app case to 4.5:1.
+ */
+private val FrostTheme: ThemeSpec = ThemeSpec(
+    id = "builtin_frost",
+    name = "Frost",
+    dark = true,
+    boardBackground = 0x50243653,
+    keyBackground = 0x476E7B9A,
+    keyText = 0xFFF1F0F7,
+    // FrostKeys' action keys (shift, delete, ?123, enter) are a solid,
+    // saturated accent blue; sampled side by side on a CPH2481 it was
+    // (70, 104, 163) against the letters' pale glass.
+    modifierKeyBackground = 0xE63F5F96,
+    enterKeyBackground = 0xE63F5F96,
+    enterKeyText = 0xFFF1F0F7,
+    pressedKeyBackground = 0x806E7B9A,
+    accent = 0xFFD9E2FF,
+    popupBackground = 0xCC223047,
+    popupText = 0xFFF1F0F7,
+    toolCircleBackground = 0x476E7B9A,
+    chipBackground = 0x476E7B9A,
+    suggestionText = 0xFFF1F0F7,
+    keyCornerRadiusDp = 16,
+    // FrostKeys draws its frosted theme in the wallpaper's colours, and in
+    // the wallpaper's *own* colours: the board is its accent container, not
+    // a navy moved onto the wallpaper's hue, which kept the navy's darkness
+    // and came out a muddy grey beside FrostKeys' saturated blue. So each
+    // part names the Material You role FrostKeys takes it from, and the
+    // values above are what a phone with no wallpaper palette draws.
+    followWallpaper = true,
+    wallpaperRoles = mapOf(
+        wallpaperRoleKey(dark = true, role = "primaryContainer") to 0xFF243653,
+        wallpaperRoleKey(dark = true, role = "primary") to 0xFF6E7B9A,
+        wallpaperRoleKey(dark = true, role = "inversePrimary") to 0xFF3F5F96,
+        wallpaperRoleKey(dark = true, role = "onPrimaryContainer") to 0xFFD9E2FF,
+        wallpaperRoleKey(dark = true, role = "onSurface") to 0xFFF1F0F7,
+        wallpaperRoleKey(dark = true, role = "surfaceContainerHigh") to 0xFF223047,
+    ),
+    frost = FrostGlass.copy(
+        windowBlurRadiusDp = 25,
+        rim = 0f,
+        grain = 0f,
+    ),
+    variants = FrostVariants,
+)
+
+/**
  * Built-in gallery themes. Users can't edit these in place — the editor
  * duplicates one into a custom theme instead — so ids stay stable.
  *
@@ -1118,6 +1628,7 @@ val BuiltInThemes: List<ThemeSpec> = listOf(
         keyBorderColor = 0x338A94A6,
         keyBorderWidthDp = 1f,
     ),
+    FrostTheme,
 ) + PaletteThemes
 
 /**
@@ -1146,6 +1657,10 @@ private val BuiltInThemeNameRes: Map<String, Int> = mapOf(
     "builtin_glacier" to R.string.core_theme_builtin_glacier_label,
     "builtin_bubble" to R.string.core_theme_builtin_bubble_label,
     "builtin_facet" to R.string.core_theme_builtin_facet_label,
+    "builtin_frost" to R.string.core_theme_builtin_frost_label,
+    "builtin_frost_wallpaper" to R.string.core_theme_builtin_frost_wallpaper_label,
+    "builtin_frost_light" to R.string.core_theme_builtin_frost_light_label,
+    "builtin_frost_liquid" to R.string.core_theme_builtin_frost_liquid_label,
 ) + PaletteThemeNameRes
 
 /**
@@ -1164,6 +1679,7 @@ private val BuiltInThemeFamilyNameRes: Map<String, Int> = mapOf(
     "builtin_ocean" to R.string.core_theme_family_ocean_label,
     "builtin_snow" to R.string.core_theme_family_snow_label,
     "builtin_deep_sea" to R.string.core_theme_family_gradient_label,
+    "builtin_frost" to R.string.core_theme_family_frost_label,
 ) + PaletteThemeFamilyNameRes
 
 /**

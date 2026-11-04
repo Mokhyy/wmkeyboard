@@ -8,6 +8,7 @@ sidebar:
 import SettingsPath from '@components/SettingsPath.astro';
 import PhoneFrame from '@components/PhoneFrame.astro';
 import KeyCap from '@components/KeyCap.astro';
+import Shot from '@components/Shot.astro';
 
 WM Keyboard has two separate ways of not learning from you. Incognito mode is
 a switch that you, or a private-browsing tab, control. Secure fields are
@@ -15,8 +16,10 @@ declared outright by the app you're typing into. They pause different things,
 so it's worth keeping them apart.
 
 <PhoneFrame caption="The incognito badge next to the toolbar, and the toolbox tool that turns it on.">
-  {/* shot: privacy/incognito-toolbar-badge */}
+  <Shot id="privacy/incognito-toolbar-badge" alt="The incognito badge next to the toolbar, and the toolbox tool that turns it on." />
 </PhoneFrame>
+
+The badge sits at the right end of the toolbar whenever incognito is on, from either source. It never pushes a tool off the bar: when the pinned tools fill it, they shrink a little together to make room. Tap it to see why: a toast names the app when its field asked for incognito, which some apps do outside any private tab, or says the Incognito switch is on.
 
 ## Turning incognito on
 
@@ -63,21 +66,27 @@ Turning incognito on does eight things:
    lexicon. Emoji favourites and the skin tone you picked for each are
    unaffected.
 4. **Stops the typing counters.** [Typing statistics](/reference/settings/statistics/)
-   record nothing while incognito is on, and the paused stretch is kept out
+   record nothing while incognito is on, not even taps on the heatmap, and the paused stretch is kept out
    of the active-time sums rather than counted as idle. Same **Pause
    learning** switch again.
-5. **Blocks inline chips, both kinds.** The saved-login chips a password
-   manager can draw above the keyboard don't appear, and neither do the
-   system's [smart replies](/smart/autofill/). A proposed reply means the
-   system read the conversation, which is what incognito is there to stop.
+5. **Blocks smart replies.** The system's [smart replies](/smart/autofill/)
+   don't appear. A proposed reply means the system read the conversation,
+   which is what incognito is there to stop. The saved-login chips a
+   password manager draws above the keyboard are *not* blocked: they record
+   nothing, the keyboard never sees what is in them, and a private tab is
+   where you log in.
 6. **Pauses AI history.** If you've turned [AI history](/tools/ai/#history)
    on, nothing is recorded while incognito is: not the text you send, not
    the answer. This one has no switch of its own, because a record of what
    you wrote in incognito is the exact thing incognito exists to prevent.
-7. **Holds back the code chips.** Neither the
-   [one-time-code chip](/smart/one-time-codes/) read out of a notification
-   nor the "you just copied a code" chip is offered while incognito is on.
-   Both put a code on screen without being asked for it.
+   [AI memory](/tools/ai-memory/) stops too: an AI action or a chat in an
+   incognito field neither reads the saved facts nor saves new ones, and a
+   chat started in incognito never touches memory, even after it ends.
+7. **Keeps the text away from LanguageTool.** With
+   [LanguageTool](/smart/grammar/#checkers-harper-and-languagetool) switched
+   on for Grammar check, nothing typed in incognito is sent to its server.
+   Harper, on the phone, still checks English, and the panel says why
+   nothing else does. No switch here either.
 8. **Shows a badge.** A small icon appears next to the toolbar, and the
    Incognito tool itself lights up as active, so you can tell at a glance
    that it's on.
@@ -85,11 +94,54 @@ Turning incognito on does eight things:
 The first four of those eight answer to switches of their own, tucked away
 from the Privacy screen under <SettingsPath path="Tools / Incognito" />.
 **Pause learning** covers the lexicon, the emoji history and the typing
-counters together, and **Pause clipboard capture** covers the clipboard. Both
-are on by default. Turn both off there and flipping "Incognito mode" on
-Privacy still blocks inline chips, still pauses AI history, still holds back
-the code chips, and still shows the badge. Those four are the effects neither
-switch can reach, because they follow incognito unconditionally.
+counters together, and **Pause clipboard capture** covers the clipboard: with
+it off, copies keep joining clipboard history in incognito. Both are on by
+default. Turn both off there and flipping "Incognito mode" on
+Privacy still blocks smart replies, still pauses AI history and AI memory, still
+keeps the text from LanguageTool, and still shows the badge. Those four are the
+effects neither switch can reach, because they
+follow incognito unconditionally. The [one-time-code chip](/smart/one-time-codes/)
+and the "you just copied a code" chip keep working in incognito: reading a
+code out of a notification or offering back what you just copied records
+nothing, and a login in a private tab is where a code is wanted.
+
+## Keeping copies off the system clipboard
+
+Pausing clipboard capture keeps copies out of the keyboard's history. It
+doesn't stop them landing on Android's system clipboard, where any app you
+open next can read them. **Keep copies in the keyboard**, under
+<SettingsPath path="Tools / Incognito" /> and off by default, closes that gap
+for the copies the keyboard makes itself.
+
+With it on and incognito active:
+
+- **Copy and cut stay inside the keyboard.** That covers the text-editing
+  panel's buttons, the Copy, Cut and Paste tools, the selection bar,
+  hold-<KeyCap>C</KeyCap> and hold-<KeyCap>X</KeyCap>, and the on-screen
+  <KeyCap>Ctrl</KeyCap> key with <KeyCap>C</KeyCap> or <KeyCap>X</KeyCap>.
+  The Copy buttons in the password generator,
+  the scanners, the AI chat, plugins and KDE Connect do the same. The
+  keyboard reads the selection and keeps it in memory. Nothing is written to
+  the system clipboard.
+- **The keyboard's paste pastes that copy back.** Until you've copied
+  something with the keyboard, paste falls through to the system clipboard
+  as usual. The app reads it then, not the keyboard.
+- **Leaving incognito forgets it.** The private copy is held in memory only,
+  never on disk, and it's gone the moment incognito switches off, including
+  when you leave a private-browsing field that turned incognito on by
+  itself.
+
+To keep the keyboard's copies off the system clipboard all the time, not only
+in incognito, turn on **Keep the keyboard's copies private** under
+<SettingsPath path="Clipboard" />. Outside incognito those copies go into the
+[clipboard history](/tools/clipboard/) instead of being forgotten.
+
+It only reaches what the keyboard does. The long-press menu of the app you're
+typing in still copies and pastes through the system clipboard, because the
+keyboard isn't involved there. Two fallbacks also still use the system
+clipboard: an image or file that the field wouldn't accept, which is put there
+so you can paste it by hand, and text arriving from a paired computer over
+KDE Connect.
 
 :::note[What incognito leaves alone]
 Incognito never turns off the suggestion strip, autocorrect or gesture
@@ -107,11 +159,12 @@ password boxes, visible-password fields and PIN-style number fields alike.
 Detection needs no permission and no guessing, because it reads straight off
 the field's declared input type.
 
-<PhoneFrame caption="A password field: no suggestion strip, no smart chips.">
-  ![A password field: no suggestion strip, no smart chips.](@assets/screens/privacy/secure-field-no-suggestions.webp)
+<PhoneFrame side caption="A password field: no suggestion strip, no smart chips.">
+  <Shot id="privacy/secure-field-no-suggestions" alt="A password field: no suggestion strip, no smart chips." />
 </PhoneFrame>
 
-A secure field switches off, for as long as it has focus:
+A secure field switches off, for as long as it has focus, whether you type on
+the keys or on a physical keyboard with the keys hidden:
 
 - The suggestion strip. This is the one thing the
   [Suggestions in every field](/typing/field-adaptation/) override can never
@@ -121,9 +174,15 @@ A secure field switches off, for as long as it has focus:
 - Smart suggestion chips (calculator, currency, unit conversions, tool
   shortcuts).
 - Learning. The same lexicon incognito pauses is paused here too.
+- [Typing statistics](/reference/settings/statistics/) and the tap heatmap.
+  Nothing typed in a password field is counted, and no key it touches warms up.
 - **Voice dictation, entirely.** Tap the voice tool in a password field and
   you get `You cannot use voice typing in a password field` instead of a
   recording. That's a hard block rather than a hidden strip.
+- **The AI actions, DeepL Write and LanguageTool.** All three send the
+  field's text to a server, so in a password field no AI action runs, the
+  Grammar panel has no DeepL Write button, and Grammar check never asks
+  LanguageTool. Nothing goes out even if you have a cloud provider set up.
 
 What a secure field does *not* switch off is character entry itself.
 Transliteration composing still runs in password fields. That's the
@@ -138,7 +197,7 @@ the word afterward.
 The clipboard tool treats password-shaped clips two different ways,
 depending on whether you're copying or pasting.
 
-When you **copy** something, a clip can be flagged sensitive two ways. The
+When you copy something, a clip can be flagged sensitive two ways. The
 app it came from can mark it: Android lets an app label what it puts on the
 clipboard, and a password manager does exactly that when you copy a login.
 Or, while **Let the keyboard find them** is on, an on-device check can flag
@@ -148,8 +207,8 @@ a longer mix of cases, digits and symbols. A code quoted inside a message,
 or a copied link, is left alone.
 
 <SettingsPath path="Clipboard / Sensitive clips" /> decides what
-happens to a flagged clip: keep it like any other, hide it and delete it
-quickly (the default), or never save it at all. A hidden clip renders as a row
+happens to a flagged clip: keep it like any other (the default), hide it and
+delete it quickly, or never save it at all. A hidden clip renders as a row
 of dots behind a lock icon, with a character count under them. Tap it and
 it pastes straight into the field, the same as any other clip, so there's no
 reveal-in-place. Pinning one overrides all of that, because pinning is an
@@ -159,7 +218,7 @@ explicit "keep this."
   {/* shot: privacy/clipboard-sensitive-masked */}
 </PhoneFrame>
 
-**Pasting** is the other half, and it ignores the sensitivity detection
+Pasting is the other half, and it ignores the sensitivity detection
 above entirely. Paste anything into a password field (from the clipboard
 panel, the paste chip, hold-<KeyCap>V</KeyCap>, or
 <KeyCap>Ctrl</KeyCap>+<KeyCap>V</KeyCap>)
@@ -167,13 +226,13 @@ and the keyboard deletes that entry from history *and* clears the system
 clipboard behind it. Nothing is left sitting there for every other app on
 the device to read. This only fires for pastes the keyboard itself makes, so
 a paste through the field's own long-press menu isn't covered. It's
-controlled by **Forget after you paste a password**, on by default, under
-<SettingsPath path="Clipboard / History" />. That switch sits with
-the rest of clipboard history rather than beside the sensitive-clip options
-below.
+controlled by **Forget after you paste a password**, off by default, under
+<SettingsPath path="Clipboard / Passwords and codes" />. That switch sits
+beside the sensitive-clip options below rather than with the rest of
+clipboard history.
 
-<PhoneFrame caption="Sensitive-clip handling under Passwords & codes, both on by default.">
-  ![Passwords & codes: sensitive-clip handling and the paste-time purge, both on by default.](@assets/screens/privacy/clipboard-settings-passwords.webp)
+<PhoneFrame caption="Sensitive-clip handling under Passwords & codes, both turned on.">
+  <Shot id="privacy/clipboard-settings-passwords" alt="Passwords & codes: sensitive-clip handling and the paste-time purge, both on by default." />
 </PhoneFrame>
 
 Neither of these depends on incognito being on. They run any time the
@@ -185,8 +244,8 @@ field or while incognito's clipboard pause applies.
 
 Incognito and secure fields are local-processing decisions: pause learning,
 pause clipboard capture, hide a strip. Neither one stops text you type from
-reaching the app you typed it into. That was never their job. Two things are
-worth knowing specifically:
+reaching the app you typed it into. That was never their job. Two things to
+know:
 
 - **Network tools aren't gated by either.** Translate, web and image search,
   GIF and sticker search, and the AI tool all send whatever you type into
@@ -219,31 +278,37 @@ incognito or secure fields at all.
   capture until you turn it off again.
 - **Follow private browsing** (default **on**). Switches incognito on by
   itself for a field that asks for it, for as long as that field has focus.
+- **Incognito by app**. Decide for an app instead of going by its fields:
+  **Add an app** and every field in it is incognito; tap it to switch to
+  **Never incognito**, which keeps incognito off there even in a field that
+  asks for it. The bin takes the app off the list, and its fields go back to
+  Follow private browsing. A choice here holds whether Follow private browsing
+  is on or off.
 
 <SettingsPath path="Tools / Incognito" />
 
 - **Pause learning** (default **on**). Covers the lexicon, the CJK pick
   history and the emoji history together.
 - **Pause clipboard capture** (default **on**). Covers clipboard history.
+- **Keep copies in the keyboard** (default **off**). Copy and cut from the
+  keyboard stay in memory instead of going to the system clipboard. See
+  [Keeping copies off the system clipboard](#keeping-copies-off-the-system-clipboard).
 - **Follow private browsing** is the same setting as above, shown again here
   because this is also where you'd look for it.
 
 <SettingsPath path="Clipboard / Passwords and codes" />
 
-- **Sensitive clips** (default **Hide it and delete it quickly**). The other
-  options are "Keep it like any other clip" and "Never save it".
+- **Forget after you paste a password** (default **off**). Deletes a clip from
+  history and from the system clipboard the moment it's pasted into a
+  password field.
+- **Sensitive clips** (default **Keep it like any other clip**). The other
+  options are "Hide it and delete it quickly" and "Never save it".
 - **Let the keyboard find them** (default **on**). Only shown once Sensitive
   clips isn't set to "Keep it like any other clip". Extends the app's own
   sensitive-clip flag with an on-device shape check.
 - **Forget sensitive clips after** (default **5 minutes**, adjustable from 1
   to 120). Only shown while Sensitive clips is "Hide it and delete it
   quickly". Independent of the ordinary clipboard history expiry.
-
-<SettingsPath path="Clipboard / History" />
-
-- **Forget after you paste a password** (default **on**). Deletes a clip from
-  history and from the system clipboard the moment it's pasted into a
-  password field.
 
 For every other clipboard and tool setting, see the
 [tool settings reference](/reference/settings/tools/) and
@@ -253,10 +318,10 @@ For every other clipboard and tool setting, see the
 
 - **Incognito and secure fields stack independently.** A password field is
   already secure on its own account, and its detection doesn't depend on
-  incognito being on. Learning is off there either way. Autofill chips are a
-  different story: the secure-field check doesn't gate them at all, only
-  incognito does, so turning incognito on inside a password field is what
-  blocks them. It isn't redundant the way it is for learning.
+  incognito being on. Learning is off there either way. Autofill chips are
+  gated by neither: a password field is where a password manager has
+  something to offer, and incognito is where you're most likely to be
+  logging in, so the chips stay in both.
 - **Existing learned words are never touched.** Turning on incognito, or
   turning off "Learn from typing" entirely, only stops *new* words and
   patterns from being recorded. Nothing already learned is deleted. Wiping

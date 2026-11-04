@@ -23,24 +23,67 @@ class EmojiSearch(
     private val shortcodes: EmojiShortcodes = EmojiShortcodes.EMPTY,
 ) {
 
-    private val tokenIndex = HashMap<String, MutableSet<Int>>()
+    // The keyword index, packed: every term sorted in [terms], and term `t`'s
+    // catalog positions at `postings[postingStart[t] until postingStart[t + 1]]`,
+    // ascending and without repeats. As a map of sets of boxed ints it was
+    // ~6 MB of heap for the bundled catalog and the language packs merged into
+    // it, held for as long as the keyboard ran; sorted, a prefix is also a
+    // range to read rather than a scan of every term.
+    private val terms: Array<String>
+    private val postingStart: IntArray
+    private val postings: IntArray
+
     /** Catalog position of each emoji, for scoring a shortcode hit. */
     private val indexByEmoji = HashMap<String, Int>()
 
     init {
+        val building = HashMap<String, MutableList<Int>>()
+        fun add(term: String, index: Int) {
+            val list = building.getOrPut(term) { ArrayList(2) }
+            // Entries are visited in order, so a repeat is always the last one.
+            if (list.isEmpty() || list[list.size - 1] != index) list.add(index)
+        }
         entries.forEachIndexed { index, entry ->
             indexByEmoji.putIfAbsent(entry.emoji, index)
             for (keyword in entry.keywords) {
                 // Index both the full keyword ("heart on fire") and its tokens.
-                tokenIndex.getOrPut(keyword) { mutableSetOf() }.add(index)
+                add(keyword, index)
                 for (token in keyword.split(' ')) {
-                    if (token.isNotEmpty()) {
-                        tokenIndex.getOrPut(token) { mutableSetOf() }.add(index)
-                    }
+                    if (token.isNotEmpty()) add(token, index)
                 }
             }
         }
+        terms = building.keys.toTypedArray().also { it.sort() }
+        postingStart = IntArray(terms.size + 1)
+        var total = 0
+        for ((t, term) in terms.withIndex()) {
+            postingStart[t] = total
+            total += building.getValue(term).size
+        }
+        postingStart[terms.size] = total
+        postings = IntArray(total)
+        for ((t, term) in terms.withIndex()) {
+            var at = postingStart[t]
+            for (index in building.getValue(term)) postings[at++] = index
+        }
     }
+
+    /** [term]'s slot in [terms], or -1. */
+    private fun termIndex(term: String): Int = terms.binarySearch(term).let { if (it < 0) -1 else it }
+
+    /** The slots of every term starting with [prefix], [prefix] itself included. */
+    private fun prefixRange(prefix: String): IntRange {
+        val low = terms.binarySearch(prefix).let { if (it < 0) -it - 1 else it }
+        var high = low
+        while (high < terms.size && terms[high].startsWith(prefix)) high++
+        return low until high
+    }
+
+    private inline fun forEachPosting(t: Int, action: (Int) -> Unit) {
+        for (p in postingStart[t] until postingStart[t + 1]) action(postings[p])
+    }
+
+    private fun postingCount(t: Int): Int = postingStart[t + 1] - postingStart[t]
 
     fun search(query: String, limit: Int = 40): List<EmojiEntry> {
         val code = EmojiShortcodes.normalize(query)
@@ -68,17 +111,13 @@ class EmojiSearch(
                 score(synonym, weight = 60, scores)
             }
             if (token.length >= 2) {
-                for ((keyword, indices) in tokenIndex) {
-                    if (keyword.length > token.length && keyword.startsWith(token)) {
-                        for (i in indices) scores.merge(i, 40, Int::plus)
-                    }
+                for (t in prefixRange(token)) {
+                    if (terms[t].length > token.length) forEachPosting(t) { scores.merge(it, 40, Int::plus) }
                 }
             }
             if (token.length >= 4) {
-                for ((keyword, indices) in tokenIndex) {
-                    if (isOneEditAway(token, keyword)) {
-                        for (i in indices) scores.merge(i, 30, Int::plus)
-                    }
+                for (t in terms.indices) {
+                    if (isOneEditAway(token, terms[t])) forEachPosting(t) { scores.merge(it, 30, Int::plus) }
                 }
             }
         }
@@ -89,8 +128,81 @@ class EmojiSearch(
             .map { entries[it.key] }
     }
 
+    /**
+     * Query terms this index can actually answer, to complete the word being
+     * typed in the emoji panel's search box (#161).
+     *
+     * The box searches the emoji catalog, so completing its text against the
+     * *language's* word list offers spellings no emoji is filed under —
+     * "cathedral", "catalogue", "catastrophe" while the user is typing "cat" —
+     * and every one of them lands on an empty grid. These are the terms the
+     * index holds instead: the catalog's keywords in every language merged
+     * into it, the shortcode names, and the synonyms [search] expands. Each
+     * one finds at least one emoji.
+     *
+     * [context] is the rest of the query, so a second word narrows to terms
+     * that share an emoji with the first: "red hea" offers "heart", which 💗
+     * carries both of, ahead of "headphone", which nothing red is. Terms
+     * already in the query are dropped — they would score nothing new — and so
+     * is [typed] itself, since it is in the box already and a query box has no
+     * autocorrect for a chip to hold off.
+     */
+    fun completions(typed: String, context: List<String> = emptyList(), limit: Int = 6): List<String> {
+        val prefix = typed.trim().lowercase()
+        if (prefix.isEmpty() || limit <= 0) return emptyList()
+        val already = context.mapTo(HashSet()) { it.trim().lowercase() }.apply { add(prefix) }
+        // Which emoji the rest of the query is already about, so a completion
+        // can be judged on whether it points at the same ones.
+        val narrowed = HashSet<Int>()
+        for (token in already) {
+            if (token == prefix) continue
+            val t = termIndex(token)
+            if (t >= 0) forEachPosting(t) { narrowed.add(it) }
+        }
+
+        /** Term to the number of catalog entries it reaches. */
+        val reach = HashMap<String, Int>()
+        /** ...of which the rest of the query names too. */
+        val shared = HashMap<String, Int>()
+        for (t in prefixRange(prefix)) {
+            val keyword = terms[t]
+            if (keyword.length <= prefix.length || keyword in already) continue
+            reach[keyword] = postingCount(t)
+            if (narrowed.isNotEmpty()) {
+                var count = 0
+                forEachPosting(t) { if (it in narrowed) count++ }
+                shared[keyword] = count
+            }
+        }
+        // Shortcodes carry the names the keywords do not — `tada`, `joy`. The
+        // underscored ones are left out: `search` already spells them as
+        // spaces, so they reach the catalog through the keywords above, and a
+        // strip offering `face_with_monocle` reads as nothing anyone types.
+        for (code in shortcodes.namesWithPrefix(prefix, limit * SHORTCODE_OVERDRAW)) {
+            if ('_' in code || code in already) continue
+            reach.putIfAbsent(code, 1)
+        }
+        for ((word, expansions) in SYNONYMS) {
+            if (word.length <= prefix.length || !word.startsWith(prefix)) continue
+            if (word in already || word in reach) continue
+            val expanded = expansions.sumOf { termIndex(it).let { t -> if (t < 0) 0 else postingCount(t) } }
+            if (expanded > 0) reach[word] = expanded
+        }
+
+        return reach.entries
+            .sortedWith(
+                compareByDescending<Map.Entry<String, Int>> { shared[it.key] ?: 0 }
+                    .thenByDescending { it.value }
+                    .thenBy { it.key.length }
+                    .thenBy { it.key },
+            )
+            .take(limit)
+            .map { it.key }
+    }
+
     private fun score(token: String, weight: Int, scores: HashMap<Int, Int>) {
-        tokenIndex[token]?.forEach { scores.merge(it, weight, Int::plus) }
+        val t = termIndex(token)
+        if (t >= 0) forEachPosting(t) { scores.merge(it, weight, Int::plus) }
     }
 
     /** Damerau-Levenshtein distance exactly 1 (substitution, indel, swap). */
@@ -129,6 +241,14 @@ class EmojiSearch(
     }
 
     companion object {
+
+        /**
+         * How many shortcode names [completions] pulls per strip slot, before
+         * the underscored ones are dropped. Most of the table is underscored,
+         * so asking for exactly the slots on offer would usually leave none.
+         */
+        private const val SHORTCODE_OVERDRAW = 8
+
         /**
          * Concept expansion for common searches. Keys are query tokens,
          * values are additional index tokens to look up. Deliberately small

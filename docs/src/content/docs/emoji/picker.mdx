@@ -19,7 +19,7 @@ The emoji panel does more than lay emoji out in a grid. Search understands synon
 
 <SettingsPath path="Emoji / Access / Emoji button in toolbar" />
 
-The most direct route is the emoji button in the toolbar (on by default). Tap it and the panel opens over the keys. If you've turned on a [dedicated emoji row](/emoji/customization/#the-dedicated-emoji-row), its own launcher icon opens the same full panel.
+The most direct route is the emoji button in the toolbar (on by default). Tap it and the panel opens over the keys. If you would rather have another tool there, or several, **Buttons beside the suggestions** on the same screen swaps it for the clipboard or adds any other tools beside it, in the order you drag them into, with their own size if you want one. If you've turned on a [dedicated emoji row](/emoji/customization/#the-dedicated-emoji-row), its own launcher icon opens the same full panel.
 
 Two more toggles replace a bottom-row key outright with an emoji key, so opening the panel takes one less tap:
 
@@ -29,19 +29,37 @@ Two more toggles replace a bottom-row key outright with an emoji key, so opening
 
 **Comma key opens emoji**, under the same group, is off by default. Turn it on and the bottom-row comma key becomes an emoji key too, with comma itself demoted to a long-press alternate. Its own info text warns that turning this on also removes the emoji tool from the toolbar, since the key is meant to replace it. Drag the tool back into the toolbar if you want both.
 
+**Press and hold enter for emoji**, also in that group, is off by default and leaves every key where it is. Turn it on and holding <KeyCap>Enter</KeyCap> opens the emoji panel when you lift, for a bottom row that has no emoji key. A tap on Enter is unchanged. More on [Key press settings](/reference/settings/keypress/#press-and-hold-shortcuts).
+
+### Tabs, pages and the long list
+
+Each category has a tab in the strip across the top. With few enough tabs they share the strip's width. When there are too many to fit at a comfortable size (the history tab, the categories, and the Kaomoji tab if you turned it on), every tab keeps that size and the strip scrolls sideways under your finger instead of squeezing them. The tab you're in is kept in view as you move through the panel.
+
+By default each category is a page, and you swipe left or right to go to the next. <SettingsPath path="Emoji / Emoji panel / One long list" /> makes the panel one list instead, with each category's name as a heading, so one long swipe up runs through every emoji. The tabs jump to a heading and follow the list as you scroll.
+
+<SettingsPath path="Emoji / Emoji panel / Panel height" /> opens the emoji, GIF and sticker panels taller than the keyboard, so more fit on screen while the letters stay compact. The three share the height, so switching between them doesn't move the keyboard.
+
+### Switching to GIFs and stickers
+
+<SettingsPath path="Emoji / Emoji panel / Switch to GIFs and stickers" />
+
+The bottom row of the panel carries a switch with three buttons: emoji, [GIFs](/emoji/gifs/) and [stickers](/emoji/stickers/). Tap GIF or sticker and that panel takes the emoji panel's place, with the same bottom row and the same switch under its results, so you can go back and forth without the toolbar. The setting above moves the switch to the top row, next to the category tabs (next to the search box on the other two), or turns it off. The GIF and sticker panels keep the emoji panel's <KeyCap>ABC</KeyCap>, space and backspace in every case. A button shows only while its tool is on. With both the GIF and the Sticker tool off there is nowhere to switch to, so the switch is not drawn at all; if your panel layout places it, the layout editor says so and links to the GIF tool, where you can turn it on.
+
+With <SettingsPath path="Emoji / Emoji panel / Open the last used panel" /> on, the emoji key reopens whichever of the three you left open, the way most keyboards treat emoji, GIFs and stickers as one panel.
+
 :::note
 Typing `:cat:` is a different feature entirely: it searches or auto-commits an emoji from inside the suggestion strip while you type, without opening this panel at all. See [Inline emoji search and shortcodes](/emoji/customization/#inline-emoji-search-and-shortcodes).
 :::
 
 ## Searching for an emoji
 
-Tap the magnifying-glass tab at the start of the tab strip. The panel switches into search mode and a search pill appears. With the full-screen panel on (the default) the pill takes the header row beside the back button, in place of the tab strip. With it off, the pill sits under the results instead, just above the keys that type into it, so the emoji stay at the top of the panel where your thumb left them.
-
-The pill is not a text field you type into directly. Tap it, and the letter keys underneath become a query editor: what you type appends to the pill instead of going to your document, and the keyboard's own backspace key deletes from the pill. A small backspace icon inside the pill deletes from your actual text field instead, without leaving search. Tapping the pill again unlatches typing, and the tab strip returns once the query is empty, so backspacing your query away is the way back to browsing.
-
-<PhoneFrame caption="Typing 'cat' and 'বিড়াল' in the panel's search field, both surfacing the same cat emoji.">
+<PhoneFrame side caption="Typing 'cat' and 'বিড়াল' in the panel's search field, both surfacing the same cat emoji.">
   {/* shot: emoji/panel-search */}
 </PhoneFrame>
+
+Tap the magnifying-glass tab at the start of the tab strip. The panel switches into search mode and a search pill appears. With the full-screen panel on (the default) the pill takes the header row beside the back button, in place of the tab strip. With it off, the pill sits under the results instead, right above the keys that type into it, so the emoji stay at the top of the panel where your thumb left them.
+
+The pill is not a text field you type into directly. Tap it, and the letter keys underneath become a query editor: what you type appends to the pill instead of going to your document, and the keyboard's own backspace key deletes from the pill. A small backspace icon inside the pill deletes from your actual text field instead, without leaving search. Tapping the pill again unlatches typing, and the tab strip returns once the query is empty, so backspacing your query away is the way back to browsing. An ✕ at the end of the pill, while it holds a query, empties it in one tap: the full grid comes back, and the keys stay on the pill for a new query.
 
 Search understands more than an exact keyword match, layered in this order, where matches on more than one query word add up:
 
@@ -52,7 +70,17 @@ Search understands more than an exact keyword match, layered in this order, wher
 5. **A keyword prefix.** `cele` starts matching "celebration" before you finish typing it.
 6. **A one-typo fuzzy match.** `hapy` still finds 😀, for query words of four letters or more.
 
+Turn on **Find any character by its Unicode name** under <SettingsPath path="Emoji / Emoji style" /> (off by default) and the same search also reaches every character of the Basic Multilingual Plane by the words of its official name: `em dash` finds —, `copyright` finds ©, `lambda` finds λ and Λ, `ogonek` finds ą, ę and the rest. Those come after the emoji results, and a character the catalogue already knows as an emoji is listed once. Tapping one inserts it like an emoji; a hold shows its name.
+
+With [Search by meaning](/smart/search-by-meaning/) on, the emoji whose names mean what you typed come after all of these, in any language: "gato", "猫" and "rocket launch" find 🐈 and 🚀 with no keyword pack for Spanish or Chinese and no keyword that says "launch".
+
 English and Bangla keywords are merged into the same index, so a query never needs to name a language. বিড়াল and "cat" surface the same set of cat emoji, and that holds for every cat-family emoji in the catalog, not only the smiley ones. Typing in a language you haven't installed a keyword pack for still works for anything carrying English or Bangla tags. To download a pack for another language, see [Emoji search in your language](/emoji/customization/#emoji-search-in-your-language).
+
+### The strip completes your query
+
+While the search box has the keys, the suggestion strip sits in the row directly above them, and what it offers comes from the emoji catalogue rather than from your language's word list. Type `ca` and it offers `car`, `cat`, `card`, `cash`, but not `cable` or `cathedral`, which are perfectly good words that no emoji is tagged with and that would leave you staring at an empty grid. Everything on the strip finds at least one emoji.
+
+It completes against everything the search itself understands: keywords in every language you've got a pack for, shortcode names like `tada`, and the curated synonyms above. A second word narrows to terms that share an emoji with the first, so `red hea` offers `heart` ahead of `headphone`. Tapping a term replaces the word at the caret and leaves a space, ready for the next one.
 
 ## Picking a skin tone
 
@@ -82,7 +110,9 @@ Emoji with gender or role variants (a runner shown as 🏃‍♀️ or 🏃‍�
 
 <SettingsPath path="Emoji / Emoji panel / History tab" />
 
-The first tab in the panel shows your history, once you have at least one recent or favourited emoji. **History tab** chooses what fills it. **Recent** orders by when you last used an emoji, and **Most used** ranks by frequency. Favourited emoji are pinned to the front either way.
+The first tab in the panel shows your history, once you have at least one recent or favourited emoji. **History tab** chooses what fills it. **Recent** orders by when you last used an emoji, and **Most used** ranks by frequency. **Both** shows the two at once: your 16 most used emoji under a **Most used** heading, then the recents under **Recent**. Favourited emoji are pinned to the front either way. **Off** removes the tab, so the panel opens on the first emoji category and every category keeps a fixed place. The keyboard still remembers what you use, for the emoji row and emoji suggestions.
+
+The history tab doesn't reorder while you tap through it. What you pick shows up the next time the tab comes into view: when the panel opens, or when you close or clear a search, so an emoji you found by searching is in Recent as soon as the grid is back.
 
 <PhoneFrame caption="The history tab with favourites pinned first, and the long-press options for a starred emoji.">
   {/* shot: emoji/history-tab */}
@@ -100,17 +130,29 @@ Long-pressing a cell on the history tab specifically also offers **Remove from r
 
 Off by default. Turn it on to add a "Clear recents" button to the Recent tab. It only appears on the Recent view, not Most used, since a frequency ranking isn't something a single tap should wipe.
 
+## Reordering the tabs and the emoji
+
+<SettingsPath path="Emoji / Emoji panel / Emoji categories" />
+
+The panel ships its category tabs in Unicode's own order. **Emoji categories** is where you change it: drag a category to move its tab, press the eye to hide a tab you never open, and press a category to open its emoji and arrange those too: press and hold one, then drag it where you want it.
+
+Hiding a category hides only its tab. Those emoji are still found by search and still offered in the suggestion strip.
+
+The history tab is not in that list: it orders itself, with your favourites pinned first as above. The Kaomoji tab is not either. It is switched on and off by its own toggle, always sits at the end, and sorts its tags on its own page.
+
+Full reference: [Emoji categories](/reference/settings/emoji/#emoji-categories).
+
 ## Animated emoji
 
 <SettingsPath path="Emoji / Emoji panel / Animated emoji" />
 
-Around 880 emoji have an animated version published by Google as part of [Noto Animated Emoji](https://googlefonts.github.io/noto-emoji-animation/). Long-press any of them in the panel and the popup loops the animation, with a **Send animated emoji** button under it that sends the 512×512 GIF into the field you're typing in.
-
-The button only appears once the animation has loaded, so no control ever offers to send something you haven't seen. The popup stays open afterward, preview and all, so you can fire off two in a row or pick a skin tone next.
-
-<PhoneFrame caption="Long-pressing 😀 shows its animation looping, over the send button.">
+<PhoneFrame side caption="Long-pressing 😀 shows its animation looping, over the send button.">
   {/* shot: emoji/animated-popup */}
 </PhoneFrame>
+
+Around 880 emoji have an animated version published by Google as part of [Noto Animated Emoji](https://googlefonts.github.io/noto-emoji-animation/). Long-press any of them in the panel and the popup loops the animation, with a **Send animated emoji** button under it that sends the 512×512 GIF into the field you're typing in.
+
+The button normally appears once the animation has loaded, so it doesn't offer to send something you haven't seen. The one exception is when no preview is coming at all, held back by data saving's "ask each time" or lost to a failed fetch. The button still appears there, since pressing it is the only way to answer that. The popup stays open afterward, preview and all, so you can fire off two in a row or pick a skin tone next.
 
 Two files exist for every animation, and the popup uses them for different jobs. Opening it fetches the WebP (around 350 KB) to loop in the preview. Pressing the button fetches the GIF (around 800 KB) and sends that. Long-press is also how you reach skin tones and favourites, so most long-presses send nothing and shouldn't cost the larger file. The GIF is what goes out because an app that accepts `image/webp` may still draw only its first frame, which would make a "send animated emoji" button a liar.
 
@@ -128,7 +170,7 @@ Sending one counts as using that emoji, so it lands in your recents like an ordi
 
 <SettingsPath path="Emoji / Emoji panel / Send emoji as image" />
 
-Under the animation (and on every emoji, animated or not) is **Send image as sticker**: the emoji itself, drawn at 512×512 in whichever [emoji font](/emoji/customization/#choosing-an-emoji-font) you've picked, sent as a transparent WebP.
+Under the animation (and on every emoji, animated or not) is **Send emoji as image**: the emoji itself, drawn at 512×512 in whichever [emoji font](/emoji/customization/#choosing-an-emoji-font) you've picked, sent as a transparent WebP.
 
 It answers the oldest emoji problem there is: the other person's phone drawing your emoji as something else, or as an empty box. Send it as a picture and they see the one you saw.
 
@@ -151,12 +193,12 @@ The animations are **Noto Animated Emoji** by Google, licensed [CC BY 4.0](https
 - **Inserting doesn't close the panel by default.** <SettingsPath path="Emoji / Emoji panel / Return to the keyboard after you insert" /> is off, so you can tap several emoji in a row (including several results from the same search) without the panel folding away after each one. Turn it on to jump straight back to the keys after a single insert. The same setting also governs the clipboard panel.
 - **Full-screen panel is the default, not an opt-in.** <SettingsPath path="Emoji / Access / Full-screen emoji panel" /> is on out of the box: the toolbar, emoji row, and symbol row all step aside, a slim back header takes their row, and the panel's layout fills the rest. Turn it off to keep the toolbar within reach while picking emoji.
 - **Search and the panel grid both respect "Hide emoji that your device cannot show."** An emoji neither your chosen font nor the phone's system font can draw is filtered out everywhere: panel, search, and suggestions alike. See [Fixing emoji that won't display](/emoji/customization/#fixing-emoji-that-wont-display).
-- **Kaomoji and emoticons are a separate, unsearched system.** If you've turned on their two extra tabs, they sit after the last Unicode category, but the panel's search field never indexes them, since it only searches the Unicode emoji catalog. See [Kaomoji & text art](/emoji/kaomoji/).
-- **The panel is a layout.** Its category tabs, search box and grid are cells of a [panel layout](/languages/custom-layouts/#panel-layouts), with an abc, space and hold-to-repeat backspace row along the bottom so you can type a word, drop in an emoji, and keep typing without leaving the panel. Open <SettingsPath path="Emoji / Access / Panel layout" /> to move the tabs, drop the search box, give the grid the whole height, or add keys of your own.
-- **Both editions.** Search, skin tones, and favourites aren't gated to one edition: the same emoji panel ships in both.
+- **Kaomoji are a separate system.** With the Kaomoji tab on, the panel's search lists matching faces under a Kaomoji heading after the emoji, matched by tag or by the face's characters. They never join the emoji history. See [Kaomoji & text art](/emoji/kaomoji/).
+- **The panel is a layout.** Its category tabs, search box and grid are cells of a [panel layout](/languages/custom-layouts/#panel-layouts), with an abc, [GIF and sticker switch](#switching-to-gifs-and-stickers), space and hold-to-repeat backspace row along the bottom so you can type a word, drop in an emoji, and keep typing without leaving the panel. Open <SettingsPath path="Emoji / Access / Panel layout" /> to move the tabs, drop the search box, give the grid the whole height, or add keys of your own.
+- **Every build.** Search, skin tones, and favourites aren't gated by build: the same emoji panel ships everywhere.
 
 ### Coverage
 
-The bundled catalog covers **1,914 base emoji** across ten categories (activities, animals, flags, food, nature, objects, people, smileys, symbols, travel). Of those, 330 carry Fitzpatrick skin-tone variants, five uniform tones each, and 19 of that 330 also support independently-toned pairs like 🤝. Together that's 2,030 additional toned sequences on top of the base count.
+The bundled catalog is Emoji 18.0 and covers 1,923 base emoji across ten categories (activities, animals, flags, food, nature, objects, people, smileys, symbols, travel). Of those, 332 carry Fitzpatrick skin-tone variants, five uniform tones each, and 19 of that 332 also support independently-toned pairs like 🤝. Together that's 2,040 additional toned sequences on top of the base count. An emoji newer than your phone's emoji font draws as a box until the font catches up; picking a newer font under **Emoji font** fixes that.
 
 For the settings that shape all of this (which font draws the emoji, keyword packs for other languages, word-typing predictions, and the emoji row), see [Emoji customization](/emoji/customization/).

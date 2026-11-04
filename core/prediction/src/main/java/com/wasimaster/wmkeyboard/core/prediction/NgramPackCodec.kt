@@ -1,6 +1,8 @@
 package com.wasimaster.wmkeyboard.core.prediction
 
+import java.io.DataInputStream
 import java.io.DataOutputStream
+import java.io.File
 import java.io.OutputStream
 
 /**
@@ -15,8 +17,9 @@ import java.io.OutputStream
  *
  * **Word ids are ranks in UTF-8 byte order.** Everything cheap about the reader
  * follows from that one property: a follower run sorted by id is also sorted
- * alphabetically, so [MappedNgramPack] can binary-search a run *by string* and
- * never look a candidate up in the vocabulary at all.
+ * alphabetically, so the reader (`wm-engine`'s `wmng::Pack`, behind
+ * [MappedNgramPack]) can binary-search a run *by string* and never look a
+ * candidate up in the vocabulary at all.
  *
  * Layout, big-endian throughout to match [PackedTrieCodec]:
  * ```
@@ -114,6 +117,26 @@ object NgramPackCodec {
         data.writeU24Section(pack.trigramFollower)
         data.writeCountSection(pack.trigramCount)
         data.flush()
+    }
+
+    /**
+     * Bigrams plus trigrams in the pack at [file], read off its header alone;
+     * 0 when there is no file or it is not a pack.
+     */
+    fun entryCount(file: File): Int {
+        if (!file.isFile) return 0
+        return runCatching {
+            DataInputStream(file.inputStream().buffered()).use { input ->
+                if (input.readInt() != MAGIC) return 0
+                input.readShort() // version
+                input.readShort() // flags
+                input.readInt() // vocabCount
+                val bigrams = input.readInt()
+                input.readInt() // contextCount
+                val trigrams = input.readInt()
+                (bigrams + trigrams).coerceAtLeast(0)
+            }
+        }.getOrDefault(0)
     }
 
     private fun DataOutputStream.writeU24Section(values: IntArray) {

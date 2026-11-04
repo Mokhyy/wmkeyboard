@@ -98,12 +98,20 @@ internal object AppLockTargets {
             LockKind.SCREEN, LockGroup.CONTENT, route = "ai_history", onByDefault = true,
         ),
         LockTarget(
+            "screen_ai_memory", R.string.toolai_memory_screen_title,
+            LockKind.SCREEN, LockGroup.CONTENT, route = "ai_memory", onByDefault = true,
+        ),
+        LockTarget(
             "screen_ai_chat", R.string.home_screen_ai_chat_title,
             LockKind.SCREEN, LockGroup.CONTENT, route = "ai_chat", onByDefault = true,
         ),
         LockTarget(
             "screen_privacy", R.string.home_privacy_title,
             LockKind.SCREEN, LockGroup.CONTENT, route = "privacy",
+        ),
+        LockTarget(
+            "screen_network_activity", R.string.netlog_title,
+            LockKind.SCREEN, LockGroup.CONTENT, route = "network_activity",
         ),
         LockTarget(
             "screen_statistics", R.string.statistics_title,
@@ -125,6 +133,12 @@ internal object AppLockTargets {
             "screen_storage", R.string.about_storage_title,
             LockKind.SCREEN, LockGroup.DESTRUCTIVE, route = "storage",
         ),
+        // Off by default: notes are the user's deliberate writing, and a
+        // note that wants hiding has a lock of its own (#560).
+        LockTarget(
+            "screen_notes", R.string.notes_title,
+            LockKind.SCREEN, LockGroup.CONTENT, route = "notes",
+        ),
 
         // ---- actions ----
         LockTarget(
@@ -133,6 +147,10 @@ internal object AppLockTargets {
         ),
         LockTarget(
             "action_delete_ai_chats", R.string.toolai_delete_chats_title,
+            LockKind.ACTION, LockGroup.DESTRUCTIVE, onByDefault = true,
+        ),
+        LockTarget(
+            "action_delete_ai_memory", R.string.toolai_memory_delete_all_title,
             LockKind.ACTION, LockGroup.DESTRUCTIVE, onByDefault = true,
         ),
         LockTarget(
@@ -156,7 +174,19 @@ internal object AppLockTargets {
             LockKind.ACTION, LockGroup.DESTRUCTIVE,
         ),
         LockTarget(
+            "action_clear_learned_corrections", R.string.typing_learned_corrections_clear_title,
+            LockKind.ACTION, LockGroup.DESTRUCTIVE,
+        ),
+        LockTarget(
             "action_forget_app_languages", R.string.langemoji_lang_forget_apps_title,
+            LockKind.ACTION, LockGroup.DESTRUCTIVE,
+        ),
+        LockTarget(
+            "action_delete_notes", R.string.tooldetail_notes_clear_title,
+            LockKind.ACTION, LockGroup.DESTRUCTIVE, onByDefault = true,
+        ),
+        LockTarget(
+            "action_empty_notes_trash", R.string.notes_empty_trash_action,
             LockKind.ACTION, LockGroup.DESTRUCTIVE,
         ),
     )

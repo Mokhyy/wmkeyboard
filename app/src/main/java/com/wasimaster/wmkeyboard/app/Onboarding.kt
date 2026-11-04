@@ -1,7 +1,6 @@
 package com.wasimaster.wmkeyboard.app
 
 import android.content.Intent
-import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
@@ -32,17 +31,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Build
-import androidx.compose.material.icons.outlined.EditNote
-import androidx.compose.material.icons.outlined.Keyboard
-import androidx.compose.material.icons.outlined.Language
-import androidx.compose.material.icons.outlined.Mood
-import androidx.compose.material.icons.outlined.Palette
-import androidx.compose.material.icons.outlined.Swipe
-import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material.icons.outlined.Vibration
-import androidx.compose.material.icons.outlined.Widgets
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.AutoAwesome
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Build
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.EditNote
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Keyboard
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Language
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Palette
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Swipe
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Tune
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Vibration
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Widgets
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -70,8 +68,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.wasimaster.wmkeyboard.R
 import com.wasimaster.wmkeyboard.common.R as CommonR
-import com.wasimaster.wmkeyboard.core.emoji.EmojiCatalog
-import com.wasimaster.wmkeyboard.core.emoji.EmojiRenderCheck
 import com.wasimaster.wmkeyboard.core.feedback.HapticPlayer
 import com.wasimaster.wmkeyboard.core.layout.BuiltInLayouts
 import com.wasimaster.wmkeyboard.core.script.DeviceLocales
@@ -90,8 +86,8 @@ import kotlinx.coroutines.withContext
 /**
  * First-run wizard: enable the keyboard, answer a short persona quiz, then
  * walk through the choices that have no one-size-fits-all default — languages,
- * theme, haptics, spacebar gestures — plus a tour of the features nobody would
- * guess at. Every page writes straight to DataStore, so backing out or
+ * haptics, spacebar gestures and, for those who asked for everything, the theme
+ * and a tour of the features nobody would guess at. Every page writes straight to DataStore, so backing out or
  * skipping keeps whatever was already chosen.
  *
  * The same screen doubles as a replay ("Run setup again" under About): on a
@@ -101,31 +97,33 @@ import kotlinx.coroutines.withContext
 @Composable
 internal fun OnboardingScreen(
     repository: SettingsRepository,
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     onFinished: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     // A replay is any entry after the wizard was finished once. Frozen at
     // entry: the finish write must not re-brand the run mid-exit.
-    val replay = remember { settings.onboardingDone }
+    val onboardingDone = settings.watch { it.onboardingDone }
+    val replay = remember { onboardingDone }
     // Read once at entry too, so the welcome page doesn't pop in and out of
     // the page list while a replaying user flips the keyboard elsewhere.
     val replayImeReady = remember { imeEnabled(context) && imeSelected(context) }
-    // Which catalog emoji this phone's own font can't draw; null while the
-    // scan is still running.
-    val missingEmoji = rememberUnrenderableEmoji()
-    val pages = remember(
-        settings.enabledTools, settings.onboarding, settings.enabledLanguages.size,
-    ) {
+    // Set once a backup is restored from the welcome page. Saveable, because
+    // the page list reads it and a list that changes on rotation replays the
+    // page transition.
+    var restored by rememberSaveable { mutableStateOf(false) }
+    val pages = settings.watch {
         onboardingPages(
-            persona = settings.onboarding,
-            enabledTools = settings.enabledTools,
-            enabledLanguageCount = settings.enabledLanguages.size,
+            persona = it.onboarding,
+            enabledTools = it.enabledTools,
+            enabledLanguageCount = it.enabledLanguages.size,
             replay = replay,
             imeReady = replayImeReady,
+            restored = restored,
         )
     }
+    val reduceMotion = settings.watch { it.reduceMotion }
     var current by rememberSaveable { mutableStateOf(pages.first()) }
     val index = resolvePageIndex(pages, current)
     val page = pages[index]
@@ -151,8 +149,13 @@ internal fun OnboardingScreen(
     val accent = OnboardingPageAccents.getValue(page)
     val playServices = remember { PlayServices.available }
     val finish: () -> Unit = {
-        finishOnboarding(scope, repository, settings, replay, playServices)
+        finishOnboarding(scope, repository, settings.value, replay, playServices, restored)
         onFinished()
+    }
+    // A restore on a phone where the keyboard is already on and selected has
+    // nothing left to do, so the wizard closes by itself.
+    LaunchedEffect(restored, keyboardReady) {
+        if (restored && keyboardReady) finish()
     }
     // Which way the turn went is read off the transition itself
     // (initialState vs targetState), so the move is only the page change.
@@ -161,6 +164,8 @@ internal fun OnboardingScreen(
     }
 
     Scaffold { padding ->
+        // It pads itself by the keyboard, so the window must not pan as well.
+        ResizeForKeyboard()
         Column(
             modifier = Modifier
                 .padding(padding)
@@ -179,7 +184,7 @@ internal fun OnboardingScreen(
                     pages = pages,
                     index = index,
                     accent = accent,
-                    reduceMotion = settings.reduceMotion,
+                    reduceMotion = reduceMotion,
                     modifier = Modifier.weight(1f),
                     onGoTo = goTo,
                 )
@@ -198,7 +203,7 @@ internal fun OnboardingScreen(
                 targetState = index,
                 transitionSpec = {
                     val forward = targetState >= initialState
-                    if (settings.reduceMotion) {
+                    if (reduceMotion) {
                         slideInHorizontally(tween(0)) togetherWith
                             slideOutHorizontally(tween(0))
                     } else {
@@ -233,6 +238,10 @@ internal fun OnboardingScreen(
                     OnboardingHero(shown)
                     when (shown) {
                         OnboardingPage.WELCOME -> WelcomePage(
+                            repository = repository,
+                            canRestore = !replay && !restored,
+                            restored = restored,
+                            onRestored = { restored = true },
                             // Set here as well as through onSetupChanged: the
                             // auto-advance below takes the page out of the
                             // composition in the same pass, so its own effect
@@ -253,11 +262,6 @@ internal fun OnboardingScreen(
                         )
                         OnboardingPage.LANGUAGES -> LanguagesPage(repository, settings)
                         OnboardingPage.LOOK -> LookPage(repository, settings)
-                        OnboardingPage.EMOJI -> EmojiPage(
-                            repository, settings,
-                            missing = missingEmoji.orEmpty(),
-                            ownEmojiSet = shipsOwnEmojiSet(),
-                        )
                         OnboardingPage.FEEDBACK -> FeedbackPage(repository, settings)
                         OnboardingPage.GESTURES -> GesturesPage(repository, settings)
                         OnboardingPage.DISCOVER -> DiscoverPage(repository, settings)
@@ -284,7 +288,10 @@ internal fun OnboardingScreen(
                 Spacer(Modifier.weight(1f))
                 Button(
                     onClick = { if (onLastPage) finish() else goTo(index + 1) },
-                    enabled = page != OnboardingPage.WELCOME || keyboardReady,
+                    // After a restore the welcome page is the last page, and
+                    // Finish stays open: the keyboard can be turned on later,
+                    // as Skip allows on a run that was not restored.
+                    enabled = page != OnboardingPage.WELCOME || keyboardReady || restored,
                 ) {
                     Text(
                         stringResource(
@@ -301,8 +308,8 @@ internal fun OnboardingScreen(
 /**
  * Closes the wizard. If the run never reached a point that replaced the
  * enable-everything tool default (skipping from the first page used to leave
- * all 70+ tools on), land the persona's starter set first; a replay never
- * touches anything.
+ * all 70+ tools on), land the persona's starter set first; a replay and a
+ * restore never touch anything.
  */
 private fun finishOnboarding(
     scope: CoroutineScope,
@@ -310,11 +317,16 @@ private fun finishOnboarding(
     settings: KeyboardSettings,
     replay: Boolean,
     playServices: Boolean,
+    restored: Boolean,
 ) {
     scope.launch {
         if (!replay) {
-            toolsAfterFinish(settings, playServices, ::isSupportedTool)?.let {
-                repository.setEnabledTools(it)
+            // A restored backup's tools are the user's own, even when they are
+            // the everything-on default.
+            if (!restored) {
+                toolsAfterFinish(settings, playServices, ::isSupportedTool)?.let {
+                    repository.setEnabledTools(it)
+                }
             }
             repository.setOnboardingDone(true)
         }
@@ -518,7 +530,6 @@ private fun heroIcon(page: OnboardingPage): ImageVector = when (page) {
     OnboardingPage.PERSONA -> Icons.Outlined.Tune
     OnboardingPage.LANGUAGES -> Icons.Outlined.Language
     OnboardingPage.LOOK -> Icons.Outlined.Palette
-    OnboardingPage.EMOJI -> Icons.Outlined.Mood
     OnboardingPage.FEEDBACK -> Icons.Outlined.Vibration
     OnboardingPage.GESTURES -> Icons.Outlined.Swipe
     OnboardingPage.DISCOVER -> Icons.Outlined.AutoAwesome
@@ -534,7 +545,6 @@ private fun heroTitle(page: OnboardingPage): String = stringResource(
         OnboardingPage.PERSONA -> R.string.onboarding_persona_title
         OnboardingPage.LANGUAGES -> R.string.onboarding_languages_title
         OnboardingPage.LOOK -> R.string.onboarding_look_title
-        OnboardingPage.EMOJI -> R.string.onboarding_emoji_title
         OnboardingPage.FEEDBACK -> R.string.onboarding_feedback_title
         OnboardingPage.GESTURES -> R.string.onboarding_gestures_title
         OnboardingPage.DISCOVER -> R.string.onboarding_discover_title
@@ -556,7 +566,6 @@ private fun heroSubtitle(page: OnboardingPage): String = when (page) {
             OnboardingPage.WELCOME -> R.string.onboarding_welcome_subtitle
             OnboardingPage.PERSONA -> R.string.onboarding_persona_subtitle
             OnboardingPage.LOOK -> R.string.onboarding_look_subtitle
-            OnboardingPage.EMOJI -> R.string.onboarding_emoji_subtitle
             OnboardingPage.FEEDBACK -> R.string.onboarding_feedback_subtitle
             OnboardingPage.GESTURES -> R.string.onboarding_gestures_subtitle
             OnboardingPage.DISCOVER -> R.string.onboarding_discover_subtitle
@@ -581,9 +590,9 @@ private fun heroSubtitle(page: OnboardingPage): String = when (page) {
  * before the app was ever opened keeps what it was given.
  */
 @Composable
-private fun SeedLanguagesFromDevice(repository: SettingsRepository, settings: KeyboardSettings) {
+private fun SeedLanguagesFromDevice(repository: SettingsRepository, settings: LiveSettings) {
     val context = LocalContext.current
-    val untouched = settings.enabledLayoutIds == BuiltInLayouts.defaultEnabledIds
+    val untouched = settings.watch { it.enabledLayoutIds == BuiltInLayouts.defaultEnabledIds }
     // rememberSaveable, so a rotation mid-wizard can't re-seed over a language
     // the user has since removed on the page below.
     var seeded by rememberSaveable { mutableStateOf(false) }
@@ -595,48 +604,6 @@ private fun SeedLanguagesFromDevice(repository: SettingsRepository, settings: Ke
         }
         if (ids.isNotEmpty()) repository.setEnabledLayoutIds(ids)
     }
-}
-
-/**
- * Whether this phone draws emoji in the maker's own set rather than the Android
- * one. Nothing is missing on those phones — the count above is zero — but the
- * glyphs are not what most people have seen everywhere else, and swapping the
- * font is not a setting anybody goes looking for.
- *
- * Samsung by name because Samsung is the one that ships a complete set of its
- * own; the check is deliberately not "any OEM", which would put the step in
- * front of people whose emoji are already the standard ones.
- */
-private fun shipsOwnEmojiSet(): Boolean =
-    Build.MANUFACTURER.equals("samsung", ignoreCase = true)
-
-/**
- * The catalog emoji this phone's own emoji font can't draw. Runs off the main
- * thread; null until the scan lands.
- *
- * Saved across configuration changes rather than merely remembered: the page
- * list is gated on this, so a rotation that dropped it back to null took the
- * emoji page out from under the user and slid the whole wizard back a step.
- */
-@Composable
-private fun rememberUnrenderableEmoji(): List<String>? {
-    val context = LocalContext.current
-    // Held as a plain List, but always *stored* as an ArrayList: the saveable
-    // registry only accepts what a Bundle can carry.
-    var missing by rememberSaveable { mutableStateOf<List<String>?>(null) }
-    LaunchedEffect(Unit) {
-        if (missing != null) return@LaunchedEffect
-        missing = withContext(Dispatchers.Default) {
-            val catalog = runCatching {
-                context.assets.open("emoji/catalog.tsv").use { EmojiCatalog.load(it) }
-            }.getOrDefault(emptyList())
-            // Catalog order, so the sample the page shows is a spread of the
-            // newest faces rather than a hash-ordered jumble.
-            val unrenderable = EmojiRenderCheck.unrenderable(catalog.map { it.emoji }, null)
-            ArrayList(catalog.map { it.emoji }.filter { it in unrenderable })
-        }
-    }
-    return missing
 }
 
 /**

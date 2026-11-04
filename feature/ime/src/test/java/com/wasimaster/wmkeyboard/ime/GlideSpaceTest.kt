@@ -12,6 +12,34 @@ import org.junit.Test
  */
 class GlideSpaceTest {
 
+    // ---- glideStripOrder ----
+
+    @Test
+    fun `a picked word leads the strip and is not repeated`() {
+        assertEquals(
+            listOf("god", "good", "food"),
+            glideStripOrder(listOf("good", "god", "food"), "god"),
+        )
+    }
+
+    @Test
+    fun `picking the leader changes nothing`() {
+        assertEquals(
+            listOf("good", "god", "food"),
+            glideStripOrder(listOf("good", "god", "food"), "good"),
+        )
+    }
+
+    @Test
+    fun `a pick the decode no longer holds is still first`() {
+        // The picker showed it, the finger lifted on it: it commits, and the
+        // strip has to agree with the field.
+        assertEquals(
+            listOf("goof", "good", "god"),
+            glideStripOrder(listOf("good", "god"), "goof"),
+        )
+    }
+
     // ---- swallowsAutoSpace ----
 
     @Test
@@ -68,10 +96,13 @@ class GlideSpaceTest {
     }
 
     @Test
-    fun `an apostrophe keeps the space`() {
-        // It is a letter inside a word ("don't"), so counting its appearances
-        // says nothing about which end of a quotation the next one is.
-        assertFalse(swallowsAutoSpace("'") { "don't " })
+    fun `an apostrophe hugs the word without being counted`() {
+        // It hugs for the possessive it almost always is (#123), but it stays
+        // out of AMBIGUOUS_QUOTES: it is a letter inside a word ("don't"), so
+        // counting its appearances says nothing about which end of a quotation
+        // the next one is. The answer here does not depend on the text at all.
+        assertTrue(swallowsAutoSpace("'") { "don't " })
+        assertTrue(swallowsAutoSpace("'") { "he said 'hi' " })
     }
 
     @Test
@@ -81,9 +112,10 @@ class GlideSpaceTest {
     }
 
     @Test
-    fun `a dash keeps the space`() {
-        // "hello - world" is the common intent; "hello- world" is not.
-        assertFalse(swallowsAutoSpace("-"))
+    fun `a dash hugs the word`() {
+        // "well-known" is the common intent (#123). "hello - world" is still
+        // one space press away, and that space is the user's own.
+        assertTrue(swallowsAutoSpace("-"))
     }
 
     @Test
@@ -103,7 +135,7 @@ class GlideSpaceTest {
 
     @Test
     fun `url separators keep the space in a text field`() {
-        for (mark in listOf("#", "&", "=", "@", "-", "_", "+", "~")) {
+        for (mark in listOf("#", "&", "=", "@", "+", "~")) {
             assertFalse(mark, swallowsAutoSpace(mark, FieldKind.TEXT))
         }
     }
@@ -112,6 +144,24 @@ class GlideSpaceTest {
     fun `a slash hugs the word in prose too`() {
         // "and/or" and "24/7" are prose, not addresses (#34 follow-up).
         assertTrue(swallowsAutoSpace("/", FieldKind.TEXT))
+    }
+
+    @Test
+    fun `the word-building marks hug the word in prose`() {
+        // "hello's", "well-known", "snake_case" (#123).
+        for (mark in listOf("'", "\u2019", "-", "\u2013", "\u2014", "\\", "_")) {
+            assertTrue(mark, swallowsAutoSpace(mark, FieldKind.TEXT))
+        }
+    }
+
+    @Test
+    fun `a hashtag and a mention keep the space in prose`() {
+        // They attach to the word after them: "check this #cool" (#123).
+        assertFalse(swallowsAutoSpace("#", FieldKind.TEXT))
+        assertFalse(swallowsAutoSpace("@", FieldKind.TEXT))
+        // Inside an address the same two are one more part of it.
+        assertTrue(swallowsAutoSpace("#", FieldKind.URI))
+        assertTrue(swallowsAutoSpace("@", FieldKind.URI))
     }
 
     @Test
@@ -141,8 +191,12 @@ class GlideSpaceTest {
 
     @Test
     fun `a glided word after an opener goes against it`() {
-        // `(hello`, not `( hello` (#34 follow-up).
-        for (opener in listOf("(", "[", "{", "\u201c", "\u2018", "\u00ab", "\u00bf", "\u00a1")) {
+        // `(hello`, not `( hello` (#34 follow-up). The hashtag, the mention and
+        // the apostrophes are openers too: they attach forward whatever stands
+        // behind them, so `check this #` then a glide is `#cool` (#123).
+        val openers =
+            listOf("(", "[", "{", "\u201c", "\u2018", "\u00ab", "\u00bf", "\u00a1", "#", "@", "'", "\u2019")
+        for (opener in openers) {
             assertFalse(opener, spacesBeforeGlidedWord("he said $opener"))
         }
     }
@@ -172,10 +226,47 @@ class GlideSpaceTest {
     }
 
     @Test
-    fun `a url field never spaces a glided word`() {
+    fun `a glided word joins a mark that is joined to the word before it`() {
+        // The reported case: `The/` then a glided "And" is `The/And`.
+        assertFalse(spacesBeforeGlidedWord("The/"))
+        for (joiner in listOf("/", "\\", "&", "=", "-", "\u2013", "\u2014", "_", "+", "~")) {
+            assertFalse(joiner, spacesBeforeGlidedWord("well$joiner"))
+        }
+    }
+
+    @Test
+    fun `a glided word is spaced from a mark standing on its own`() {
+        // "hello - world" is a sentence; the space in front of the dash is what
+        // says so, where "well-known" has none.
+        assertTrue(spacesBeforeGlidedWord("hello -"))
+        assertTrue(spacesBeforeGlidedWord("option A /"))
+    }
+
+    @Test
+    fun `a joiner with nothing at all in front of it takes no space`() {
+        // Nothing to be separated from, and nothing it is attached to either.
+        assertFalse(spacesBeforeGlidedWord("/"))
+        // A line break in front of one reads as a mark standing on its own.
+        assertTrue(spacesBeforeGlidedWord("hello\n-"))
+    }
+
+    @Test
+    fun `a url field never spaces a glided word into an address`() {
         // An address has no spaces in it at all.
         assertFalse(spacesBeforeGlidedWord("example.", FieldKind.URI))
-        assertFalse(spacesBeforeGlidedWord("example", FieldKind.URI))
+        assertFalse(spacesBeforeGlidedWord("github.com/wasi", FieldKind.URI))
+        assertFalse(spacesBeforeGlidedWord("192", FieldKind.URI))
+        assertFalse(spacesBeforeGlidedWord("", FieldKind.URI))
+    }
+
+    @Test
+    fun `a url field spaces a glided word into a search`() {
+        // The address bar is a search box first (#974): a typed word, then a
+        // glided one, is two words of a search.
+        assertTrue(spacesBeforeGlidedWord("weather", FieldKind.URI))
+        assertTrue(spacesBeforeGlidedWord("weather in paris", FieldKind.URI))
+        // A search still keeps its own space.
+        assertFalse(spacesBeforeGlidedWord("weather ", FieldKind.URI))
     }
 
     // ---- glideCommitLength ----

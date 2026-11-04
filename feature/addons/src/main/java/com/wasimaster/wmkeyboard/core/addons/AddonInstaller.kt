@@ -19,6 +19,7 @@ import com.wasimaster.wmkeyboard.core.icons.IconImportResult
 import com.wasimaster.wmkeyboard.core.icons.IconPackFile
 import com.wasimaster.wmkeyboard.core.icons.IconPackStore
 import com.wasimaster.wmkeyboard.core.layout.LayoutFile
+import com.wasimaster.wmkeyboard.core.share.RemixCredit
 import com.wasimaster.wmkeyboard.core.plugins.PluginFile
 import com.wasimaster.wmkeyboard.core.plugins.PluginImportResult
 import com.wasimaster.wmkeyboard.core.plugins.PluginStore
@@ -35,6 +36,10 @@ import com.wasimaster.wmkeyboard.core.snippets.SnippetStore
 import com.wasimaster.wmkeyboard.core.stickers.StickerImportResult
 import com.wasimaster.wmkeyboard.core.stickers.StickerPackFile
 import com.wasimaster.wmkeyboard.core.stickers.StickerPackStore
+import com.wasimaster.wmkeyboard.core.feedback.ClinkSoundPack
+import com.wasimaster.wmkeyboard.core.layout.ClinkLayouts
+import com.wasimaster.wmkeyboard.core.theme.ClinkTheme
+import com.wasimaster.wmkeyboard.core.theme.ClinkThemeResult
 import com.wasimaster.wmkeyboard.core.theme.ThemeCodec
 import com.wasimaster.wmkeyboard.core.theme.withExtractedImages
 import com.wasimaster.wmkeyboard.core.theme.withFreshIds
@@ -159,8 +164,13 @@ object AddonInstaller {
         data class Rejected(val text: AddonText) : Outcome
     }
 
-    suspend fun install(context: Context, entry: AddonEntry, payload: File): Outcome {
-        val outcome = installPayload(context, entry, payload)
+    /**
+     * [credit] names the repository addon being installed. A theme or layout
+     * keeps it as `basedOn`, so a copy edited from it later still credits it
+     * when published.
+     */
+    suspend fun install(context: Context, entry: AddonEntry, payload: File, credit: RemixCredit? = null): Outcome {
+        val outcome = installPayload(context, entry, payload, credit)
         if (outcome is Outcome.Installed) notifyContentChanged(context, entry.type)
         return outcome
     }
@@ -169,10 +179,11 @@ object AddonInstaller {
         context: Context,
         entry: AddonEntry,
         payload: File,
+        credit: RemixCredit?,
     ): Outcome =
         when (entry.type) {
-            AddonType.Theme -> installTheme(context, payload)
-            AddonType.Layout -> installLayout(context, payload)
+            AddonType.Theme -> installTheme(context, payload, credit)
+            AddonType.Layout -> installLayout(context, payload, credit)
             AddonType.Dictionary -> installDictionary(context, entry, payload)
             AddonType.EmojiKeywords -> installEmojiKeywords(context, entry, payload)
             AddonType.Snippets -> installSnippets(context, entry, payload)
@@ -290,8 +301,12 @@ object AddonInstaller {
 
     // ---- themes & layouts ----------------------------------------------
 
-    private suspend fun installTheme(context: Context, payload: File): Outcome {
-        val theme = ThemeCodec.decode(payload.readText())
+    private suspend fun installTheme(context: Context, payload: File, credit: RemixCredit?): Outcome {
+        val text = payload.readText()
+        // A Clink theme first: it has an `id` and a `name` too, so this app's
+        // decoder would take it as a theme of all defaults.
+        val clink = (ClinkTheme.read(text) as? ClinkThemeResult.Converted)
+        val theme = clink?.theme ?: ThemeCodec.decode(text)
             ?: return Outcome.Rejected(AddonText.of(R.string.faddons_install_error_not_a_theme))
         val id = "custom_${System.currentTimeMillis()}"
         // withExtractedImages writes any base64-embedded background out to
@@ -300,21 +315,40 @@ object AddonInstaller {
         // at a file outside our own storage. withFreshIds remints the
         // variants' ids too, for the same reason the parent's changes.
         val stored = theme.withFreshIds(id).withExtractedImages(themeImagesDir(context))
+            .let { if (credit != null) it.copy(basedOn = credit) else it }
         SettingsRepository(context).upsertCustomTheme(stored)
         // Added to the gallery, not worn: browsing a repository must not repaint
         // the keyboard behind the user's back. AddonApply offers the switch.
-        return Outcome.Installed(id)
+        return Outcome.Installed(id, clink?.dropped.orEmpty().map { context.getString(it.messageRes) })
     }
 
-    private suspend fun installLayout(context: Context, payload: File): Outcome {
-        val imported = LayoutFile.decode(payload.readText())
-            ?: return Outcome.Rejected(AddonText.of(R.string.faddons_install_error_not_a_layout))
+    private suspend fun installLayout(context: Context, payload: File, credit: RemixCredit?): Outcome {
+        val text = payload.readText()
+        val imported = LayoutFile.decode(text)
+            ?: return installClinkLayout(context, text, credit)
         val id = "custom_${System.currentTimeMillis()}"
-        SettingsRepository(context).upsertCustomLayout(imported.layout.copy(id = id))
+        SettingsRepository(context).upsertCustomLayout(
+            imported.layout.copy(id = id, basedOn = credit ?: imported.layout.basedOn),
+        )
         // The layout repairer hands back resource ids; the other importers hand
         // back finished lines. They meet here, so the layout notes are put into
         // words now rather than travelling on as a second kind of repair.
         return Outcome.Installed(id, imported.repairNotes.map { it.format(context.resources) })
+    }
+
+    /**
+     * A Clink layout: its letter rows, framed and repaired the way every
+     * foreign grid is. Its language is the one its letters suggest, since the
+     * file names none.
+     */
+    private suspend fun installClinkLayout(context: Context, text: String, credit: RemixCredit?): Outcome {
+        val converted = ClinkLayouts.read(text)
+            ?: return Outcome.Rejected(AddonText.of(R.string.faddons_install_error_not_a_layout))
+        val id = "custom_${System.currentTimeMillis()}"
+        SettingsRepository(context).upsertCustomLayout(
+            converted.withLanguage("").copy(id = id, basedOn = credit),
+        )
+        return Outcome.Installed(id, converted.notes.map { it.format(context.resources) })
     }
 
     // ---- dictionaries ---------------------------------------------------
@@ -667,7 +701,11 @@ object AddonInstaller {
      */
     private fun installSoundPack(context: Context, entry: AddonEntry, payload: File): Outcome {
         val store = SoundPackStore.get(context)
-        val result = payload.inputStream().use {
+        // A Clink pack is one JSON file, rewritten as the ZIP the importer
+        // reads. A ZIP starts with its magic, never with a brace.
+        val head = payload.inputStream().use { it.readNBytesCompat(CLINK_SNIFF_BYTES) }.decodeToString()
+        val clink = if (head.trimStart().startsWith("{")) ClinkSoundPack.toWmSoundPack(payload.readText()) else null
+        val result = (clink?.inputStream() ?: payload.inputStream()).use {
             SoundPackFile.import(
                 input = it,
                 store = store,
@@ -692,6 +730,20 @@ object AddonInstaller {
             )
         }
     }
+
+    /** Up to [count] bytes from the start of the stream; `readNBytes` is Android 13 and up. */
+    private fun InputStream.readNBytesCompat(count: Int): ByteArray {
+        val out = ByteArray(count)
+        var filled = 0
+        while (filled < count) {
+            val read = read(out, filled, count - filled)
+            if (read < 0) break
+            filled += read
+        }
+        return out.copyOf(filled)
+    }
+
+    private const val CLINK_SNIFF_BYTES = 256
 
     // ---- shared paths ----------------------------------------------------
 

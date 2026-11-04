@@ -1,5 +1,7 @@
 package com.wasimaster.wmkeyboard.app
 
+import com.wasimaster.wmkeyboard.core.clock.ClockEngine
+import com.wasimaster.wmkeyboard.core.clock.ClockNotifications
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -18,7 +20,12 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import com.wasimaster.wmkeyboard.R
+import com.wasimaster.wmkeyboard.app.updates.UpdateChannel
 import com.wasimaster.wmkeyboard.core.accessibility.KeyboardPassthrough
+import com.wasimaster.wmkeyboard.core.accessibility.ScreenContextService
+import com.wasimaster.wmkeyboard.core.accessibility.SplitScreenHelperService
+import com.wasimaster.wmkeyboard.ime.AppLaunchModes
+import com.wasimaster.wmkeyboard.core.location.LocationAccess
 import com.wasimaster.wmkeyboard.core.media.hasNotificationAccess
 
 /**
@@ -41,6 +48,7 @@ internal fun PermissionsSettings() {
     // The screen opens on free-standing text, which brings no spacing of its
     // own the way a group's SectionHeader does.
     Spacer(Modifier.height(12.dp))
+    val locationDeclared = LocationAccess.declared(LocalContext.current)
 
     SettingsGroup(
         stringResource(R.string.privacy_permissions_runtime_group_title),
@@ -60,6 +68,14 @@ internal fun PermissionsSettings() {
                 PermissionDisclosures.CAMERA,
             )
         }
+        // Not in a build made with -Pwmkb.noLocation=true.
+        item(visible = locationDeclared) {
+            RuntimePermissionRow(
+                R.string.privacy_permissions_location_title,
+                R.string.privacy_permissions_location_subtitle,
+                PermissionDisclosures.LOCATION,
+            )
+        }
         item {
             RuntimePermissionRow(
                 R.string.privacy_permissions_contacts_title,
@@ -76,6 +92,22 @@ internal fun PermissionsSettings() {
         }
         item {
             RuntimePermissionRow(
+                R.string.privacy_permissions_calendar_write_title,
+                R.string.privacy_permissions_calendar_write_subtitle,
+                PermissionDisclosures.CALENDAR_WRITE,
+            )
+        }
+        // Nearby devices from Android 13; before that the row above (location) is the grant.
+        item(visible = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            RuntimePermissionRow(
+                R.string.privacy_permissions_nearby_title,
+                R.string.privacy_permissions_nearby_subtitle,
+                PermissionDisclosures.NEARBY_WIFI,
+            )
+        }
+        // Not declared in the Play build at all; see [ChannelFeatures].
+        item(visible = ChannelFeatures.SCREENSHOT_CLIPS) {
+            RuntimePermissionRow(
                 R.string.privacy_permissions_images_title,
                 R.string.privacy_permissions_images_subtitle,
                 PermissionDisclosures.IMAGES,
@@ -83,14 +115,20 @@ internal fun PermissionsSettings() {
         }
         // From API 29 scoped storage saves to the gallery without any
         // permission, so the row would be a switch wired to nothing.
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
-            item {
-                RuntimePermissionRow(
-                    R.string.privacy_permissions_storage_title,
-                    R.string.privacy_permissions_storage_subtitle,
-                    PermissionDisclosures.STORAGE,
-                )
-            }
+        item(visible = Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+            RuntimePermissionRow(
+                R.string.privacy_permissions_storage_title,
+                R.string.privacy_permissions_storage_subtitle,
+                PermissionDisclosures.STORAGE,
+            )
+        }
+        // The file manager before Android 11; from there it is a special grant, below.
+        item(visible = ChannelFeatures.FILE_MANAGER && Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            RuntimePermissionRow(
+                R.string.privacy_permissions_all_files_title,
+                R.string.privacy_permissions_all_files_subtitle,
+                PermissionDisclosures.FILES,
+            )
         }
     }
 
@@ -103,7 +141,7 @@ internal fun PermissionsSettings() {
                 ::hasNotificationAccess,
             )
         }
-        item {
+        item(level = SettingLevel.STANDARD) {
             SpecialAccessRow(
                 R.string.privacy_permissions_usage_title,
                 R.string.privacy_permissions_usage_subtitle,
@@ -111,7 +149,42 @@ internal fun PermissionsSettings() {
                 ::hasUsageAccess,
             )
         }
-        item {
+        item(level = SettingLevel.STANDARD) {
+            SpecialAccessRow(
+                R.string.privacy_permissions_overlay_title,
+                R.string.privacy_permissions_overlay_subtitle,
+                SpecialAccess.OVERLAY,
+            ) { Settings.canDrawOverlays(it) }
+        }
+        item(visible = ChannelFeatures.FILE_MANAGER && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            SpecialAccessRow(
+                R.string.privacy_permissions_all_files_title,
+                R.string.privacy_permissions_all_files_subtitle,
+                SpecialAccess.ALL_FILES,
+                com.wasimaster.wmkeyboard.core.files.FilePlaces::hasAccess,
+            )
+        }
+        // The clock tool's two grants, only where Android asks for them.
+        item(visible = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S, level = SettingLevel.ADVANCED) {
+            SpecialAccessRow(
+                R.string.privacy_permissions_exact_alarms_title,
+                R.string.privacy_permissions_exact_alarms_subtitle,
+                SpecialAccess.EXACT_ALARMS,
+                ClockEngine::canScheduleExact,
+            )
+        }
+        item(
+            visible = ChannelFeatures.CLOCK_FULL_SCREEN && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
+            level = SettingLevel.ADVANCED,
+        ) {
+            SpecialAccessRow(
+                R.string.privacy_permissions_full_screen_title,
+                R.string.privacy_permissions_full_screen_subtitle,
+                SpecialAccess.FULL_SCREEN,
+                ClockNotifications::canUseFullScreen,
+            )
+        }
+        item(visible = ChannelFeatures.GESTURE_PASSTHROUGH, level = SettingLevel.STANDARD) {
             SpecialAccessRow(
                 R.string.privacy_permissions_accessibility_title,
                 R.string.privacy_permissions_accessibility_subtitle,
@@ -119,11 +192,41 @@ internal fun PermissionsSettings() {
                 KeyboardPassthrough::isServiceEnabled,
             )
         }
+        item(visible = ChannelFeatures.SCREEN_CONTEXT, level = SettingLevel.STANDARD) {
+            SpecialAccessRow(
+                R.string.privacy_permissions_screen_content_title,
+                R.string.privacy_permissions_screen_content_subtitle,
+                SpecialAccess.SCREEN_CONTENT,
+                { ScreenContextService.isEnabled(it) },
+            )
+        }
+        item(
+            visible = ChannelFeatures.SPLIT_SCREEN_HELPER && AppLaunchModes.splitHelperApplies,
+            level = SettingLevel.ADVANCED,
+        ) {
+            SpecialAccessRow(
+                R.string.privacy_permissions_split_screen_title,
+                R.string.privacy_permissions_split_screen_subtitle,
+                SpecialAccess.SPLIT_SCREEN,
+                { SplitScreenHelperService.isEnabled(it) },
+            )
+        }
+        // Only where the app can install a new version of itself, and only
+        // where Android has a per-app switch to send anyone to. Below API 26
+        // it is one global setting the system installer raises by itself.
+        item(visible = UpdateChannel.GITHUB && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O, level = SettingLevel.STANDARD) {
+            SpecialAccessRow(
+                R.string.privacy_permissions_install_updates_title,
+                R.string.privacy_permissions_install_updates_subtitle,
+                SpecialAccess.INSTALL_UPDATES,
+            ) { it.packageManager.canRequestPackageInstalls() }
+        }
     }
 
     SettingsGroup(
         stringResource(R.string.privacy_permissions_install_group_title),
         info = stringResource(R.string.privacy_permissions_footer_info),
+        level = SettingLevel.ADVANCED,
     ) {
         item {
             InstallPermissionRow(
@@ -147,6 +250,13 @@ internal fun PermissionsSettings() {
             InstallPermissionRow(
                 R.string.privacy_permissions_biometric_title,
                 R.string.privacy_permissions_biometric_subtitle,
+            )
+        }
+        // The Play build declares no ring service; see ChannelFeatures.
+        item(visible = ChannelFeatures.CLOCK_RING_SERVICE) {
+            InstallPermissionRow(
+                R.string.privacy_permissions_clock_ring_title,
+                R.string.privacy_permissions_clock_ring_subtitle,
             )
         }
     }

@@ -30,6 +30,10 @@
     <!-- Tag drawn on the chip. The app prints it in capital letters. -->
     <string name="core_content_clip_entity_url_tag">LINK</string>
 
+    <string name="core_content_clip_entity_place_label">Place</string>
+    <!-- Tag drawn on the chip. The app prints it in capital letters. -->
+    <string name="core_content_clip_entity_place_tag">PLACE</string>
+
     <!-- ================================================================== -->
     <!-- Snippet variables.                                                 -->
     <!--                                                                    -->
@@ -117,6 +121,13 @@
 
     <string name="core_content_sticker_repair_none_listed">The pack file lists no stickers.</string>
 
+    <!-- %1$d is how many animated stickers the app could keep only as a
+         picture that does not move. -->
+    <plurals name="core_content_sticker_repair_flattened">
+        <item quantity="one">The app kept %1$d animated sticker as a still image.</item>
+        <item quantity="other">The app kept %1$d animated stickers as still images.</item>
+    </plurals>
+
     <!-- ================================================================== -->
     <!-- Snippet import. The same repair notes, for a .wmsnippets.json file. -->
     <!-- ================================================================== -->
@@ -163,6 +174,28 @@
     <plurals name="core_content_snippet_repair_folders_dropped">
         <item quantity="one">The app dropped %1$d folder that has no name or that repeats another one. Its snippets came in without a folder.</item>
         <item quantity="other">The app dropped %1$d folders that have no name or that repeat another one. Their snippets came in without a folder.</item>
+    </plurals>
+
+    <!-- A row is one line of a table (a CSV file). %1$d is how many rows had
+         nothing in the column for the snippet text, and picks the form. -->
+    <plurals name="core_content_snippet_repair_rows_no_text">
+        <item quantity="one">The app dropped %1$d row that has no text.</item>
+        <item quantity="other">The app dropped %1$d rows that have no text.</item>
+    </plurals>
+
+    <!-- A trigger is the short word that makes a snippet expand. %1$d is how
+         many triggers the keyboard cannot watch for, and picks the form. -->
+    <plurals name="core_content_snippet_repair_triggers_removed">
+        <item quantity="one">The app removed %1$d trigger that the keyboard cannot watch for. Its snippet stays in the list.</item>
+        <item quantity="other">The app removed %1$d triggers that the keyboard cannot watch for. Their snippets stay in the list.</item>
+    </plurals>
+
+    <!-- Gboard is Google's keyboard; do not translate the name. "Personal
+         dictionary" names a settings screen of this app. %1$d is how many words
+         in the file have no shortcut, and picks the form. -->
+    <plurals name="core_content_snippet_gboard_words_skipped">
+        <item quantity="one">The file also has %1$d word with no shortcut. To add it to your words, open the file from Personal dictionary.</item>
+        <item quantity="other">The file also has %1$d words with no shortcut. To add them to your words, open the file from Personal dictionary.</item>
     </plurals>
 
     <!-- Espanso is a text expander for computers, and the name of its app. Do
@@ -268,6 +301,10 @@
 
     <string name="core_content_selection_macro_copy">Copy</string>
     <string name="core_content_selection_macro_share">Share</string>
+    <!-- Keeps the selected text as a note in the Notes tool. -->
+    <string name="core_content_selection_macro_save_note">Save as note</string>
+    <string name="core_content_selection_macro_repeat">Repeat</string>
+    <string name="core_content_selection_macro_snippet">Snippet</string>
     <string name="core_content_selection_macro_format">Format</string>
     <string name="core_content_selection_macro_search">Search</string>
     <string name="core_content_selection_macro_translate">Translate</string>
@@ -277,11 +314,72 @@
     <string name="core_content_selection_macro_email">Email</string>
     <string name="core_content_selection_macro_open">Open</string>
     <string name="core_content_selection_macro_qr">QR</string>
+    <string name="core_content_selection_macro_fancy">Fancy</string>
     <!-- The four case options behind Format on a plain text selection. Each
          one is written in the case it applies, so the chip shows its effect. -->
     <string name="core_content_selection_macro_case_lower">lower case</string>
     <string name="core_content_selection_macro_case_title">Title Case</string>
     <string name="core_content_selection_macro_case_upper">UPPER CASE</string>
     <string name="core_content_selection_macro_case_sentence">Sentence case</string>
+    <!-- The programmer's cases, off by default, each written in itself. -->
+    <string name="core_content_selection_macro_case_camel" translatable="false">camelCase</string>
+    <string name="core_content_selection_macro_case_snake" translatable="false">snake_case</string>
+    <string name="core_content_selection_macro_case_kebab" translatable="false">kebab-case</string>
+    <string name="core_content_selection_macro_case_constant" translatable="false">CONSTANT_CASE</string>
+    <string name="core_content_selection_macro_find">Find</string>
+    <string name="core_content_selection_macro_replace">Replace</string>
+    <string name="core_content_selection_macro_lines_sort">Sort</string>
+    <string name="core_content_selection_macro_lines_dedupe">Unique</string>
+    <string name="core_content_selection_macro_lines_number">Number</string>
+    <string name="core_content_selection_macro_lines_bullet">Bullets</string>
+    <string name="core_content_selection_macro_lines_checkbox">Check boxes</string>
+    <string name="core_content_selection_macro_lines_up">Move up</string>
+    <string name="core_content_selection_macro_lines_down">Move down</string>
+    <string name="core_content_selection_macro_grammar">Grammar</string>
+    <string name="core_content_selection_macro_deepl_write">DeepL Write</string>
+    <string name="core_content_selection_macro_ai" translatable="false">AI</string>
+    <string name="core_content_selection_macro_to_bangla">Bangla</string>
+    <string name="core_content_selection_macro_to_banglish">Banglish</string>
+    <string name="core_content_selection_macro_to_hindi">Hindi</string>
+    <string name="core_content_selection_macro_to_hinglish">Hinglish</string>
+    <!-- Selection action chip: converts Burmese between Zawgyi (the old font encoding) and Unicode. Zawgyi and Unicode are names. -->
+    <string name="core_content_selection_macro_korean_spacing">Fix spacing</string>
+    <string name="core_content_selection_macro_add_nikud">Add niqqud</string>
+    <string name="core_content_selection_macro_add_tashkeel">Add tashkeel</string>
+    <string name="core_content_selection_macro_add_furigana">Add furigana</string>
+    <string name="core_content_selection_macro_switch_script">Switch script</string>
+    <string name="core_content_selection_macro_restore_yo">Restore ё</string>
+    <string name="core_content_selection_macro_persian_spacing">Fix half-spaces</string>
+    <string name="core_content_selection_macro_zawgyi">Zawgyi ⇄ Unicode</string>
+    <string name="core_content_selection_macro_digits_latin">Digits</string>
+    <string name="core_content_selection_macro_colour">Colour</string>
+    <string name="core_content_selection_macro_json" translatable="false">JSON</string>
+    <string name="core_content_selection_macro_base64" translatable="false">Base64</string>
+    <string name="core_content_selection_macro_url_decode">Decode</string>
+    <string name="core_content_selection_macro_strip_trackers">Remove trackers</string>
+    <string name="core_content_selection_macro_chat_bold">Bold</string>
+    <string name="core_content_selection_macro_chat_italic">Italic</string>
+    <string name="core_content_selection_macro_chat_strike">Strike</string>
+    <string name="core_content_selection_macro_chat_mono">Mono</string>
+    <string name="core_content_selection_macro_read_aloud">Speak</string>
+    <string name="core_content_selection_macro_edit_word">Edit word</string>
+    <string name="core_content_selection_macro_time_zones">Zones</string>
+    <string name="core_content_selection_macro_add_contact">Contact</string>
+    <string name="core_content_selection_macro_map">Map</string>
+    <string name="core_content_selection_macro_calendar">Calendar</string>
 
+    <!-- The tags the Notes tool suggests before the user has made any of their own. -->
+    <string name="core_content_note_tag_important">Important</string>
+    <string name="core_content_note_tag_work">Work</string>
+    <string name="core_content_note_tag_school">School</string>
+    <string name="core_content_note_tag_study">Study</string>
+    <string name="core_content_note_tag_personal">Personal</string>
+    <string name="core_content_note_tag_ideas">Ideas</string>
+
+
+    <!-- To-do reminders (#995): a task's notification when it falls due. -->
+    <string name="core_content_todo_reminder_title">To-do</string>
+    <string name="core_content_todo_reminder_done">Done</string>
+    <string name="core_content_todo_reminders_channel_title">To-do reminders</string>
+    <string name="core_content_todo_reminders_channel_body">A task from the keyboard\'s to-do list, when it falls due</string>
 </resources>

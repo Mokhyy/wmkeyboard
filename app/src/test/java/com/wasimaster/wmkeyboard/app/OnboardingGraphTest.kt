@@ -22,10 +22,7 @@ class OnboardingGraphTest {
     @Test
     fun `fresh run with unanswered quiz takes the short path`() {
         assertEquals(
-            listOf(
-                OnboardingPage.WELCOME, OnboardingPage.PERSONA, OnboardingPage.LOOK,
-                OnboardingPage.EMOJI, OnboardingPage.DISCOVER, OnboardingPage.TRY,
-            ),
+            listOf(OnboardingPage.WELCOME, OnboardingPage.PERSONA),
             pages(enabledLanguageCount = 1),
         )
     }
@@ -65,18 +62,36 @@ class OnboardingGraphTest {
 
     @Test
     fun `minimal persona skips the fine-tuning pages`() {
-        val result = pages(persona = OnboardingSettings(personaDepth = PersonaDepth.MINIMAL))
-        assertFalse(OnboardingPage.FEEDBACK in result)
-        assertFalse(OnboardingPage.GESTURES in result)
-        assertFalse(OnboardingPage.TOOLS in result)
-        assertFalse(OnboardingPage.TOOL_SETUP in result)
+        val result = pages(
+            persona = OnboardingSettings(personaDepth = PersonaDepth.MINIMAL),
+            enabledLanguageCount = 1,
+        )
+        assertEquals(listOf(OnboardingPage.WELCOME, OnboardingPage.PERSONA), result)
     }
 
     @Test
-    fun `power persona gets the tools page`() {
+    fun `balanced persona gets feedback, gestures and the typing test only`() {
+        val result = pages(
+            persona = OnboardingSettings(personaDepth = PersonaDepth.BALANCED),
+            enabledLanguageCount = 1,
+        )
+        assertEquals(
+            listOf(
+                OnboardingPage.WELCOME, OnboardingPage.PERSONA, OnboardingPage.FEEDBACK,
+                OnboardingPage.GESTURES, OnboardingPage.TRY,
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `power persona gets the theme, the tour and the tools page`() {
         val result = pages(persona = OnboardingSettings(personaDepth = PersonaDepth.POWER))
+        assertTrue(OnboardingPage.LOOK in result)
+        assertTrue(OnboardingPage.DISCOVER in result)
         assertTrue(OnboardingPage.TOOLS in result)
         assertTrue(OnboardingPage.FEEDBACK in result)
+        assertTrue(OnboardingPage.TRY in result)
     }
 
     @Test
@@ -108,24 +123,20 @@ class OnboardingGraphTest {
         assertTrue(OnboardingPage.LANGUAGES in pages(persona = one, enabledLanguageCount = 2))
     }
 
-    // The skin tone question is asked of everyone, so the page is no longer
-    // gated on the device's emoji font — the font half of it is what the page
-    // itself hides. Every persona sees it, including the shortest path.
-    @Test
-    fun `emoji page is asked of every persona`() {
-        for (depth in PersonaDepth.entries) {
-            assertTrue(
-                "$depth lost the emoji page",
-                OnboardingPage.EMOJI in pages(persona = OnboardingSettings(personaDepth = depth)),
-            )
-        }
-    }
-
     @Test
     fun `replay hides welcome only while the keyboard is ready`() {
         assertFalse(OnboardingPage.WELCOME in pages(replay = true, imeReady = true))
         assertTrue(OnboardingPage.WELCOME in pages(replay = true, imeReady = false))
         assertTrue(OnboardingPage.WELCOME in pages(replay = false, imeReady = true))
+    }
+
+    @Test
+    fun `a restored backup leaves only the welcome page`() {
+        val power = OnboardingSettings(personaDepth = PersonaDepth.POWER, personaLanguages = PersonaLanguages.MANY)
+        val restored = onboardingPages(
+            power, ToolbarTool.entries, 3, replay = false, imeReady = false, restored = true,
+        )
+        assertEquals(listOf(OnboardingPage.WELCOME), restored)
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.wasimaster.wmkeyboard.core.icons
 
 import com.wasimaster.wmkeyboard.icons.R
+import com.wasimaster.wmkeyboard.core.settings.ToolbarTool
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -233,10 +234,34 @@ class IconPackFileTest {
     fun `slotForEntry only accepts known slots`() {
         assertEquals(IconSlots.KEY_SHIFT, IconPackFile.slotForEntry("icons/${IconSlots.KEY_SHIFT}.svg"))
         assertEquals(IconSlots.KEY_SHIFT, IconPackFile.slotForEntry("../../${IconSlots.KEY_SHIFT}.SVG"))
+        // Every raster extension too, since issue #504. The extension only
+        // says where the slot id ends — what the file *is* comes from its
+        // bytes, so a `.png` holding an SVG is still stored as an SVG.
+        for (extension in listOf("png", "webp", "jpg", "gif")) {
+            assertEquals(
+                IconSlots.KEY_SHIFT,
+                IconPackFile.slotForEntry("icons/${IconSlots.KEY_SHIFT}.$extension"),
+            )
+        }
         assertNull(IconPackFile.slotForEntry("icons/../../evil.svg"))
         assertNull(IconPackFile.slotForEntry("icons/unknown.svg"))
-        assertNull(IconPackFile.slotForEntry("icons/${IconSlots.KEY_SHIFT}.png"))
+        assertNull(IconPackFile.slotForEntry("icons/unknown.png"))
+        assertNull(IconPackFile.slotForEntry("icons/${IconSlots.KEY_SHIFT}.exe"))
         assertNull(IconPackFile.slotForEntry("pack.json"))
+    }
+
+    @Test
+    fun `slotForEntry keeps a variant and refuses a malformed one`() {
+        val gif = IconSlots.forTool(ToolbarTool.GIF)
+        assertEquals("$gif@text", IconPackFile.slotForEntry("icons/$gif@text.svg"))
+        assertEquals("$gif@text_small", IconPackFile.slotForEntry("icons/$gif@Text_Small.png"))
+        // A variant of a slot this version does not know is as unknown as the slot.
+        assertNull(IconPackFile.slotForEntry("icons/tool.nonexistent@text.svg"))
+        // No dots, no second separator, nothing empty: the key becomes a file name.
+        assertNull(IconPackFile.slotForEntry("icons/$gif@.svg"))
+        assertNull(IconPackFile.slotForEntry("icons/$gif@a.b.svg"))
+        assertNull(IconPackFile.slotForEntry("icons/$gif@a@b.svg"))
+        assertNull(IconPackFile.slotForEntry("icons/$gif@1text.svg"))
     }
 
     @Test

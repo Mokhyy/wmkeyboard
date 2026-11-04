@@ -1,5 +1,8 @@
 package com.wasimaster.wmkeyboard.core.emoji
 
+import com.wasimaster.wmkeyboard.core.endpoints.ServiceEndpoints
+import com.wasimaster.wmkeyboard.core.endpoints.ServiceRepo
+
 /**
  * One downloadable emoji dictionary from the wmkeyboard-data repo
  * (https://github.com/wasi-master/wmkeyboard-data): the names and search
@@ -8,7 +11,10 @@ package com.wasimaster.wmkeyboard.core.emoji
  *
  * The payload is a gzipped JSON array of
  * `{ emoji, name, keywords[], category }`, derived from Unicode CLDR
- * annotations via KDE/kemoji. Unlike a word list it is small enough to take
+ * annotations via KDE/kemoji. Banglish is the one pack built rather than
+ * imported: the Bengali pack's keywords in the Latin spellings people chat
+ * in, with the English ones alongside (`scripts/build_bn_rom_emoji.py` in the
+ * data repo). Unlike a word list it is small enough to take
  * whole — the largest is 112 KB compressed — so there is no size tier and no
  * early abort.
  */
@@ -19,23 +25,31 @@ data class EmojiDictEntry(
     val emojiCount: Int,
     /** Compressed size of the file — the progress denominator. */
     val approxGzBytes: Long,
-    /** Directory/file stem in the data repo; equal to [languageId] unless the
-     * repo spells it differently (`no` for Norwegian Bokmål). */
+    /** File stem in the data repo; equal to [languageId] unless the repo
+     * spells it differently (`no` for Norwegian Bokmål). */
     val repoCode: String = languageId,
+    /** Folder in the data repo; equal to [repoCode] unless the pack lives
+     * with a parent language's files (Banglish `bn_rom` sits in `bn/`). */
+    val repoDir: String = repoCode,
 ) {
+    /** The pack's file name in the data repo, and in a language pack. */
+    val fileName: String get() = "${repoCode}_emoji.json.gz"
+
+    /** The data repository, wherever [ServiceRepo.DATA] points. */
     val url: String
-        get() = "https://raw.githubusercontent.com/wasi-master/wmkeyboard-data/" +
-            "HEAD/data/$repoCode/${repoCode}_emoji.json.gz"
+        get() = ServiceEndpoints.repo(ServiceRepo.DATA).rawUrl("data/$repoDir/$fileName")
 }
 
 /**
  * The downloadable emoji dictionary for every language the registry knows and
  * the data repo covers.
  *
- * 125 of the repo's 141: the codes it spells differently are remapped (`no` ->
- * `nb`), its exact duplicates are dropped (`fil` == `tl`, `pt_br` == `pt`,
- * `zh_cn` == `zh`), and so are the languages the app has no entry for
- * (`blo`, `bs`, `ccp`, `quc`, `rhg`, `zh_tw`) and the seven packs the upstream
+ * 131 of the repo's 142: the codes it spells differently are remapped (`no` ->
+ * `nb`, `blo` -> the Keyman `blo-Latn`; several packs also serve the Keyman
+ * codes for the same language, `pes-Arab` and `prs` reading `fa`'s), its exact
+ * duplicates are dropped
+ * (`fil` == `tl`, `pt_br` == `pt`, `zh_cn` == `zh`), and so are `zh_tw`, which
+ * the app has no entry for, and the seven packs the upstream
  * data leaves all but empty — `bgn`, `ceb`, `ckb`, `mni`, `su`, `syr` and
  * `vec` carry between 1 and 16 emoji, so offering them would be offering a
  * download that changes nothing.
@@ -51,7 +65,8 @@ object EmojiDictCatalog {
         emojiCount: Int,
         approxGzBytes: Long,
         repoCode: String = languageId,
-    ) = EmojiDictEntry(languageId, emojiCount, approxGzBytes, repoCode)
+        repoDir: String = repoCode,
+    ) = EmojiDictEntry(languageId, emojiCount, approxGzBytes, repoCode, repoDir)
 
     val entries: List<EmojiDictEntry> = listOf(
         entry("af", 3943, 86736L),
@@ -61,13 +76,20 @@ object EmojiDictCatalog {
         entry("as", 3942, 77419L),
         entry("ast", 281, 3472L),
         entry("az", 3943, 78968L),
+        entry("azj-Latn", 3943, 78968L, repoCode = "az"),
+        entry("azj-Latn-AZ", 3943, 78968L, repoCode = "az"),
         entry("ba", 3912, 77229L),
         entry("be", 3943, 78236L),
         entry("bew", 288, 3915L),
         entry("bg", 3943, 87434L),
+        entry("blo-Latn", 108, 1332L, repoCode = "blo"),
         entry("bn", 3943, 93862L),
+        entry("bn-IN", 3943, 93862L, repoCode = "bn"),
+        entry("bn_rom", 3943, 129656L, repoDir = "bn"),
         entry("br", 1400, 24287L),
+        entry("bs", 3943, 68377L),
         entry("ca", 3943, 86524L),
+        entry("ccp", 504, 7489L),
         entry("chr", 3940, 74620L),
         entry("cs", 3943, 109075L),
         entry("cv", 3940, 95078L),
@@ -106,6 +128,8 @@ object EmojiDictCatalog {
         entry("jv", 3941, 67928L),
         entry("ka", 3943, 77232L),
         entry("kab", 2093, 29086L),
+        entry("khk-Cyrl", 3943, 71808L, repoCode = "mn"),
+        entry("khk-Cyrl-MN", 3943, 71808L, repoCode = "mn"),
         entry("kk", 3943, 78499L),
         entry("kl", 1200, 25934L),
         entry("km", 3943, 79041L),
@@ -138,10 +162,14 @@ object EmojiDictCatalog {
         entry("pa", 3943, 94714L),
         entry("pap", 180, 2121L),
         entry("pcm", 3940, 77020L),
+        entry("pes-Arab", 3943, 86596L, repoCode = "fa"),
         entry("pl", 3943, 82513L),
+        entry("prs", 3943, 86596L, repoCode = "fa"),
         entry("ps", 3943, 76103L),
         entry("pt", 3943, 80636L),
         entry("qu", 3567, 61404L),
+        entry("quc", 2796, 50818L),
+        entry("rhg", 565, 15705L),
         entry("rm", 3912, 85300L),
         entry("ro", 3943, 91820L),
         entry("ru", 3943, 93725L),
@@ -192,4 +220,10 @@ object EmojiDictCatalog {
 
     /** True when [langId] has a dictionary worth offering. */
     fun has(langId: String): Boolean = forLanguage(langId) != null
+
+    /** The entry whose pack is called [name], gzip or not (`de_emoji.json.gz`, `de_emoji.json`). */
+    fun byFileName(name: String): EmojiDictEntry? {
+        val gz = if (name.endsWith(".json")) "$name.gz" else name
+        return entries.firstOrNull { it.fileName == gz }
+    }
 }

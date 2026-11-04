@@ -71,7 +71,7 @@ All in `src/components/`, importable via the `@components/*` alias
 | Component | Use for | Example |
 |---|---|---|
 | `<KeyCap>` | Any key name inline | `<KeyCap>Shift</KeyCap>`, `<KeyCap>?123</KeyCap>` |
-| `<SettingsPath path="…" />` | Where a setting lives; put one at the top of every "Options" section | `<SettingsPath path="Typing / Autocorrect" />` |
+| `<SettingsPath path="…" />` | Where a setting lives; put one at the top of every "Options" section. On an Android phone with the app installed it is also a `wmkeyboard://` link that opens that screen or row, and anywhere else it opens a dialog with a QR code of the same link (resolved from `src/data/settings-links.json`; run `node scripts/check-settings-links.mjs` to find a path that lands one screen too high) | `<SettingsPath path="Typing / Autocorrect" />` |
 | `<Flavor edition="full" />` | Feature gated to an edition; place next to the H1 lead or section heading | also `lite`, `both` |
 | `<Since v="1.4" />` | Version a feature landed (start using once versions are documented) | |
 | `<PhoneFrame caption="…">` | Every screenshot. An empty `<PhoneFrame />` renders a "screenshot pending" placeholder, which no finished page should show | |
@@ -125,9 +125,9 @@ roughly in order of value:
    framework needed).
 2. **Layout explorer**: render a keyboard layout as HTML from its data file so
    readers can hover keys to see long-press popups. Worth building once,
-   reusable for all 1,274 layouts + notation layouts.
+   reusable for all 3,688 layouts + notation layouts.
 3. **Theme preview**: swatch grid that live-recolours an HTML keyboard mockup.
-4. **Searchable tables**: the 333-wordlist list and 843-language matrix
+4. **Searchable tables**: the 333-wordlist list and 1,555-language matrix
    should be filterable (a `<script>` in the MDX is fine at this scale).
 5. Mermaid/diagram embeds for the developer section (addon install pipeline,
    IME lifecycle).
@@ -151,14 +151,17 @@ widget needs a framework, question it first.
   full rule set and the term glossary live in `../config/i18n/STRINGS.md`, which
   the app's own strings already follow. Descriptive prose stays warm and normal,
   up to 25 words a sentence.
-- Numbers are features. Write "843 languages" and "29 Whisper models", and
+- Numbers are features. Write "1,555 languages" and "29 Whisper models", and
   verify the number in code before you write it. Headline counts were
-  code-verified on 2026-08-12: 843 registered languages (358 hand-written +
-  485 generated from Keyman), 1,274 layouts (18 built-in + 1,256 asset, of
-  which 862 are converted Keyman grids), 333 wordlists (332 languages), 125
-  emoji keyword packs, 29 Whisper models, 8 local LLMs, 63 toolbar tools, 12
-  addon types, 8 alternative calendars, 22 fancy-text styles, 18 snippet
-  variables, Emoji 17.0 catalog (1,914 catalog rows; 1,717 base grid entries).
+  code-verified on 2026-10-11 (languages and layouts re-counted 2026-10-20): 1,555 registered languages (515 hand-written +
+  440 generated from Keyman + 306 from Gboard + 285 from Samsung + 9 phonetic), 3,688 layouts (39 built-in + 3,649 asset, of
+  which 862 are converted Keyman grids), 333 wordlists, 72 toolbar tools (67
+  on Lite), 14 addon types, 107 replaceable icon slots, 12 registered file
+  extensions, 31 fancy-text styles plus Normal. Verified on 2026-08-12 and not
+  rechecked since: 125 emoji keyword packs, 29 Whisper models, 8 local LLMs,
+  8 alternative calendars, 18 snippet variables, Emoji 17.0 catalog (1,914
+  catalog rows; 1,717 base grid entries). `app/src/test/.../ShippedCountsTest.kt`
+  pins the language and layout counts.
   Re-verify before reuse. Several of these drift with every feature release.
   The language and wordlist counts come from `src/data/*.json`, which
   `scripts/extract_data.py` regenerates from the Kotlin registries; rerun it
@@ -179,6 +182,37 @@ npm run check   # build + validate all internal links (CHECK_LINKS=1). CI runs t
 
 Run `npm run check` before you open a content PR. It catches the dead links a
 renamed page leaves behind, and it must pass before the PR merges.
+
+## Keeping the docs current
+
+The docs drift when a commit changes what a user sees and no page changes with
+it. The rule is simple: a `feat`, `fix` or `perf` commit that changes shipped
+code carries the doc edits it makes necessary, in the same commit.
+
+1. Before you commit, list each change a user can notice. That covers
+   behaviour, defaults, settings that are new, removed, renamed or moved,
+   gestures, limits and UI text.
+2. Search `src/content/docs` for those terms.
+3. Read the guide page and its reference pages: `reference/settings/`,
+   `reference/gestures.mdx`, `reference/shortcuts.mdx` and `start/faq.mdx`.
+4. Correct each claim the change makes false. Add coverage for new behaviour.
+5. After a registry change, run `python3 scripts/extract_data.py`. After a
+   new, renamed or moved setting, run `scripts/extract_settings_links.sh`, then
+   `node scripts/extract-settings-since.mjs`, and commit both data files with
+   the change. The **Settings links** workflow
+   (`.github/workflows/settings-links.yml`) reruns both on every push that
+   touches the settings index or a string, and on every release tag, and
+   commits whatever you missed, so a setting never ships without its
+   "Added in" version. After a
+   new settings screen, tool, panel, script, storage category or licence
+   file, run `node scripts/check-deep-link-routes.mjs` and fix
+   `src/lib/deep-link-routes.ts` until it passes; the link builder on
+   `reference/link-builder.mdx` draws its lists from that file.
+
+The maintainer's Claude Code setup enforces this with a `PreToolUse` hook
+(`~/.claude/hooks/docs-drift-guard.mjs`). It refuses such a commit when no file
+under `src/content/` or `src/data/` is part of it. When the docs truly need no
+change, prefix the commit command with `DOCS_CHECKED=1`.
 
 ## Current state / handoff notes
 

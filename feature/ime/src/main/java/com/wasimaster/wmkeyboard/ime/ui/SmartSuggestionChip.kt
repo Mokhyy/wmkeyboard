@@ -1,8 +1,16 @@
 package com.wasimaster.wmkeyboard.ime.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
@@ -41,8 +50,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.Tune
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.KeyboardArrowRight
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Sms
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Tune
 import com.wasimaster.wmkeyboard.core.settings.ToolbarTool
 import com.wasimaster.wmkeyboard.core.tools.SmartSuggest
 import com.wasimaster.wmkeyboard.ime.R
@@ -68,6 +78,12 @@ internal fun SmartSuggestionChip(
     onOpen: () -> Unit,
     /** A hold on the face, for a chip with a second door (the vocabulary swap). */
     onLongPress: (() -> Unit)? = null,
+    /**
+     * False while [SmartSuggest.SmartHit.tool] is switched off. An answer chip
+     * still types its answer, but the gear would open nothing, so it is not
+     * drawn (#176).
+     */
+    canOpen: Boolean = true,
 ) {
     val kb = LocalKbTheme.current
     val feedback = LocalKeyPressFeedback.current
@@ -83,6 +99,10 @@ internal fun SmartSuggestionChip(
     val tint = kb.accent
     val fill = tint.copy(alpha = if (kb.dark) 0.20f else 0.11f)
     val keyword = hit.kind in SmartSuggest.narrowKinds
+    // Narrow, but with a second door: the face calls, the button texts (#656).
+    val contact = hit.kind == SmartSuggest.Kind.CONTACT
+    // Narrow, with a count that ticks up as the same text is typed again.
+    val repeat = hit.kind == SmartSuggest.Kind.REPEAT
 
     // The accent tint is this chip's identity (it is an *answer*, not a word),
     // so the colours stay accent-based; only the outline follows the theme's
@@ -136,15 +156,19 @@ internal fun SmartSuggestionChip(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.widthIn(max = 220.dp),
                 )
-                Icon(
-                    Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                    contentDescription = null,
-                    tint = tint.copy(alpha = 0.7f),
-                    modifier = Modifier.size(15.dp),
-                )
+                if (repeat) RepeatCountPill(hit.result.orEmpty(), tint, reduceMotion)
+                if (!contact) {
+                    Icon(
+                        Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = tint.copy(alpha = 0.7f),
+                        modifier = Modifier.size(15.dp),
+                    )
+                }
             } else if (hit.result == null) {
-                // Rates still in flight. The chip is already up so the
-                // strip does not jump when the number lands.
+                // Rates or a forecast still missing. The chip is already up so
+                // the strip does not jump when the answer lands. It spins while
+                // that is fetched, or asks for the tap that fetches it.
                 Text(
                     text = hit.query,
                     color = kb.secondaryText,
@@ -154,11 +178,28 @@ internal fun SmartSuggestionChip(
                     modifier = Modifier.widthIn(max = 160.dp),
                 )
                 Text("→", color = kb.secondaryText, fontSize = 12.sp)
-                CircularProgressIndicator(
-                    modifier = Modifier.size(13.dp),
-                    strokeWidth = 1.5.dp,
-                    color = tint,
-                )
+                if (hit.awaitingTap) {
+                    Text(
+                        text = stringResource(
+                            if (hit.kind == SmartSuggest.Kind.WEATHER) {
+                                R.string.ime_smart_weather_tap
+                            } else {
+                                R.string.ime_smart_rates_tap
+                            },
+                        ),
+                        color = tint,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                } else {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(13.dp),
+                        strokeWidth = 1.5.dp,
+                        color = tint,
+                    )
+                }
             } else {
                 // The hit carries its text in tiers, widest first. Measure
                 // each against the space the row actually has and show the
@@ -202,7 +243,7 @@ internal fun SmartSuggestionChip(
                 }
             }
         }
-        if (!keyword) {
+        if ((!keyword || contact) && canOpen) {
             Box(
                 modifier = Modifier
                     .width(1.dp)
@@ -221,10 +262,12 @@ internal fun SmartSuggestionChip(
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    Icons.Outlined.Tune,
-                    contentDescription = stringResource(
-                        R.string.ime_smart_open_tool, toolLabel(hit.tool),
-                    ),
+                    if (contact) Icons.Outlined.Sms else Icons.Outlined.Tune,
+                    contentDescription = if (contact) {
+                        stringResource(R.string.ime_smart_contact_message, hit.query)
+                    } else {
+                        stringResource(R.string.ime_smart_open_tool, toolLabel(hit.tool))
+                    },
                     tint = tint.copy(alpha = 0.85f),
                     modifier = Modifier.size(17.dp),
                 )
@@ -266,8 +309,57 @@ private fun narrowChipLabel(hit: SmartSuggest.SmartHit): String = when (hit.kind
         },
         toolLabel(hit.tool),
     )
+    // The face is the call: the phone icon beside the name says so.
+    SmartSuggest.Kind.CONTACT -> hit.query
+    // "Repeat “no”", with the count in its own pill after it.
+    SmartSuggest.Kind.REPEAT -> stringResource(R.string.ime_smart_repeat_offer, hit.query.replace("\n", "↵"))
+    // A share link in the text: the face opens the panel on receiving it (#729).
+    SmartSuggest.Kind.SEND_LINK -> stringResource(R.string.ime_smart_send_link)
     else -> stringResource(R.string.ime_smart_open_tool, toolLabel(hit.tool))
 }
+
+/**
+ * The "×3" beside a repeat chip. The chip itself is keyed on its kind, so a
+ * fourth copy does not re-animate the chip; the number ticks over instead,
+ * sliding up like an odometer, which is what "again" looks like.
+ */
+@Composable
+private fun RepeatCountPill(count: String, tint: Color, reduceMotion: Boolean) {
+    val label: @Composable (String) -> Unit = { shown ->
+        Text(
+            text = stringResource(R.string.ime_smart_repeat_count, shown),
+            color = tint,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+        )
+    }
+    Box(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(tint.copy(alpha = 0.18f))
+            .padding(horizontal = 6.dp, vertical = 1.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (reduceMotion) {
+            label(count)
+        } else {
+            AnimatedContent(
+                targetState = count,
+                transitionSpec = {
+                    val up = (targetState.toIntOrNull() ?: 0) >= (initialState.toIntOrNull() ?: 0)
+                    val sign = if (up) 1 else -1
+                    (slideInVertically(tween(COUNT_TICK_MS)) { sign * it } + fadeIn(tween(COUNT_TICK_MS))) togetherWith
+                        (slideOutVertically(tween(COUNT_TICK_MS)) { -sign * it } + fadeOut(tween(COUNT_TICK_MS))) using
+                        SizeTransform(clip = false)
+                },
+                label = "repeatCount",
+            ) { shown -> label(shown) }
+        }
+    }
+}
+
+private const val COUNT_TICK_MS = 160
 
 /**
  * The richest (tier, font) pairing that fits in [maxWidth], honouring the

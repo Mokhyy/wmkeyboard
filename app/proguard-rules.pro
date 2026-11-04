@@ -63,14 +63,22 @@
 -keep class com.wasimaster.wmkeyboard.core.layout.KeyAction { *; }
 -keep class com.wasimaster.wmkeyboard.core.layout.KeyAction$* { *; }
 
-# --- Harper grammar engine (JNI) ---------------------------------------------
-# libharper_jni.so binds by the mangled Java name
-# (Java_com_wasimaster_wmkeyboard_core_grammar_HarperNative_*), so neither the
-# class name nor the external method names may be renamed or stripped.
--keep class com.wasimaster.wmkeyboard.core.grammar.HarperNative { *; }
+# --- Native gates (JNI) ------------------------------------------------------
+# Each library of native/gates.json that binds by the mangled Java name
+# (Java_com_wasimaster_wmkeyboard_core_grammar_HarperNative_* and so on) names
+# its JNI class there (`keep`), and the wmkeyboard.native-gates convention
+# generates one `-keep class ... { *; }` for each, so neither the class name
+# nor the external method names may be renamed or stripped. Every native
+# method of every class keeps its name regardless:
 -keepclasseswithmembernames,includedescriptorclasses class * {
     native <methods>;
 }
+
+# --- Google's gesture library (user-imported libjni_latinime.so) ---------------
+# Its JNI_OnLoad RegisterNatives every method of these classes by name and
+# signature, and fails the whole load if one is missing, so even the natives
+# this app never calls must survive shrinking, under exactly these names.
+-keep class com.android.inputmethod.** { *; }
 
 # The grammar lint models are decoded from JSON produced by that native code —
 # keep their serializers explicitly so a rules regression can never silently
@@ -102,11 +110,22 @@
 # --- LuaJ (plugin sandbox) ---------------------------------------------------
 # Almost no -keep rules, on purpose. PluginSandbox constructs every library class
 # it wants directly, so R8 keeps the interpreter by reference and strips the
-# parts nothing points at — luajava (Java interop), luajc (bytecode backend), the
-# JSR-223 script engine, the AST parser. That stripping is a security property in
-# its own right: the reflective Java-coercion surface never ships. Only the
-# warnings need silencing, because those stripped corners reference optional
-# dependencies that are on no classpath here (the POM declares none).
+# parts nothing points at — luajava (Java interop), luajc (bytecode backend) and
+# the JSR-223 script engine. That stripping is a security property in its own
+# right: the reflective Java-coercion surface never ships. Only the warnings need
+# silencing, because those stripped corners reference optional dependencies that
+# are on no classpath here (the POM declares none).
+#
+# The AST parser (org.luaj.vm2.parser, org.luaj.vm2.ast) does ship, for the plugin
+# editor's language service in core.plugins.lua, and it is not part of that
+# property. It turns text into a tree. It references nothing outside its own two
+# packages but LuaValue, LuaString and LuaBoolean; it has no class$ or
+# Class.forName idiom, so it needs no keep rule; and it cannot compile or run
+# anything, because LuaC has its own lexer and never reads the tree. No plugin can
+# reach it either: the sandbox installs no require, package, luajava or load.
+# Measured with R8 over the luaj jar alone, keeping every AST node public: 50 KB of
+# dex, 23 KB compressed. LuaLanguageShrinkerTest pins that the three stripped
+# corners stay unreferenced.
 -dontwarn org.apache.bcel.**
 -dontwarn javax.script.**
 -dontwarn org.luaj.vm2.luajc.**
@@ -146,6 +165,41 @@
 }
 -dontwarn androidx.work.impl.**
 
+# --- ML Kit component registrars (full flavor) --------------------------------
+# ML Kit finds its pieces the Firebase way: each library's manifest lists a
+# registrar class by name as <meta-data> on MlKitComponentDiscoveryService, and
+# ComponentDiscovery does Class.forName + getDeclaredConstructor().newInstance()
+# on every one. firebase-components ships `-keep class * implements
+# ComponentRegistrar`, which is enough for ProGuard and for R8 in compat mode,
+# where a kept class keeps its no-arg constructor for free. Full mode keeps only
+# what the rule names, and this rule names no members, so R8 sees a constructor
+# nothing in the dex calls and removes it. Discovery then hits
+# NoSuchMethodException, logs "Could not instantiate ..." and moves on with an
+# empty component list. The first getClient() call — the document scanner in
+# DocScanActivity.onCreate, the barcode scanner and the text recognizer inside
+# their panels' remember {} — then reads SharedPrefManager out of that empty
+# list and dies with a bare NullPointerException from the telemetry logger's
+# constructor. Release only (#146); debug and `fast` never shrink.
+-keep class * implements com.google.firebase.components.ComponentRegistrar {
+    <init>();
+}
+
+# --- Google's shaded "shared Random" classes (full flavor) --------------------
+# The GMS-built ML Kit jars carry Guava-style Random subclasses whose setSeed
+# throws once a `final boolean` field is true. That field is assigned after
+# super() returns, and java.util.Random's constructor calls setSeed from inside
+# super(), so at that moment the field is still false and the call goes
+# through. R8 sees the field only ever written `true`, folds the check to
+# "always throw" and merges the two classes, so the class initializer that
+# builds them dies with "Setting the seed on the shared Random object is not
+# permitted" wrapped in ExceptionInInitializerError. In Digital Ink that
+# initializer sits under the model download manager, so every handwriting
+# download failed at once in release (#235); debug and `fast` never shrink.
+# Keeping the classes and their fields stops the folding and the merge.
+-keep class com.google.android.gms.internal.** extends java.util.Random {
+    <fields>;
+}
+
 
 # --- On-device AI runtime bridge ---------------------------------------------
 # LitertLmRuntime is reached ONLY by reflection (LocalLlmEngine's facade):
@@ -158,3 +212,115 @@
     <init>();
     *;
 }
+
+# --- Google Home bridge -------------------------------------------------------
+# GoogleHomeBridge is reached ONLY by reflection from the Play facade
+# (src/googlehomeplay in :feature:ime), out of the :feature:googlehome split.
+-keep class com.wasimaster.wmkeyboard.ime.homeassistant.googlehome.GoogleHomeBridge {
+    <init>();
+}
+
+# --- On-device translation bridge ---------------------------------------------
+# The same arrangement and the same reason: MlKitTranslateRuntime is reached
+# ONLY by reflection (OnDeviceTranslator's facade), from the base APK in
+# sideload builds and from the on-demand :feature:translate split in Play
+# builds.
+-keep class com.wasimaster.wmkeyboard.core.translate.bridge.MlKitTranslateRuntime {
+    <init>();
+    *;
+}
+
+# --- LiteRT bridges (offline Whisper, sticker background remover, PaddleOCR) --
+# Same again: all three are reached ONLY by reflection (WhisperEngine's,
+# LocalSubjectCutout's and PaddleOcr's facades), from the base APK in sideload
+# builds and from the on-demand :feature:litert split in Play builds.
+-keep class com.wasimaster.wmkeyboard.core.voice.whisper.bridge.LitertWhisperRuntime {
+    <init>();
+    *;
+}
+-keep class com.wasimaster.wmkeyboard.core.stickers.bridge.LitertCutoutRuntime {
+    <init>();
+    *;
+}
+-keep class com.wasimaster.wmkeyboard.core.ocr.bridge.LitertPaddleRuntime {
+    <init>();
+    *;
+}
+# Search by meaning's EmbeddingGemma graphs (EmbeddingEngine's facade), the same way.
+-keep class com.wasimaster.wmkeyboard.core.semantic.bridge.LitertEmbeddingRuntime {
+    <init>();
+    *;
+}
+
+# --- Handwriting bridge --------------------------------------------------------
+# Reached ONLY by reflection (HandwritingModels' facade), from the base APK in
+# sideload builds and from the on-demand :feature:handwriting split in Play.
+-keep class com.wasimaster.wmkeyboard.core.handwriting.bridge.MlKitInkRuntime {
+    <init>();
+    *;
+}
+# Called from ML Kit's own downloader, rewritten at build time to reach it
+# (InkOfflineImportsTransform, #666). On Play the callers sit in the split, so
+# the names must survive the base's shrink as written.
+-keep class com.wasimaster.wmkeyboard.core.handwriting.InkPackImports {
+    public static *** build(...);
+    public static *** checkSelfPermission(...);
+    public static *** connectivityWaived();
+}
+
+# --- JSch (SFTP backup location) ----------------------------------------------
+# JSch builds every algorithm with Class.forName on a name from its config
+# table, so R8 sees no reference to any of them and would strip them all. Keep
+# exactly the classes core/settings' SftpAlgorithms can reach, each with the
+# no-arg constructor JSch calls; NewBackupLocationsTest in :app fails when the two
+# drift apart. Everything else in JSch (ChannelSftp, Kerberos, zlib, agents,
+# the Bouncy-Castle-only ciphers nobody offers) goes, which is the point of
+# naming them rather than keeping com.jcraft.jsch.**.
+-keep class com.jcraft.jsch.jce.** { <init>(); }
+-keep class com.jcraft.jsch.jbcrypt.JBCrypt { <init>(); }
+-keep class com.jcraft.jsch.bc.XDH { <init>(); }
+-keep class com.jcraft.jsch.bc.MLKEM768 { <init>(); }
+-keep class com.jcraft.jsch.bc.SNTRUP761 { <init>(); }
+-keep class com.jcraft.jsch.bc.SignatureEd25519 { <init>(); }
+-keep class com.jcraft.jsch.bc.KeyPairGenEdDSA { <init>(); }
+-keep class com.jcraft.jsch.bc.ChaCha20Poly1305 { <init>(); }
+-keep class com.jcraft.jsch.DH25519MLKEM768 { <init>(); }
+-keep class com.jcraft.jsch.DH25519SNTRUP761 { <init>(); }
+-keep class com.jcraft.jsch.DH25519 { <init>(); }
+-keep class com.jcraft.jsch.DHEC256 { <init>(); }
+-keep class com.jcraft.jsch.DHEC384 { <init>(); }
+-keep class com.jcraft.jsch.DHEC521 { <init>(); }
+-keep class com.jcraft.jsch.DHGEX256 { <init>(); }
+-keep class com.jcraft.jsch.DHGEX1 { <init>(); }
+-keep class com.jcraft.jsch.DHG14 { <init>(); }
+-keep class com.jcraft.jsch.DHG14256 { <init>(); }
+-keep class com.jcraft.jsch.DHG16 { <init>(); }
+-keep class com.jcraft.jsch.DHG18 { <init>(); }
+-keep class com.jcraft.jsch.CipherNone { <init>(); }
+-keep class com.jcraft.jsch.UserAuthNone { <init>(); }
+-keep class com.jcraft.jsch.UserAuthPassword { <init>(); }
+-keep class com.jcraft.jsch.UserAuthKeyboardInteractive { <init>(); }
+-keep class com.jcraft.jsch.UserAuthPublicKey { <init>(); }
+# Several of those classes and constructors are package-private, reached from
+# JSch's own classes in the same package. Repackaging would split them apart
+# and turn the lookup into an IllegalAccessException, as it did for LuaJ above.
+-keeppackagenames com.jcraft.jsch.**
+# Optional integrations JSch compiles against and never loads here.
+-dontwarn org.ietf.jgss.**
+-dontwarn com.sun.jna.**
+-dontwarn org.newsclub.net.unix.**
+-dontwarn org.apache.logging.log4j.**
+-dontwarn org.slf4j.**
+
+# --- Bouncy Castle (SFTP and SMB crypto) --------------------------------------
+# Lightweight API only, every class reached by a direct reference, so R8 keeps
+# what is used and nothing needs a rule. The jar also carries the JCA provider,
+# LDAP stores and the like, which reference classes Android does not have.
+-dontwarn javax.naming.**
+-dontwarn org.bouncycastle.jsse.**
+
+# PairDrop: libjingle calls back into these by name.
+-keep class org.webrtc.** { *; }
+
+# Korean spacing: libKiwiJava binds to these classes and their fields by name.
+-keep class kr.pe.bab2min.** { *; }

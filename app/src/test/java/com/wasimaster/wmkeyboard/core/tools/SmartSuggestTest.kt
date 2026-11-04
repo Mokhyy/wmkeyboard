@@ -4,6 +4,7 @@ import com.wasimaster.wmkeyboard.core.settings.NumberGrouping
 import com.wasimaster.wmkeyboard.core.settings.ToolbarTool
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -69,8 +70,36 @@ class SmartSuggestTest {
         val h = hit("150 usd", ctx.copy(rates = null))
         assertEquals(SmartSuggest.Kind.CURRENCY, h?.kind)
         assertTrue("should be waiting on rates", h!!.pending)
+        assertFalse("fetching as you type, the chip spins", h.awaitingTap)
         assertNull(h.result)
         assertNull(h.insert)
+    }
+
+    @Test
+    fun aChipThatFetchesOnlyOnATapAsksForIt() {
+        val h = hit("150 usd", ctx.copy(rates = null, ratesOnTap = true))
+        assertEquals(SmartSuggest.Kind.CURRENCY, h?.kind)
+        assertTrue(h!!.pending)
+        assertTrue("the chip has to ask for the tap", h.awaitingTap)
+        assertNull("nothing to type until the rates are in", h.insert)
+        // A coin missing from a loaded table asks the same way.
+        val coin = hit("1 btc", ctx.copy(ratesOnTap = true))
+        assertTrue(coin!!.pendingCrypto)
+        assertTrue(coin.awaitingTap)
+        // Rates already loaded need no tap at all.
+        val ready = hit("150 usd", ctx.copy(ratesOnTap = true))
+        assertEquals("18,000.00 Taka", ready?.result)
+        assertFalse(ready!!.awaitingTap)
+    }
+
+    @Test
+    fun aWeatherChipThatFetchesOnlyOnATapAsksForIt() {
+        val asking = hit("will it rain", ctx.copy(weatherAvailable = true, weatherOnTap = true))
+        assertEquals(true, asking?.pendingWeather)
+        assertTrue("the chip has to ask for the tap", asking!!.awaitingTap)
+        assertNull(asking.result)
+        // Fetching as you type, the same chip spins instead.
+        assertEquals(false, hit("will it rain", ctx.copy(weatherAvailable = true))?.awaitingTap)
     }
 
     @Test
@@ -252,6 +281,30 @@ class SmartSuggestTest {
         }
     }
 
+    @Test
+    fun currencyResultFollowsTheLabelSetting() {
+        val inr = ctx.copy(currencyTo = "INR")
+        assertEquals("83.00 Rupee", hit("1 usd", inr)?.insert)
+        val symbol = hit("1 usd", inr.copy(currencyLabel = CurrencyLabel.SYMBOL))!!
+        assertEquals("₹83.00", symbol.insert)
+        assertEquals("₹83.00", symbol.tiers.first().result)
+        assertTrue("every tier keeps the symbol", symbol.tiers.all { it.result.contains('₹') })
+        assertEquals("83.00 INR", hit("1 usd", inr.copy(currencyLabel = CurrencyLabel.CODE))?.insert)
+    }
+
+    @Test
+    fun aSymbolLabelPutsTheTildeFirst() {
+        val tiers = hit("1.25 eur", ctx.copy(currencyTo = "GBP", currencyLabel = CurrencyLabel.SYMBOL))!!.tiers
+        assertTrue(tiers.map { it.result }.toString(), "~£1" in tiers.map { it.result })
+    }
+
+    @Test
+    fun aSymbolLabelFallsBackToTheCodeWithoutASymbol() {
+        val rates = CurrencyClient.Rates(base = "USD", rates = mapOf("USD" to 1.0, "SEK" to 10.0))
+        val h = hit("1 usd", ctx.copy(rates = rates, currencyTo = "SEK", currencyLabel = CurrencyLabel.SYMBOL))
+        assertEquals("10.00 SEK", h?.insert)
+    }
+
     // ---- display tiers ----
 
     @Test
@@ -306,6 +359,45 @@ class SmartSuggestTest {
         assertEquals(1, hit("12*4")!!.tiers.size)
     }
 
+    @Test
+    fun aSecondSumOnTheSameLineIsStillRead() {
+        // The answer to the first sum sits in the character class the second
+        // one is spelled with, so without looking past it "60 5*5" is all the
+        // scanner sees and the chip goes quiet for the rest of the line.
+        for (typed in listOf(
+            "12*5=60 5*5=",
+            "12*5=60  5*5=",
+            "12*5=60. 5*5=",
+            "12*5=60, 5*5=",
+            "12*5=60 and 5*5=",
+        )) {
+            val h = hit(typed)
+            assertNotNull("no hit for \"$typed\"", h)
+            assertEquals(typed, SmartSuggest.Kind.CALC, h!!.kind)
+            assertEquals(typed, "5*5", h.query)
+            assertEquals(typed, "25", h.result)
+            assertEquals(typed, 0, h.replaceSpan)
+        }
+        // Without the "=" the span still covers only the second expression.
+        val open = hit("12*5=60  5*5")!!
+        assertEquals("5*5", open.query)
+        assertEquals(3, open.replaceSpan)
+    }
+
+    @Test
+    fun theWholeExpressionStillWinsOverItsTail() {
+        // Trying later starts must not shorten a sum that reads fine as typed.
+        val h = hit("12 * 4 + 2")!!
+        assertEquals("12 * 4 + 2", h.query)
+        assertEquals("50", h.result)
+    }
+
+    @Test
+    fun anAnswerFollowedByALoneNumberRaisesNothing() {
+        assertNull(hit("1+1=2 3"))
+        assertNull(hit("12*5=60"))
+    }
+
     // ---- units ----
 
     @Test
@@ -316,6 +408,20 @@ class SmartSuggestTest {
             assertEquals(typed, SmartSuggest.Kind.UNIT, h!!.kind)
             assertEquals(typed, "0.3048 m", h.result)
         }
+    }
+
+    @Test
+    fun aUnitToAnswerInCanBeNamed() {
+        for (typed in listOf("1 mile in cm", "1 mile to cm", "1 mi into centimetres", "1 Mile In CM")) {
+            val h = hit(typed)
+            assertEquals(typed, SmartSuggest.Kind.UNIT, h?.kind)
+            assertEquals(typed, "160934.4 cm", h?.result)
+            // The whole phrase is what the chip replaces.
+            assertEquals(typed, typed.length, h?.replaceSpan)
+        }
+        assertEquals("86 °F", hit("30c to f")?.result)
+        // A second unit that measures something else is no answer.
+        assertNotEquals(SmartSuggest.Kind.UNIT, hit("1 mile in kg")?.kind)
     }
 
     @Test
@@ -462,6 +568,14 @@ class SmartSuggestTest {
     }
 
     @Test
+    fun aShortSubtractionIsASumWithoutTheEquals() {
+        // #545
+        assertEquals("8", hit("12-4")?.result)
+        assertEquals("75", hit("100-25")?.result)
+        assertNull(hit("2024-25"))
+    }
+
+    @Test
     fun aPlainDivisionIsASumOfItsOwn() {
         assertEquals("0.5", hit("1/2")?.result)
         assertEquals("3", hit("12/4")?.result)
@@ -498,9 +612,9 @@ class SmartSuggestTest {
     fun aTrailingPercentIsAPercentageNotADivision() {
         assertNull(hit("100%"))
         assertNull(hit("up 50%"))
-        // Mixed with another operator it is arithmetic again — and the
-        // engine reads a trailing "%" as "of one", so this is 50 + 0.1.
-        assertEquals("50.1", hit("50+10%")?.result)
+        // Mixed with another operator it is arithmetic again — and an
+        // added percentage is a share of the left side, so this is 50 + 5.
+        assertEquals("55", hit("50+10%")?.result)
     }
 
     @Test
@@ -566,6 +680,26 @@ class SmartSuggestTest {
     }
 
     @Test
+    fun aHanOrKanaKeywordCountsAtTheEndOfARun() {
+        val h = hit("我的笔记", ctx)
+        assertEquals(ToolbarTool.NOTES, h?.tool)
+        assertEquals("笔记", h?.query)
+        assertEquals("the keyword goes, the rest stays", 2, h?.replaceSpan)
+        assertEquals(ToolbarTool.NOTES, hit("笔记", ctx)?.tool)
+        assertEquals(ToolbarTool.NOTES, hit("このメモ", ctx)?.tool)
+    }
+
+    @Test
+    fun theLongestKeywordAtTheEndOfARunWins() {
+        assertEquals(ToolbarTool.IMAGE_SEARCH, hit("图片搜索", ctx)?.tool)
+    }
+
+    @Test
+    fun aLatinKeywordStillHasToBeTheWholeWord() {
+        assertNull(hit("keynote", ctx))
+    }
+
+    @Test
     fun writingBackTheDefaultsDropsTheOverride() {
         val defaults = SmartSuggest.defaultKeywords.getValue(ToolbarTool.WIKIPEDIA)
         val encoded = SmartSuggest.withKeywords("", ToolbarTool.WIKIPEDIA, defaults)
@@ -620,7 +754,8 @@ class SmartSuggestTest {
     fun ordinaryTypingIsLeftAlone() {
         for (typed in listOf(
             "hello there", "see you at 5", "call me", "", "i have 2 cats",
-            "version 1.2.3", "room 101", "he said so",
+            "version 1.2.3", "room 101", "he said so", "that that", "bye bye",
+            "yesss", "hmm hmm",
         )) {
             assertNull("\"$typed\" should not raise a chip", hit(typed))
         }
@@ -680,6 +815,25 @@ class SmartSuggestTest {
     @Test
     fun explicitDatesAnnotateTheWeekday() {
         assertEquals("aug 14 (Friday)", hit("lets do aug 14", dateCtx)?.insert)
+    }
+
+    // #1089: the user's own formats, and a hold stepping through them.
+    @Test
+    fun theUsersDateFormatIsShownAndWritten() {
+        val iso = dateCtx.copy(dateFormats = listOf("yyyy-MM-dd", "d/M"))
+        val first = hit("free tomorrow", iso)
+        assertEquals("2026-08-11", first?.result)
+        assertEquals("tomorrow (2026-08-11)", first?.insert)
+        assertEquals(true, first?.moreFormats)
+        assertEquals("tomorrow (11/8)", hit("free tomorrow", iso.copy(dateFormatStep = 1))?.insert)
+        assertEquals("tomorrow (2026-08-11)", hit("free tomorrow", iso.copy(dateFormatStep = 2))?.insert)
+    }
+
+    @Test
+    fun aDateFormatThatDoesNotReadKeepsTheChipsOwn() {
+        val h = hit("free tomorrow", dateCtx.copy(dateFormats = listOf("yyyy-MM-dd ''q")))
+        assertEquals("tomorrow (Tue 11 Aug)", h?.insert)
+        assertEquals(false, h?.moreFormats)
     }
 
     @Test
@@ -811,6 +965,127 @@ class SmartSuggestTest {
     fun intentChipsRespectTheToolBeingEnabled() {
         val noTranslate = ctx.copy(enabledTools = ToolbarTool.entries - ToolbarTool.TRANSLATE)
         assertNull(hit("how do you say", noTranslate))
+    }
+
+    @Test
+    fun wordsBeforeAPlaceOfferTheLocationTool() {
+        // #350: the chip opens the tool and keeps the words.
+        for (text in listOf("I'm at ", "I’m at", "sending my location", "here is my current location:", "this is where I am")) {
+            val h = hit(text)
+            assertEquals(text, SmartSuggest.Kind.INTENT, h?.kind)
+            assertEquals(text, ToolbarTool.LOCATION, h?.tool)
+            assertEquals(text, 0, h?.replaceSpan)
+        }
+        // A word that only ends the same way is not the phrase.
+        assertNull(hit("whim at"))
+        assertNull(hit("I'm at", ctx.copy(enabledTools = ToolbarTool.entries - ToolbarTool.LOCATION)))
+    }
+
+    // ---- repeated text ----
+
+    @Test
+    fun theSameTextThreeTimesOffersTheRepeatTool() {
+        val h = hit("no no no")
+        assertEquals(SmartSuggest.Kind.REPEAT, h?.kind)
+        assertEquals(ToolbarTool.TEXT_REPEAT, h?.tool)
+        assertEquals("no", h?.query)
+        assertEquals("3", h?.result)
+        assertNull(h?.insert)
+        // The text stays; the tool decides what happens to the copies.
+        assertEquals(0, h?.replaceSpan)
+        assertEquals(ToolPrefill.TextRepeat("no", " ", 3, 8), h?.prefill)
+        // The count follows the typing, and so does the separator.
+        assertEquals("4", hit("no no no no ")?.result)
+        assertEquals(ToolPrefill.TextRepeat("ok", "\n", 3, 8), hit("ok\nok\nok")?.prefill)
+        assertEquals(ToolPrefill.TextRepeat("ha", "", 3, 6), hit("hahaha")?.prefill)
+        assertEquals("😂", hit("😂 😂 😂")?.query)
+    }
+
+    @Test
+    fun repeatsStayQuietForShortRunsAndStretchedGlyphs() {
+        for (typed in listOf("no no", "haha", "!!!!!!", "😂😂😂", "aaaaaa", "no no no x", "xhahaha")) {
+            assertNull("\"$typed\" should not raise a repeat chip", hit(typed))
+        }
+        // The threshold is a setting.
+        assertEquals(SmartSuggest.Kind.REPEAT, hit("no no", ctx.copy(repeatAfter = 2))?.kind)
+        assertNull(hit("no no no", ctx.copy(repeatAfter = 4)))
+    }
+
+    @Test
+    fun repeatsRespectTheirSwitchesAndRetire() {
+        assertNull(hit("no no no", ctx.copy(repeatChips = false)))
+        assertNull(hit("no no no", ctx.copy(enabledTools = ToolbarTool.entries - ToolbarTool.TEXT_REPEAT)))
+        assertNull(hit("No No No", ctx.copy(repeatRetired = setOf("no"))))
+        assertEquals(SmartSuggest.Kind.REPEAT, hit("ok ok ok", ctx.copy(repeatRetired = setOf("no")))?.kind)
+    }
+
+    @Test
+    fun repeatsLoseToKeywordsAndWinOverNames() {
+        // "wiki wiki wiki" is still a keyword being typed.
+        assertEquals(SmartSuggest.Kind.TOOL, hit("wiki wiki wiki")?.kind)
+        val book = ContactPhones.from(listOf(ContactPhones.Entry("Mom", "01711-000000", contactId = 1)))
+        assertEquals(SmartSuggest.Kind.REPEAT, hit("Mom Mom Mom", ctx.copy(contacts = book))?.kind)
+        assertEquals(SmartSuggest.Kind.CONTACT, hit("Mom", ctx.copy(contacts = book))?.kind)
+    }
+
+    @Test
+    fun aCutOffWindowDoesNotCountItsFirstCopy() {
+        // Sixteen copies fill the 48-char window exactly; one more character in
+        // front cuts the window inside the run, and the copy at its edge is doubted.
+        val copies = "no ".repeat(16)
+        assertEquals("16", hit(copies)?.result)
+        assertEquals("15", hit("x$copies")?.result)
+    }
+
+    // ---- the tools behind each family (#176) ----
+
+    /** A trigger per family, with the context its chip shows in while every tool is on. */
+    private fun familyTrigger(family: SmartSuggest.Family): Pair<String, SmartSuggest.Context> = when (family) {
+        SmartSuggest.Family.CALC -> "12*4" to ctx
+        SmartSuggest.Family.CURRENCY -> "150 usd" to ctx
+        SmartSuggest.Family.UNITS -> "1 ft" to ctx
+        SmartSuggest.Family.NUMBERS -> "1234567" to ctx
+        SmartSuggest.Family.DATES -> "free tomorrow" to dateCtx
+        SmartSuggest.Family.WEATHER -> "will it rain" to ctx.copy(weather = weatherInfo())
+        SmartSuggest.Family.LOOKUPS -> "define serendipity" to ctx
+        SmartSuggest.Family.TRANSLATE -> "how do you say" to ctx
+        SmartSuggest.Family.GIFS -> "happy birthday" to ctx
+        SmartSuggest.Family.REPEATS -> "no no no" to ctx
+    }
+
+    @Test
+    fun everyFamilyNamesTheToolsItsDetectorNeeds() {
+        // The settings banner trusts toolsFor; a detector that checks another
+        // tool would make it tell the user to turn on the wrong one.
+        for (family in SmartSuggest.Family.entries) {
+            val (text, on) = familyTrigger(family)
+            assertNotNull("$family: no chip for \"$text\" with every tool on", hit(text, on))
+            val off = on.copy(enabledTools = ToolbarTool.entries - SmartSuggest.toolsFor(family).flatten().toSet())
+            if (SmartSuggest.answersWithoutTool(family)) {
+                assertNotNull("$family: an answer chip types without its tool", hit(text, off))
+            } else {
+                assertNull("$family: chip still shows with its tools off", hit(text, off))
+            }
+        }
+    }
+
+    @Test
+    fun missingToolsNamesOneToolPerJobNothingCanDo() {
+        val all = ToolbarTool.entries
+        assertEquals(emptyList<ToolbarTool>(), SmartSuggest.missingTools(SmartSuggest.Family.LOOKUPS, all))
+        assertEquals(
+            listOf(ToolbarTool.WIKIPEDIA),
+            SmartSuggest.missingTools(SmartSuggest.Family.LOOKUPS, all - ToolbarTool.WIKIPEDIA),
+        )
+        // Stickers still take a celebration, so GIFs off on its own is fine.
+        assertEquals(emptyList<ToolbarTool>(), SmartSuggest.missingTools(SmartSuggest.Family.GIFS, all - ToolbarTool.GIF))
+        val neither = all - ToolbarTool.GIF - ToolbarTool.STICKER
+        assertEquals(listOf(ToolbarTool.GIF), SmartSuggest.missingTools(SmartSuggest.Family.GIFS, neither))
+        // A tool the build cannot turn on gives way to the next one in its job.
+        assertEquals(
+            listOf(ToolbarTool.STICKER),
+            SmartSuggest.missingTools(SmartSuggest.Family.GIFS, neither, canTurnOn = { it != ToolbarTool.GIF }),
+        )
     }
 
     // ---- number grouping ----
@@ -991,6 +1266,34 @@ class SmartSuggestVocabTest {
         assertNull(hit("hate", ctx.copy(vocabChips = false)))
         assertNull(hit("hate", ctx.copy(vocab = null)))
         assertNull(hit("hate", ctx.copy(enabledTools = ToolbarTool.entries - ToolbarTool.VOCABULARY)))
+    }
+
+    @Test
+    fun glossesInYourLanguagesNudgeTheEnglishWord() {
+        val glossed = abhor.copy(
+            translations = mapOf(
+                "bn" to com.wasimaster.wmkeyboard.core.vocab.VocabTranslation(
+                    w = listOf("ঘৃণা করা", "ঘৃণা"),
+                    r = listOf("ghrina kora", "ghrina"),
+                ),
+            ),
+        )
+        val glossIndex = com.wasimaster.wmkeyboard.core.vocab.VocabIndex.build(
+            listOf(com.wasimaster.wmkeyboard.core.vocab.VocabPack(com.wasimaster.wmkeyboard.core.vocab.VocabPackMeta(id = "ws1"), listOf(glossed))),
+            translationCodes = listOf("bn"),
+        )
+        val bengali = ctx.copy(vocab = glossIndex)
+        assertEquals("abhor", hit("আমি ঘৃণা", bengali)?.result)
+        assertEquals("ঘৃণা", hit("আমি ঘৃণা ", bengali)?.query)
+        // The romanisation as typed on a phonetic layout, and the whole phrase.
+        assertEquals("abhor", hit("ami ghrina", bengali)?.result)
+        assertEquals("ঘৃণা করা", hit("আমি ঘৃণা করা.", bengali)?.query)
+        assertEquals(ToolPrefill.Vocab("abhor"), hit("ami ghrina kora", bengali)?.prefill)
+        // Every sensitivity lets a gloss through; a retired gloss does not.
+        assertNotNull(hit("ghrina", bengali.copy(vocabMinGap = 2.0)))
+        assertNull(hit("ghrina", bengali.copy(vocabRetired = setOf("ghrina"))))
+        // Without the language asked for, the gloss is not a trigger.
+        assertNull(hit("ami ghrina"))
     }
 
     @Test

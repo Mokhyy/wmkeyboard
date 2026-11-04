@@ -154,6 +154,9 @@ class AddonRepoCodecTest {
                 // good" but "should I let this run at all", which is why the
                 // preview shows its capabilities rather than its content.
                 AddonType.Plugin,
+                // A vocabulary pack is a word list: a few cards from it say
+                // what the whole study list is like better than its name does.
+                AddonType.Vocabulary,
             ),
             previewable,
         )
@@ -303,6 +306,29 @@ class AddonRepoCodecTest {
     @Test
     fun `a github URL without a repository name is rejected`() {
         assertNull(AddonRepoCodec.resolveManifestUrl("https://github.com/user"))
+    }
+
+    @Test
+    fun `a repository page on another forge resolves to its raw manifest`() {
+        assertEquals(
+            "https://codeberg.org/me/addons/raw/branch/main/wmkeyboard-repo.json",
+            AddonRepoCodec.resolveManifestUrl("https://codeberg.org/me/addons"),
+        )
+        assertEquals(
+            "https://git.home.example/me/addons/raw/branch/dev/wmkeyboard-repo.json",
+            AddonRepoCodec.resolveManifestUrl("https://git.home.example/me/addons/src/branch/dev"),
+        )
+        assertEquals(
+            "https://gitlab.com/group/sub/addons/-/raw/stable/repo/wmkeyboard-repo.json",
+            AddonRepoCodec.resolveManifestUrl("gitlab.com/group/sub/addons/-/tree/stable/repo"),
+        )
+        assertEquals(
+            "https://git.sr.ht/~me/addons/blob/main/wmkeyboard-repo.json",
+            AddonRepoCodec.resolveManifestUrl("https://git.sr.ht/~me/addons"),
+        )
+        // A raw manifest address on any forge still passes through untouched.
+        val raw = "https://codeberg.org/me/addons/raw/branch/main/wmkeyboard-repo.json"
+        assertEquals(raw, AddonRepoCodec.resolveManifestUrl(raw))
     }
 
     // ---- asset resolution ----------------------------------------------

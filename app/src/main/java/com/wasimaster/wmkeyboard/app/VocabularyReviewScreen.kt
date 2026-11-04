@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.VolumeUp
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.VolumeUp
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -52,11 +52,11 @@ import com.wasimaster.wmkeyboard.common.R as CommonR
 @Composable
 internal fun VocabReviewScreen(
     repository: SettingsRepository,
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     onNavigate: (String) -> Unit,
 ) {
     val context = LocalContext.current
-    val index = rememberVocabIndex(0)
+    val index = rememberVocabIndex(0, settings)
     val progress = rememberVocabProgress()
     val speaker = rememberVocabSpeaker()
     val today = remember { vocabToday() }
@@ -70,10 +70,11 @@ internal fun VocabReviewScreen(
         CaptionText(stringResource(CommonR.string.common_loading), Modifier.padding(16.dp))
         return
     }
+    val dailyGoal = settings.watch { it.vocabulary.dailyGoal }
     if (queue == null) {
         val day = if (ahead) today + 1 else today
         val due = progress.dueWords(day, index.lemmas)
-        val fresh = progress.unseen(index.lemmas).shuffled(java.util.Random(today.toLong())).take(settings.vocabulary.dailyGoal)
+        val fresh = progress.unseen(index.lemmas).shuffled(java.util.Random(today.toLong())).take(dailyGoal)
         queue = (due + fresh).mapNotNull { index.lookup(it) }
         position = 0
     }
@@ -88,7 +89,11 @@ internal fun VocabReviewScreen(
             )
             Spacer(Modifier.height(4.dp))
             CaptionText(
-                if (cards.isEmpty()) stringResource(R.string.vocab_review_empty_title) else stringResource(R.string.vocab_review_progress, position.coerceAtMost(cards.size), cards.size),
+                if (cards.isEmpty()) stringResource(R.string.vocab_review_empty_title) else stringResource(
+                    R.string.vocab_review_progress,
+                    position.coerceAtMost(cards.size),
+                    cards.size,
+                ),
             )
         }
     }
@@ -105,13 +110,18 @@ internal fun VocabReviewScreen(
         SettingsGroup(stringResource(if (position > 0) R.string.vocab_review_done_title else R.string.vocab_review_empty_title)) {
             if (position > 0) {
                 item {
+                    val scheduler = settings.watch { it.vocabulary.scheduler }
                     Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                         for (grade in ReviewGrade.entries) {
                             val n = counts[grade.ordinal]
-                            if (grade == ReviewGrade.HARD && settings.vocabulary.scheduler == VocabScheduler.LEITNER && n == 0) continue
+                            if (grade == ReviewGrade.HARD && scheduler == VocabScheduler.LEITNER && n == 0) continue
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(n.toString(), style = MaterialTheme.typography.titleLarge)
-                                Text(stringResource(grade.labelRes()), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    stringResource(grade.labelRes()),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
                         }
                     }
@@ -120,7 +130,7 @@ internal fun VocabReviewScreen(
                 item { CaptionText(stringResource(R.string.vocab_review_empty_body)) }
             }
             item {
-                WmRow(title = stringResource(R.string.vocab_review_ahead_action), subtitle = stringResource(R.string.vocab_review_ahead_subtitle), onClick = {
+                WmRow(title = stringResource(R.string.vocab_review_ahead_action), subtitle = stringResource(R.string.vocab_review_ahead_subtitle), icon = SettingsRowIcons[R.string.vocab_review_ahead_action], onClick = {
                     ahead = true
                     queue = null
                     counts = IntArray(ReviewGrade.entries.size)
@@ -132,7 +142,7 @@ internal fun VocabReviewScreen(
     }
 
     val rotation by animateFloatAsState(if (flipped) 180f else 0f, label = "flip")
-    val reduce = settings.reduceMotion
+    val reduce = settings.watch { it.reduceMotion }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -152,28 +162,44 @@ internal fun VocabReviewScreen(
             if (!flipped) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(current.word, style = MaterialTheme.typography.displaySmall, textAlign = TextAlign.Center)
-                    current.ipaFor(settings.vocabulary.accent)?.let {
+                    current.ipaFor(settings.watch { it.vocabulary.accent })?.let {
                         Text(it, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    IconButton(onClick = { speakVocabWord(context, settings, speaker, current) }) {
+                    IconButton(onClick = { speakVocabWord(context, settings.value, speaker, current) }) {
                         Icon(Icons.AutoMirrored.Outlined.VolumeUp, contentDescription = stringResource(R.string.vocab_word_speak_desc))
                     }
-                    Text(stringResource(R.string.vocab_review_flip_hint), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        stringResource(R.string.vocab_review_flip_hint),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             } else {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(current.word, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                     current.pos.firstOrNull()?.let { Text(it, style = MaterialTheme.typography.labelMedium, fontStyle = FontStyle.Italic) }
                     Text(current.definition, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center, maxLines = 5)
+                    // The meaning in the user's language too, unless Card sections keeps it off (#651).
+                    rememberVocabMeaning(current, settings)?.let { meaning ->
+                        VocabMeaningLine(meaning, MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
+                    }
                     current.senses.firstOrNull()?.example?.let {
-                        Text("“$it”", style = MaterialTheme.typography.bodyMedium, fontStyle = FontStyle.Italic, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3)
+                        Text(
+                            "“$it”",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontStyle = FontStyle.Italic,
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 3,
+                        )
                     }
                 }
             }
         }
     }
 
-    val grades = if (settings.vocabulary.scheduler == VocabScheduler.SM2) {
+    val scheduler = settings.watch { it.vocabulary.scheduler }
+    val grades = if (scheduler == VocabScheduler.SM2) {
         listOf(ReviewGrade.AGAIN, ReviewGrade.HARD, ReviewGrade.GOOD, ReviewGrade.EASY)
     } else {
         listOf(ReviewGrade.AGAIN, ReviewGrade.GOOD, ReviewGrade.EASY)
@@ -185,15 +211,22 @@ internal fun VocabReviewScreen(
             }
         } else {
             for (grade in grades) {
-                val preview = progress.preview(current.word, grade, today, settings.vocabulary.scheduler)
+                val preview = progress.preview(current.word, grade, today, scheduler)
                 val days = (preview.dueDay - today).coerceAtLeast(0)
                 val label = stringResource(grade.labelRes()) + "\n" + pluralStringResource(R.plurals.vocab_review_days, days, days)
+                val onGrade = {
+                    grade(progress, current, grade, today, settings.value) {
+                        counts[grade.ordinal]++
+                        position++
+                        flipped = false
+                    }
+                }
                 if (grade == ReviewGrade.GOOD) {
-                    FilledTonalButton(onClick = { grade(progress, current, grade, today, settings) { counts[grade.ordinal]++; position++; flipped = false } }, modifier = Modifier.weight(1f)) {
+                    FilledTonalButton(onClick = onGrade, modifier = Modifier.weight(1f)) {
                         Text(label, textAlign = TextAlign.Center, style = MaterialTheme.typography.labelMedium)
                     }
                 } else {
-                    OutlinedButton(onClick = { grade(progress, current, grade, today, settings) { counts[grade.ordinal]++; position++; flipped = false } }, modifier = Modifier.weight(1f)) {
+                    OutlinedButton(onClick = onGrade, modifier = Modifier.weight(1f)) {
                         Text(label, textAlign = TextAlign.Center, style = MaterialTheme.typography.labelMedium)
                     }
                 }
@@ -209,7 +242,9 @@ internal fun VocabReviewScreen(
             flipped = false
         }) { Text(stringResource(R.string.vocab_review_mark_learnt_action)) }
         Spacer(Modifier.width(4.dp))
-        androidx.compose.material3.TextButton(onClick = { onNavigate(vocabWordRoute(index.packOf(current.word)?.id ?: "all", current.word)) }) {
+        androidx.compose.material3.TextButton(
+            onClick = { onNavigate(vocabWordRoute(index.packOf(current.word)?.id ?: "all", current.word)) },
+        ) {
             Text(stringResource(R.string.vocab_review_open_action))
         }
     }

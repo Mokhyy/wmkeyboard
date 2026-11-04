@@ -25,14 +25,47 @@ sealed interface ToolPrefill {
     /** The calendar opens showing (and selecting) this Gregorian day. */
     data class Calendar(val year: Int, val month: Int, val day: Int) : ToolPrefill
 
+    /**
+     * A new event the calendar opens its editor on: from selected text read
+     * as a date ("Add to calendar"). An [allDay] one is the days [start] and
+     * [end] fall on in [zoneId], the zone the text named or else the device's.
+     */
+    data class CalendarEvent(
+        val title: String,
+        val start: Long,
+        val end: Long,
+        val allDay: Boolean,
+        val zoneId: String,
+    ) : ToolPrefill
+
     /** A term the dictionary or Wikipedia panel looks up as it opens. */
     data class Lookup(val term: String) : ToolPrefill
 
     /** A search the GIF/sticker panel opens on. */
     data class Gif(val query: String) : ToolPrefill
 
+    /** A sentence the Home Assistant panel sends to Assist as it opens. */
+    data class Assist(val sentence: String) : ToolPrefill
+
     /** A vocabulary word whose card the panel opens on. */
     data class Vocab(val word: String) : ToolPrefill
+
+    /** A Send share link seen in the field (#729): the panel opens on receiving it. */
+    data class SendLink(val url: String) : ToolPrefill
+
+    /**
+     * The person a contact chip offers to call or text. Not a panel's input:
+     * the service reads it to start the dialer or the messaging app.
+     */
+    data class Contact(val name: String, val number: String) : ToolPrefill
+
+    /**
+     * Text the repeat chip found written [count] times already, with
+     * [separator] between the copies. [runLength] is how many characters
+     * before the cursor that run takes, so the tool can write it out properly
+     * in its place.
+     */
+    data class TextRepeat(val text: String, val separator: String, val count: Int, val runLength: Int) : ToolPrefill
 }
 
 /**
@@ -53,12 +86,67 @@ object SmartSuggest {
      * [UNIT], [NUMBER], [DATE] and [WEATHER] are answers and take the whole
      * strip; [TOOL] (a typed keyword), [LOOKUP] (a term to look up) and
      * [INTENT] (text that sounds like a job a tool does) stay narrow beside
-     * the word candidates.
+     * the word candidates. [CONTACT] (a saved contact's name) is narrow too,
+     * with a call face and a message button, and so is [REPEAT] (the same
+     * text typed several times over), which opens the Text repeat tool.
      */
-    enum class Kind { CALC, CURRENCY, UNIT, NUMBER, DATE, WEATHER, TOOL, LOOKUP, INTENT, VOCAB }
+    enum class Kind { CALC, CURRENCY, UNIT, NUMBER, DATE, WEATHER, TOOL, LOOKUP, INTENT, VOCAB, CONTACT, REPEAT, SEND_LINK }
 
     /** The kinds that only claim the space their label needs. */
-    val narrowKinds: Set<Kind> = setOf(Kind.TOOL, Kind.LOOKUP, Kind.INTENT, Kind.VOCAB)
+    val narrowKinds: Set<Kind> = setOf(Kind.TOOL, Kind.LOOKUP, Kind.INTENT, Kind.VOCAB, Kind.CONTACT, Kind.REPEAT, Kind.SEND_LINK)
+
+    /**
+     * A switch under Smart chips, as far as the tools behind it go. The
+     * settings screen asks [missingTools] so a switch that is on, with no tool
+     * left to hand off to, says so (#176) instead of reading on while nothing
+     * happens.
+     */
+    enum class Family { CALC, CURRENCY, UNITS, NUMBERS, DATES, WEATHER, LOOKUPS, TRANSLATE, GIFS, REPEATS }
+
+    /**
+     * Whether [family] still raises its chip with every tool it names switched
+     * off. The answer families do: the chip types its answer by itself, and
+     * only the gear button needs the tool. The rest have nothing to offer but
+     * the tool, so their detectors stay silent without it.
+     */
+    fun answersWithoutTool(family: Family): Boolean = when (family) {
+        Family.CALC, Family.CURRENCY, Family.UNITS, Family.NUMBERS -> true
+        Family.DATES, Family.WEATHER, Family.LOOKUPS, Family.TRANSLATE, Family.GIFS, Family.REPEATS -> false
+    }
+
+    /**
+     * The tools [family] hands off to, one list per job it does. A job works
+     * while any tool of its list is on, and the first is the one to turn on:
+     * lookups do two jobs ("define" → Dictionary, "who is" → Wikipedia), and a
+     * celebration falls back from GIFs to stickers. The detectors check the
+     * same tools; `SmartSuggestTest` pins the two together.
+     */
+    fun toolsFor(family: Family): List<List<ToolbarTool>> = when (family) {
+        Family.CALC, Family.NUMBERS -> listOf(listOf(ToolbarTool.CALCULATOR))
+        Family.CURRENCY -> listOf(listOf(ToolbarTool.CURRENCY))
+        Family.UNITS -> listOf(listOf(ToolbarTool.UNIT_CONVERT))
+        Family.DATES -> listOf(listOf(ToolbarTool.CALENDAR))
+        Family.WEATHER -> listOf(listOf(ToolbarTool.WEATHER))
+        Family.LOOKUPS -> listOf(listOf(ToolbarTool.DICTIONARY), listOf(ToolbarTool.WIKIPEDIA))
+        Family.TRANSLATE -> listOf(listOf(ToolbarTool.TRANSLATE))
+        Family.GIFS -> listOf(listOf(ToolbarTool.GIF, ToolbarTool.STICKER))
+        Family.REPEATS -> listOf(listOf(ToolbarTool.TEXT_REPEAT))
+    }
+
+    /**
+     * One tool to turn on for each job of [family] that nothing in
+     * [enabledTools] can do: the first of its list that [canTurnOn] allows, so
+     * a build without GIFs points at stickers instead. A job with no such tool
+     * is left out, since there is nothing to offer.
+     */
+    fun missingTools(
+        family: Family,
+        enabledTools: Collection<ToolbarTool>,
+        canTurnOn: (ToolbarTool) -> Boolean = { true },
+    ): List<ToolbarTool> =
+        toolsFor(family)
+            .filter { job -> job.none { it in enabledTools } }
+            .mapNotNull { job -> job.firstOrNull(canTurnOn) }
 
     /**
      * One way of drawing an answer chip, verbose first. The strip walks the
@@ -96,10 +184,19 @@ object SmartSuggest {
         val pending: Boolean = false,
         /** True when what is missing is the coin table rather than the fiat one. */
         val pendingCrypto: Boolean = false,
+        /**
+         * True when what the chip is missing (rates, or a forecast) is fetched
+         * only once it is tapped. The tap is the go-ahead, so the chip asks for
+         * it rather than spinning. See [Context.ratesOnTap] and
+         * [Context.weatherOnTap].
+         */
+        val awaitingTap: Boolean = false,
         /** True while a weather chip is waiting on a forecast fetch. */
         val pendingWeather: Boolean = false,
         /** Width-tiered renderings of query → result; empty for keyword chips. */
         val tiers: List<ChipTier> = emptyList(),
+        /** A date chip with more than one of the user's formats: a hold shows the next (#1089). */
+        val moreFormats: Boolean = false,
     )
 
     /** Everything [detect] needs from settings and live tool state. */
@@ -114,6 +211,8 @@ object SmartSuggest {
         val currencyFrom: String = "USD",
         val currencyTo: String = "BDT",
         val currencyDecimals: Int = 2,
+        /** How a fiat result names its currency. See [CurrencyLabel]. */
+        val currencyLabel: CurrencyLabel = CurrencyLabel.NAME,
         val cryptoEnabled: Boolean = true,
         /** The coins that are on; empty means the catalogue defaults. */
         val cryptoTickers: Set<String> = emptySet(),
@@ -121,6 +220,14 @@ object SmartSuggest {
         val cryptoDecimals: Int = 0,
         /** Set while the coin table cannot be fetched, so a coin chip gives up rather than spins. */
         val cryptoUnavailable: Boolean = false,
+        /**
+         * Rates are fetched only when a chip is tapped, and no fetch is
+         * running, so a chip missing its rates asks for the tap. See
+         * [SmartHit.awaitingTap].
+         */
+        val ratesOnTap: Boolean = false,
+        /** The same for a weather chip missing its forecast. */
+        val weatherOnTap: Boolean = false,
         val unitLast: String = "",
         /**
          * Read a length in feet as feet and inches — "3 ft 3.37 in" rather
@@ -135,6 +242,10 @@ object SmartSuggest {
         val dateChips: Boolean = true,
         /** Today as a Julian Day Number; date chips stay off at the default. */
         val todayJdn: Long = -1,
+        /** The user's date patterns (#1089); empty keeps the chip's own wording. */
+        val dateFormats: List<String> = emptyList(),
+        /** Which of [dateFormats] the chip shows, counted from the first and wrapping. */
+        val dateFormatStep: Int = 0,
         val weatherChips: Boolean = true,
         /** The last fetched conditions, or null when none are fresh. */
         val weather: WeatherInfo? = null,
@@ -144,6 +255,8 @@ object SmartSuggest {
         val lookupChips: Boolean = true,
         val intentChips: Boolean = true,
         val gifChips: Boolean = true,
+        /** Home Assistant is connected, so a command for the house can be run by a chip. */
+        val haReady: Boolean = false,
         // ---- vocabulary nudges ----
         /** "hate" → abhor, when a plainer word with a stronger alternative is typed. */
         val vocabChips: Boolean = true,
@@ -173,10 +286,32 @@ object SmartSuggest {
          * glyphs for 0..9 in order, as the numeral systems store them.
          */
         val numberDigits: String? = null,
+        // ---- contacts ----
+        /**
+         * Names and numbers from the address book, for the call/message chip
+         * (#656). Null while the switch is off or nothing is loaded.
+         */
+        /** Offer to receive a Send share link typed or pasted into the field (#729). */
+        val sendLinkChips: Boolean = false,
+        val contacts: ContactPhones? = null,
+        // ---- repeated text ----
+        /** "no no no" → the Text repeat tool, opened on that text. */
+        val repeatChips: Boolean = true,
+        /** How many copies in a row before the chip shows. */
+        val repeatAfter: Int = TextRepeat.DEFAULT_REPEAT_AFTER,
+        /** Units (lowercase) already offered in this field, so each gets one chip. */
+        val repeatRetired: Set<String> = emptySet(),
     )
 
     /** Characters of context the scanners look back over. */
     const val LOOKBEHIND = 48
+
+    /**
+     * Characters fetched when Send links are watched for (#729): a share link
+     * is some seventy characters, and only the link scanner reads past
+     * [LOOKBEHIND]; the rest still see the same tail.
+     */
+    const val LINK_LOOKBEHIND = 160
 
     /**
      * The first trigger that matches the tail of [text], in priority order:
@@ -191,6 +326,8 @@ object SmartSuggest {
      */
     fun detect(text: String, ctx: Context): SmartHit? {
         if (text.isEmpty()) return null
+        // A share link is recognised anywhere in the window, not only at its tail.
+        if (ctx.sendLinkChips) detectSendLink(text)?.let { return it }
         val tail = text.takeLast(LOOKBEHIND)
         if (ctx.currencyEnabled) detectCurrency(tail, ctx)?.let { return it }
         if (ctx.unitsEnabled) detectUnit(tail, ctx)?.let { return it }
@@ -202,12 +339,38 @@ object SmartSuggest {
         if (ctx.lookupChips) detectLookup(tail, ctx)?.let { return it }
         if (ctx.intentChips) detectIntent(tail, ctx)?.let { return it }
         if (ctx.keywordsEnabled) detectKeyword(tail, ctx)?.let { return it }
+        val truncated = text.length > LOOKBEHIND
+        // The same thing three times is a pattern, which beats a name that
+        // happens to be in it.
+        if (ctx.repeatChips) detectRepeat(tail, ctx, truncated)?.let { return it }
+        // A name only says who: anything above that recognised what is wanted
+        // has more to offer.
+        ctx.contacts?.let { contacts ->
+            detectContact(tail, contacts, truncated)?.let { return it }
+        }
         // Last: a nudge is advice, and every explicit trigger above outranks it.
         if (ctx.vocabChips) detectVocab(tail, ctx)?.let { return it }
         return null
     }
 
     private fun toolOn(tool: ToolbarTool, ctx: Context): Boolean = tool in ctx.enabledTools
+
+    /**
+     * A Send share link (#729): opens the Send files tool on receiving it. The
+     * link stays in the field (span 0), since it was probably meant to be sent on.
+     */
+    private fun detectSendLink(text: String): SmartHit? {
+        val link = com.wasimaster.wmkeyboard.core.send.SendLink.find(text) ?: return null
+        return SmartHit(
+            kind = Kind.SEND_LINK,
+            query = link.url,
+            result = null,
+            insert = null,
+            replaceSpan = 0,
+            tool = ToolbarTool.SEND_FILES,
+            prefill = ToolPrefill.SendLink(link.url),
+        )
+    }
 
     // ---- numbers ----
 
@@ -330,7 +493,7 @@ object SmartSuggest {
         fun pendingHit(onCoins: Boolean) = SmartHit(
             kind = Kind.CURRENCY, query = query, result = null, insert = null,
             replaceSpan = m.span, tool = ToolbarTool.CURRENCY, prefill = prefill,
-            pending = true, pendingCrypto = onCoins,
+            pending = true, pendingCrypto = onCoins, awaitingTap = ctx.ratesOnTap,
         )
 
         val rates = ctx.rates ?: return pendingHit(fromCrypto || toCrypto)
@@ -344,18 +507,18 @@ object SmartSuggest {
             return if (coinsMissing && !ctx.cryptoUnavailable) pendingHit(true) else null
         }
         val converted = CurrencyClient.convert(amount, from, to, rates) ?: return null
-        // The result side is the user's local currency: show and insert its
-        // name ("Taka") rather than the ISO code ("BDT"). Coins keep their
-        // ticker, since their names shorten badly.
-        val resultName = if (toCrypto) to else CurrencyClient.unitName(to)
-        val result = "${cryptoAware(converted, toCrypto, ctx)} $resultName"
+        // The result side is the user's local currency: by default show and
+        // insert its name ("Taka") rather than the ISO code ("BDT"). Coins
+        // keep their ticker, since their names shorten badly.
+        val amountText = cryptoAware(converted, toCrypto, ctx)
+        val result = if (toCrypto) "$amountText $to" else labelled(amountText, to, ctx.currencyLabel)
         return SmartHit(
             kind = Kind.CURRENCY, query = query, result = result, insert = result,
             replaceSpan = m.span, tool = ToolbarTool.CURRENCY, prefill = prefill,
             tiers = if (toCrypto) {
                 cryptoTiers(m, fromLabel, to, converted, ctx)
             } else {
-                currencyTiers(m, from, to, converted, ctx.currencyDecimals)
+                currencyTiers(m, from, to, converted, ctx.currencyDecimals, ctx.currencyLabel)
             },
         )
     }
@@ -410,8 +573,8 @@ object SmartSuggest {
         to: String,
         converted: Double,
         decimals: Int,
+        label: CurrencyLabel,
     ): List<ChipTier> {
-        val name = CurrencyClient.unitName(to)
         val full = money(converted, decimals)
         val rounded = kotlin.math.round(converted)
         // "~" only when the rounding visibly moved the number: nobody calls
@@ -435,12 +598,12 @@ object SmartSuggest {
         val qDigits = "$digits $from"
         val qCompact = symbolFor(from)?.let { "$it$digits" } ?: qDigits
         return buildList {
-            add(ChipTier(qTyped, "$full $name"))
+            add(ChipTier(qTyped, labelled(full, to, label)))
             if (decimals > 0 && full.endsWith("." + "0".repeat(decimals))) {
-                add(ChipTier(qTyped, "${money(converted, 0)} $name"))
+                add(ChipTier(qTyped, labelled(money(converted, 0), to, label)))
             }
-            add(ChipTier(qTyped, "$roundText $name"))
-            add(ChipTier(qCode, "$roundText $name"))
+            add(ChipTier(qTyped, labelled(roundText, to, label)))
+            add(ChipTier(qCode, labelled(roundText, to, label)))
             add(ChipTier(qCode, symbolResult))
             add(ChipTier(qDigits, symbolResult, lastResort = true))
             add(ChipTier(qCompact, symbolResult, lastResort = true))
@@ -529,6 +692,19 @@ object SmartSuggest {
 
     private fun symbolFor(code: String): String? = symbolByCode[code]
 
+    /**
+     * A fiat [amount] named the way [label] asks. The symbol goes in front
+     * with no space ("₹96.04"), after any "~" the amount already carries so
+     * a rounded result reads "~₹96" rather than "₹~96".
+     */
+    private fun labelled(amount: String, code: String, label: CurrencyLabel): String = when (label) {
+        CurrencyLabel.NAME -> "$amount ${CurrencyClient.unitName(code)}"
+        CurrencyLabel.CODE -> "$amount $code"
+        CurrencyLabel.SYMBOL -> symbolFor(code)
+            ?.let { "${amount.takeWhile { it == '~' }}$it${amount.trimStart('~')}" }
+            ?: "$amount $code"
+    }
+
     // "pound(s)" is deliberately absent: it reads as mass far more often
     // than as sterling, and £/GBP/quid cover the currency.
     private val currencyWords: Map<String, String> = mapOf(
@@ -565,14 +741,42 @@ object SmartSuggest {
 
     private val UNIT_TAIL = Regex("""(?<![\w.,])($UNIT_AMOUNT)(\s?)([\p{L}°²³/]{1,9})$""")
 
+    /**
+     * "1 mile in cm", "5 kg to lb", "30c as f" (#970): the amount and unit,
+     * then the unit to answer in. The second unit may be any spelling the
+     * converter knows, the one-letter ones included, since nobody types
+     * "to c" meaning anything but the unit.
+     */
+    private val UNIT_TO_TAIL = Regex(
+        """(?<![\w.,])($UNIT_AMOUNT)(\s?)([\p{L}°²³/]{1,9})\s+(?i:to|in|into|as)\s+([\p{L}°²³/]{1,12})$""",
+    )
+
     private fun detectUnit(tail: String, ctx: Context): SmartHit? {
+        UNIT_TO_TAIL.find(tail)?.let { asked ->
+            unitHit(asked, ctx, asked.groupValues[4])?.let { return it }
+        }
         val match = UNIT_TAIL.find(tail) ?: return null
+        return unitHit(match, ctx, target = null)
+    }
+
+    /**
+     * The chip for a [match] of [UNIT_TAIL] or [UNIT_TO_TAIL]: in [target]
+     * when the text named one and it measures the same thing, else in the
+     * unit [targetUnit] picks.
+     */
+    private fun unitHit(match: MatchResult, ctx: Context, target: String?): SmartHit? {
         val amount = parseAmount(match.groupValues[1]) ?: return null
         val spaced = match.groupValues[2].isNotEmpty()
         val token = match.groupValues[3]
         val from = resolveUnit(token, spaced) ?: return null
         val category = UnitConvert.categories.first { cat -> cat.units.any { it.symbol == from.symbol } }
-        val to = targetUnit(category, from, ctx.unitLast) ?: return null
+        val to = if (target != null) {
+            resolveUnit(target, spaced = false)
+                ?.takeIf { asked -> asked.symbol != from.symbol && category.units.any { it.symbol == asked.symbol } }
+                ?: return null
+        } else {
+            targetUnit(category, from, ctx.unitLast) ?: return null
+        }
 
         val converted = UnitConvert.convert(amount.value, from, to)
         if (converted.isNaN() || converted.isInfinite()) return null
@@ -717,6 +921,13 @@ object SmartSuggest {
         }
         return category.units.firstOrNull { it.symbol != from.symbol }
     }
+
+    /**
+     * A unit by any name the chips understand ("km", "miles", "°F", "light
+     * years"), for the AI's converter (#698). Read as the glued form, so the
+     * one-letter abbreviations count: a model naming a unit means a unit.
+     */
+    fun unitNamed(name: String): UnitConvert.ConvUnit? = resolveUnit(name.trim().replace(" ", ""), spaced = false)
 
     /**
      * A typed unit token → catalog unit. [spaced] is false for the glued
@@ -912,8 +1123,27 @@ object SmartSuggest {
     /** "12/04" — a zero-padded pair is a date, not a division. */
     private val PADDED_PAIR = Regex("""^0\d+/\d+$|^\d+/0\d+$""")
 
+    /**
+     * Arithmetic at the cursor. Spaces and "." are part of what a sum may be
+     * spelled with, so the leftmost run of sum-shaped characters reaching the
+     * cursor often starts inside the *previous* answer: after "12*5=60 5*5="
+     * the run is "60 5*5", which parses as nothing. Rather than guess where
+     * one sum ends and the next begins, every start the regex offers is tried
+     * left to right and the first that reads as a sum wins — so the longest
+     * genuine expression is still preferred, and a second sum on the same line
+     * is found instead of being shadowed by the first one's result.
+     */
     private fun detectCalc(tail: String, ctx: Context): SmartHit? {
-        val match = CALC_TAIL.find(tail) ?: return null
+        var from = 0
+        while (from <= tail.length) {
+            val match = CALC_TAIL.find(tail, from) ?: return null
+            calcHit(match, ctx)?.let { return it }
+            from = match.range.first + 1
+        }
+        return null
+    }
+
+    private fun calcHit(match: MatchResult, ctx: Context): SmartHit? {
         val explicit = match.groupValues[2] == "="
         val raw = match.groupValues[1]
         val expression = raw.trim()
@@ -1102,11 +1332,16 @@ object SmartSuggest {
         if (DATE_LIKE.matches(compact)) return false
         if (PADDED_PAIR.matches(compact)) return false
 
-        // "555-1234" is a phone number far more often than a subtraction, so
-        // a lone dash between plain integers needs a second operator first.
+        // "555-1234" is a phone number, "2024-25" a season and "2024-07" a
+        // month, far more often than subtractions. A lone dash between plain
+        // integers is a sum only when neither side is that shape — "12-4" is.
         if (operators == "-") {
             val parts = compact.split('-')
-            if (parts.size == 2 && parts.all { it.isNotEmpty() && it.all(Char::isDigit) }) return false
+            if (parts.size == 2 && parts.all { it.isNotEmpty() && it.all(Char::isDigit) } &&
+                parts.any { it.length >= 4 || it.length > 1 && it[0] == '0' }
+            ) {
+                return false
+            }
         }
         return true
     }
@@ -1194,18 +1429,31 @@ object SmartSuggest {
         if (ctx.todayJdn <= 0 || !toolOn(ToolbarTool.CALENDAR, ctx)) return null
         val d = DateSuggest.find(tail, ctx.todayJdn) ?: return null
         val date = CalendarSystems.jdnToGregorian(d.jdn)
+        // The user's own format, when one is set and reads (#1089): it is both
+        // what the chip shows and what a tap writes.
+        val formats = ctx.dateFormats
+        val own = if (formats.isEmpty()) {
+            null
+        } else {
+            DateSuggest.format(d.jdn, formats[ctx.dateFormatStep.mod(formats.size)])
+        }
         return SmartHit(
             kind = Kind.DATE,
             query = d.phrase,
-            result = d.display,
+            result = own ?: d.display,
             // "next friday" becomes "next friday (21 Aug)": the phrase stays —
             // it is what the recipient reads — and the date it means lands
             // beside it.
-            insert = "${d.phrase} (${d.annotation})",
+            insert = "${d.phrase} (${own ?: d.annotation})",
             replaceSpan = tail.length - d.start,
             tool = ToolbarTool.CALENDAR,
             prefill = ToolPrefill.Calendar(date.year, date.month, date.day),
-            tiers = listOf(ChipTier(d.phrase, d.display), ChipTier(d.phrase, d.annotation)),
+            tiers = if (own != null) {
+                listOf(ChipTier(d.phrase, own))
+            } else {
+                listOf(ChipTier(d.phrase, d.display), ChipTier(d.phrase, d.annotation))
+            },
+            moreFormats = formats.size > 1,
         )
     }
 
@@ -1235,7 +1483,7 @@ object SmartSuggest {
             SmartHit(
                 kind = Kind.WEATHER, query = query, result = null, insert = null,
                 replaceSpan = 0, tool = ToolbarTool.WEATHER, prefill = null,
-                pending = true, pendingWeather = true,
+                pending = true, pendingWeather = true, awaitingTap = ctx.weatherOnTap,
             )
         } else {
             null
@@ -1349,6 +1597,34 @@ object SmartSuggest {
         RegexOption.IGNORE_CASE,
     )
 
+    /**
+     * Words that come before a place (#350): "I'm at", "my location". The chip
+     * opens the Location tool and keeps what was typed, so the place goes in
+     * after the words.
+     */
+    /**
+     * A sentence that reads like a command for the house, from its verb to the
+     * end of the typed text. Only the common verbs, and only with a target
+     * after them: "turn" alone is not a command.
+     */
+    private val HA_TAIL = Regex(
+        """(?i)\b(?:(?:turn|switch|put|set)\s+(?:on|off)\s+(?:the\s+)?\S.*|(?:turn|switch|set)\s+(?:the\s+)?\S.*\s+(?:on|off|to\s+\S.*)|dim\s+(?:the\s+)?\S.*|(?:lock|unlock)\s+(?:the\s+)?\S.*|(?:open|close)\s+(?:the\s+)?(?:garage|blinds?|curtains?|shutters?|gate|door)\b.*|start\s+(?:the\s+)?(?:vacuum|robot|cleaning)\b.*|(?:play|pause|resume|stop)\s+(?:the\s+)?(?:music|tv|radio|speaker|player)\b.*|(?:arm|disarm)\s+(?:the\s+)?(?:alarm|house|home)\b.*)$""",
+    )
+    private const val HA_MIN_LENGTH = 8
+
+    private val LOCATION_TAIL = Regex(
+        "(?:^|[^\\p{L}])(?:i'?m at|i am at|i'?m here|i am here|my (?:current )?location|where i am|" +
+            "(?:send|share|here'?s|here is) (?:you )?my (?:current )?location)\\s?[:?!.]?$",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** "what song is this", "what's this song", "name that tune": the Music ID tool, keeping the words. */
+    private val MUSIC_TAIL = Regex(
+        "(?:^|[^\\p{L}])(?:what(?:'?s| is) (?:this|that) (?:song|track|tune|music)|what song is (?:this|that|playing)|" +
+            "which song is (?:this|that|playing)|name (?:this|that) (?:song|tune)|shazam (?:this|it))\\s?[:?!.]?$",
+        RegexOption.IGNORE_CASE,
+    )
+
     /** A celebratory phrase → the search the GIF panel opens on. */
     private val gifPhrases: List<Pair<String, String>> = listOf(
         "happy birthday" to "happy birthday",
@@ -1395,6 +1671,25 @@ object SmartSuggest {
                 return intentHit(ToolbarTool.TRANSLATE, it.value.trimEnd(' ', '?'))
             }
         }
+        if (toolOn(ToolbarTool.LOCATION, ctx)) {
+            // Straight quotes and curly ones both: phones type ’ in "I’m".
+            LOCATION_TAIL.find(tail.replace('’', '\''))?.let {
+                return intentHit(ToolbarTool.LOCATION, it.value.trimStart { c -> !c.isLetter() }.trimEnd(' ', '?', '!', '.', ':'))
+            }
+        }
+        if (toolOn(ToolbarTool.MUSIC_ID, ctx)) {
+            MUSIC_TAIL.find(tail.replace('’', '\''))?.let {
+                return intentHit(ToolbarTool.MUSIC_ID, it.value.trimStart { c -> !c.isLetter() }.trimEnd(' ', '?', '!', '.', ':'))
+            }
+        }
+        if (ctx.haReady && toolOn(ToolbarTool.HOME_ASSISTANT, ctx)) {
+            // "turn off the kitchen lights", "dim the bedroom to 30%", "lock the front door":
+            // the sentence goes to Assist as typed, which resolves the names itself.
+            HA_TAIL.find(tail)?.let {
+                val sentence = it.value.trim().trimEnd('.', '!', '?', ' ')
+                if (sentence.length >= HA_MIN_LENGTH) return intentHit(ToolbarTool.HOME_ASSISTANT, sentence, ToolPrefill.Assist(sentence))
+            }
+        }
         return null
     }
 
@@ -1411,26 +1706,67 @@ object SmartSuggest {
 
     // ---- tool keywords ----
 
-    private val KEYWORD_TAIL = Regex("""(?<![\w])([\p{L}]{2,16})$""")
+    // The trailing space is part of the match, not a reason to stop matching.
+    // A keyword only reads as one once the user has finished typing it, and
+    // finishing it usually means hitting space — anchoring hard at the end
+    // took the chip away on the very keystroke that confirmed the word.
+    private val KEYWORD_TAIL = Regex("""(?<![\w])([\p{L}]{2,16})\s*$""")
 
-    private fun detectKeyword(tail: String, ctx: Context): SmartHit? {
-        val word = KEYWORD_TAIL.find(tail)?.groupValues?.get(1) ?: return null
+    /** The tool [word] is a keyword of, or null. What a reading is checked against on a conversion strip (#1029). */
+    fun keywordTool(word: String, ctx: Context): ToolbarTool? {
         val overrides = decodeKeywords(ctx.keywordOverrides)
         val exact = decodeCaseSensitive(ctx.caseSensitiveKeywords)
-        val tool = ToolbarTool.entries.firstOrNull { candidate ->
+        return ToolbarTool.entries.firstOrNull { candidate ->
             candidate in ctx.enabledTools &&
                 matchesKeyword(word, overrides[candidate] ?: defaultKeywords[candidate].orEmpty(), candidate in exact)
-        } ?: return null
+        }
+    }
+
+    private fun detectKeyword(tail: String, ctx: Context): SmartHit? {
+        val match = KEYWORD_TAIL.find(tail) ?: return null
+        val run = match.groupValues[1]
+        val tool: ToolbarTool
+        val word: String
+        val whole = keywordTool(run, ctx)
+        if (whole != null) {
+            tool = whole
+            word = run
+        } else {
+            val tailing = trailingKeyword(run, ctx) ?: return null
+            tool = tailing.first
+            word = tailing.second
+        }
         return SmartHit(
             kind = Kind.TOOL,
             query = word,
             result = null,
             insert = null,
-            replaceSpan = if (tool == ToolbarTool.TEXT_EDIT) 0 else word.length,
+            // The span covers the trailing space too, so opening the tool
+            // doesn't leave a stray gap where the keyword used to be.
+            replaceSpan = if (tool == ToolbarTool.TEXT_EDIT) 0 else match.value.length - run.length + word.length,
             tool = tool,
             prefill = null,
         )
     }
+
+    /**
+     * The longest Han or kana keyword [run] ends with, and its tool. Those
+     * scripts write no spaces, so 我的笔记 is a run of letters that ends in a
+     * keyword rather than a word of its own (#1079).
+     */
+    private fun trailingKeyword(run: String, ctx: Context): Pair<ToolbarTool, String>? {
+        if (!run.last().writtenWithoutSpaces()) return null
+        val overrides = decodeKeywords(ctx.keywordOverrides)
+        return ToolbarTool.entries.filter { it in ctx.enabledTools }
+            .flatMap { tool -> (overrides[tool] ?: defaultKeywords[tool].orEmpty()).map { tool to it } }
+            .filter { (_, keyword) ->
+                keyword.length >= 2 && run.endsWith(keyword) && keyword.all { it.writtenWithoutSpaces() }
+            }
+            .maxByOrNull { (_, keyword) -> keyword.length }
+    }
+
+    /** Kana, or a Han ideograph of the basic blocks. */
+    private fun Char.writtenWithoutSpaces(): Boolean = this in '\u3040'..'\u30FF' || this in '\u3400'..'\u9FFF'
 
     /**
      * Whether [typed] is one of [keywords].
@@ -1449,15 +1785,93 @@ object SmartSuggest {
             keywords.any { it.lowercase(Locale.ROOT) == lower }
         }
 
+    // ---- repeated text ----
+
+    /**
+     * The same text just typed several times over — "no no no", "ok" on three
+     * lines, "hahaha" — offered to the Text repeat tool, which opens on that
+     * text with the separator and count already set (see [TextRepeat.findRun]
+     * for what counts as a run). The text stays: the chip is a door, and the
+     * tool decides what happens to the copies already there. Each unit gets
+     * one chip per field, like the intent hints.
+     */
+    private fun detectRepeat(tail: String, ctx: Context, truncated: Boolean): SmartHit? {
+        if (!toolOn(ToolbarTool.TEXT_REPEAT, ctx)) return null
+        val run = TextRepeat.findRun(tail, ctx.repeatAfter, truncated) ?: return null
+        if (run.unit.lowercase(Locale.ROOT) in ctx.repeatRetired) return null
+        return SmartHit(
+            kind = Kind.REPEAT,
+            query = run.unit,
+            result = run.count.toString(),
+            insert = null,
+            replaceSpan = 0,
+            tool = ToolbarTool.TEXT_REPEAT,
+            prefill = ToolPrefill.TextRepeat(run.unit, run.separator, run.count, run.length),
+        )
+    }
+
     // ---- vocabulary nudges ----
 
     /**
      * The last whole word plus up to two trailing separators, so "hate",
      * "hate " and "hate. " all offer while "hate. I" (a new word begun) does
      * not. Two rather than one because the auto-space after punctuation
-     * arrives as one keystroke with the punctuation.
+     * arrives as one keystroke with the punctuation. Combining marks count
+     * as letters: in Bengali or Hindi a vowel sign is part of the word.
      */
-    private val VOCAB_TAIL = Regex("""(?<![\p{L}\d'’-])([\p{L}][\p{L}'’-]{1,22}[\p{L}])([\s\p{Punct}]{0,2})$""")
+    private val VOCAB_TAIL = Regex("""(?<![\p{L}\p{M}\d'’-])([\p{L}\p{M}][\p{L}\p{M}'’-]{0,22}[\p{L}\p{M}])([\s\p{Punct}]{0,2})$""")
+
+    /**
+     * Up to [VocabIndex.MAX_TRIGGER_WORDS] words before the separators, for
+     * glosses of more than one word ("হেয় করা"); tried longest first so the
+     * phrase wins over its last word.
+     */
+    private val VOCAB_PHRASE_TAIL = Regex(
+        """((?:[\p{L}\p{M}][\p{L}\p{M}'’-]*[ ]+){0,${VocabIndex.MAX_TRIGGER_WORDS - 1}}""" +
+            """[\p{L}\p{M}][\p{L}\p{M}'’-]*[\p{L}\p{M}])([\s\p{Punct}]{0,2})$""",
+    )
+
+    /** A word a name can be made of: letters, with the marks names carry. */
+    private val NAME_WORD = Regex("""[\p{L}\p{M}][\p{L}\p{M}'’.\-]*""")
+
+    /**
+     * A saved contact's name just typed: the chip offers to call them, and its
+     * button to text them (#656). The longest run of trailing words that names
+     * somebody wins, so "Jane Doe" is not read as a first name alone. One
+     * trailing space is allowed, since a finished name is usually followed by
+     * one; the next letter typed moves the chip on.
+     *
+     * The text is never touched: the name may well be meant for the message.
+     */
+    private fun detectContact(tail: String, contacts: ContactPhones, truncated: Boolean): SmartHit? {
+        val body = if (tail.endsWith(' ')) tail.dropLast(1) else tail
+        if (body.isEmpty() || body.last().isWhitespace()) return null
+        val tokens = body.split(' ', '\t', '\n')
+        val words = ArrayList<String>()
+        for (index in tokens.indices.reversed()) {
+            val token = tokens[index]
+            // The first token of a cut-off lookbehind may be half a word.
+            if (truncated && index == 0) break
+            if (!NAME_WORD.matches(token)) break
+            words.add(0, token)
+            if (words.size == ContactPhones.MAX_WORDS) break
+        }
+        for (n in words.size downTo 1) {
+            val contact = contacts.match(words.takeLast(n).joinToString(" ")) ?: continue
+            return SmartHit(
+                kind = Kind.CONTACT,
+                query = contact.name,
+                result = contact.number,
+                insert = null,
+                replaceSpan = 0,
+                // No tool of its own; the selection macros are the other place
+                // the keyboard calls or texts a number.
+                tool = ToolbarTool.SELECTION_ACTIONS,
+                prefill = ToolPrefill.Contact(contact.name, contact.number),
+            )
+        }
+        return null
+    }
 
     /**
      * "hate" → abhor: the typed word is a trigger in an installed pack. The
@@ -1471,11 +1885,20 @@ object SmartSuggest {
         val index = ctx.vocab ?: return null
         if (index.isEmpty) return null
         val match = VOCAB_TAIL.find(tail) ?: return null
-        val typed = match.groupValues[1]
+        var typed = match.groupValues[1]
         val trail = match.groupValues[2]
-        val key = typed.lowercase(Locale.ROOT)
+        var key = VocabIndex.foldKey(typed)
         if (key in ctx.vocabRetired) return null
-        val hit = index.hitsFor(key, ctx.vocabMinGap).firstOrNull { vocabInScope(it.lemma, ctx) }
+        var hit = index.hitsFor(key, ctx.vocabMinGap).firstOrNull { vocabInScope(it.lemma, ctx) }
+        // A multi-word gloss: look further back, longest phrase first.
+        if (hit == null && index.maxTriggerWords > 1) {
+            val phraseHit = phraseHit(tail, index, ctx)
+            if (phraseHit != null) {
+                typed = phraseHit.first
+                key = VocabIndex.foldKey(typed)
+                hit = phraseHit.second
+            }
+        }
         if (hit != null) {
             val replacement = if (typed[0].isUpperCase()) {
                 hit.replacement.replaceFirstChar { it.titlecase(Locale.ROOT) }
@@ -1506,6 +1929,20 @@ object SmartSuggest {
         )
     }
 
+    private val SPACES = Regex("""\s+""")
+
+    /** The longest run of words before the cursor that is a gloss in the index, with its hit. */
+    private fun phraseHit(tail: String, index: VocabIndex, ctx: Context): Pair<String, VocabIndex.TriggerHit>? {
+        val phrase = VOCAB_PHRASE_TAIL.find(tail)?.groupValues?.get(1) ?: return null
+        val words = phrase.trim().split(SPACES)
+        return (minOf(words.size, index.maxTriggerWords) downTo 2).firstNotNullOfOrNull { count ->
+            val candidate = words.takeLast(count).joinToString(" ")
+            val candidateKey = VocabIndex.foldKey(candidate)
+            if (candidateKey in ctx.vocabRetired) return@firstNotNullOfOrNull null
+            index.hitsFor(candidateKey, ctx.vocabMinGap).firstOrNull { vocabInScope(it.lemma, ctx) }?.let { candidate to it }
+        }
+    }
+
     private fun vocabInScope(lemma: String, ctx: Context): Boolean = when (ctx.vocabScope) {
         VocabNudgeScope.UNLEARNT -> !ctx.vocabLearnt(lemma)
         VocabNudgeScope.ALL -> true
@@ -1514,44 +1951,65 @@ object SmartSuggest {
 
     /** The keywords each tool answers to until the user edits them. */
     val defaultKeywords: Map<ToolbarTool, List<String>> = mapOf(
-        ToolbarTool.WIKIPEDIA to listOf("wiki", "wikipedia"),
-        ToolbarTool.TRANSLATE to listOf("translate"),
-        ToolbarTool.CALCULATOR to listOf("calc", "calculator"),
-        ToolbarTool.UNIT_CONVERT to listOf("convert", "unit"),
-        ToolbarTool.CURRENCY to listOf("currency", "forex"),
-        ToolbarTool.GIF to listOf("gif"),
-        ToolbarTool.STICKER to listOf("sticker"),
-        ToolbarTool.EMOJI to listOf("emoji"),
-        ToolbarTool.WEATHER to listOf("weather"),
-        ToolbarTool.CLIPBOARD to listOf("clipboard"),
-        ToolbarTool.SNIPPETS to listOf("snippet", "snippets"),
-        ToolbarTool.QR_GEN to listOf("qr"),
-        ToolbarTool.PASSWORD_GEN to listOf("password", "passgen"),
+        // Each tool's words in Chinese (both scripts), Japanese and Korean follow its
+        // English ones, under the same rule: what someone types to mean the tool (#1079).
+        ToolbarTool.WIKIPEDIA to listOf("wiki", "wikipedia", "维基百科", "維基百科", "ウィキペディア", "위키백과"),
+        ToolbarTool.TRANSLATE to listOf("translate", "翻译", "翻譯", "翻訳", "번역"),
+        ToolbarTool.CALCULATOR to listOf("calc", "calculator", "计算器", "計算器", "電卓", "계산기"),
+        ToolbarTool.UNIT_CONVERT to listOf("convert", "unit", "单位换算", "單位換算", "単位変換", "단위변환"),
+        ToolbarTool.CURRENCY to listOf("currency", "forex", "汇率", "匯率", "為替", "환율"),
+        ToolbarTool.GIF to listOf("gif", "动图", "動圖", "움짤"),
+        ToolbarTool.STICKER to listOf("sticker", "贴纸", "貼紙", "貼圖", "ステッカー", "스티커"),
+        ToolbarTool.EMOJI to listOf("emoji", "表情符号", "表情符號", "絵文字", "이모지"),
+        ToolbarTool.WEATHER to listOf("weather", "天气", "天氣", "天気", "날씨"),
+        ToolbarTool.CLIPBOARD to listOf("clipboard", "剪贴板", "剪貼簿", "クリップボード", "클립보드"),
+        ToolbarTool.SNIPPETS to listOf("snippet", "snippets", "文本片段", "文字片段", "定型文", "상용구"),
+        ToolbarTool.QR_GEN to listOf("qr", "二维码", "二維碼", "QRコード", "큐알코드"),
+        ToolbarTool.PASSWORD_GEN to listOf("password", "passgen", "密码", "密碼", "パスワード", "비밀번호"),
         ToolbarTool.AI to listOf("ai"),
-        ToolbarTool.WEB_SEARCH to listOf("search"),
-        ToolbarTool.IMAGE_SEARCH to listOf("images"),
-        ToolbarTool.SYMBOLS to listOf("symbol", "symbols"),
-        ToolbarTool.VOICE to listOf("dictate"),
-        ToolbarTool.OCR to listOf("ocr"),
-        ToolbarTool.QR_SCAN to listOf("scan"),
-        ToolbarTool.DOC_SCAN to listOf("docscan"),
-        ToolbarTool.HANDWRITING to listOf("handwrite"),
-        ToolbarTool.TYPING_TEST to listOf("wpm"),
-        ToolbarTool.DICTIONARY to listOf("define", "dict"),
-        ToolbarTool.VOCABULARY to listOf("vocab", "vocabulary"),
-        ToolbarTool.GRAMMAR to listOf("grammar"),
-        ToolbarTool.CALENDAR to listOf("calendar", "schedule"),
-        ToolbarTool.MOON_PHASE to listOf("moon"),
-        ToolbarTool.COMPASS to listOf("compass"),
-        ToolbarTool.LEVEL to listOf("level"),
-        ToolbarTool.THEMES to listOf("theme", "themes"),
-        ToolbarTool.MODES to listOf("modes"),
-        ToolbarTool.RESIZE to listOf("resize"),
-        ToolbarTool.NUMPAD to listOf("numpad"),
-        ToolbarTool.CAMERA to listOf("camera"),
-        ToolbarTool.TEXT_EDIT to listOf("edit"),
-        ToolbarTool.TRACKPAD to listOf("trackpad"),
-        ToolbarTool.APP_LAUNCHER to listOf("apps", "launch"),
+        ToolbarTool.WEB_SEARCH to listOf("search", "搜索", "搜尋", "検索", "검색"),
+        ToolbarTool.IMAGE_SEARCH to listOf("images", "图片搜索", "圖片搜尋", "画像検索", "이미지검색"),
+        ToolbarTool.SYMBOLS to listOf("symbol", "symbols", "符号", "符號", "記号", "기호"),
+        ToolbarTool.VOICE to listOf("dictate", "语音输入", "語音輸入", "音声入力", "음성입력"),
+        ToolbarTool.OCR to listOf("ocr", "文字识别", "文字辨識", "文字認識", "문자인식"),
+        ToolbarTool.QR_SCAN to listOf("scan", "扫码", "掃碼", "スキャン", "스캔"),
+        ToolbarTool.DOC_SCAN to listOf("docscan", "扫描文档", "掃描文件", "文書スキャン", "문서스캔"),
+        ToolbarTool.HANDWRITING to listOf("handwrite", "手写", "手寫", "手書き", "손글씨"),
+        ToolbarTool.TYPING_TEST to listOf("wpm", "打字测试", "打字測試", "タイピング", "타자연습"),
+        // Not "speed": everyday prose. The joined word and the jargon are what someone means.
+        ToolbarTool.SPEED_TEST to listOf("speedtest", "bandwidth", "测速", "測速", "速度テスト", "속도측정"),
+        ToolbarTool.DICTIONARY to listOf("define", "dict", "词典", "詞典", "字典", "辞書", "사전"),
+        ToolbarTool.VOCABULARY to listOf("vocab", "vocabulary", "生词", "生詞", "単語帳", "단어장"),
+        ToolbarTool.GRAMMAR to listOf("grammar", "语法", "語法", "文法", "문법"),
+        ToolbarTool.CALENDAR to listOf("calendar", "schedule", "日历", "日曆", "カレンダー", "달력"),
+        ToolbarTool.MOON_PHASE to listOf("moon", "月相", "月齢"),
+        ToolbarTool.COMPASS to listOf("compass", "指南针", "指南針", "コンパス", "나침반"),
+        ToolbarTool.LOCATION to listOf("location", "gps", "定位", "現在地", "위치"),
+        // Not "time" or "watch": those are ordinary prose far too often to offer a chip for.
+        ToolbarTool.CLOCK to listOf("clock", "alarm", "timer", "stopwatch", "countdown", "planner", "date", "闹钟", "鬧鐘", "定时器", "計時器", "アラーム", "タイマー", "알람", "타이머"),
+        // Not "song" or "music" alone: both are everyday prose. "shazam" is what people type to mean this.
+        ToolbarTool.MUSIC_ID to listOf("shazam", "whatsong", "songid", "musicid", "听歌识曲", "聽歌識曲", "曲名検索", "노래찾기"),
+        // Not "home" or "lights" alone: both are everyday prose.
+        ToolbarTool.HOME_ASSISTANT to listOf("hass", "homeassistant", "smarthome", "googlehome", "smartthings", "hue", "openhab", "tuya", "smartlife", "switchbot", "智能家居", "智慧家庭", "スマートホーム", "스마트홈"),
+        // Not "photo" or "picture" alone: said in passing far more often than meant as "send one".
+        ToolbarTool.GALLERY to listOf("gallery", "photos", "pics", "相册", "相簿", "アルバム", "갤러리"),
+        ToolbarTool.LEVEL to listOf("level", "水平仪", "水平儀", "水準器", "수평계"),
+        ToolbarTool.THEMES to listOf("theme", "themes", "主题", "主題", "テーマ", "테마"),
+        ToolbarTool.MODES to listOf("modes", "模式", "モード", "모드"),
+        ToolbarTool.RESIZE to listOf("resize", "调整大小", "調整大小", "サイズ変更", "크기조절"),
+        ToolbarTool.NUMPAD to listOf("numpad", "小键盘", "小鍵盤", "テンキー", "숫자패드"),
+        ToolbarTool.CAMERA to listOf("camera", "相机", "相機", "カメラ", "카메라"),
+        ToolbarTool.TEXT_EDIT to listOf("edit", "编辑", "編輯", "編集", "편집"),
+        ToolbarTool.FIND_REPLACE to listOf("replace", "查找替换", "尋找取代", "検索置換", "찾기바꾸기"),
+        ToolbarTool.NOTES to listOf("note", "notes", "笔记", "筆記", "备忘录", "備忘錄", "メモ", "ノート", "메모"),
+        ToolbarTool.WM_PASS to listOf("wm pass", "wmpass", "vault", "password manager"),
+        ToolbarTool.TODO to listOf("todo", "todos", "tasks", "待办", "待辦", "待办事项", "待辦事項", "やること", "할일"),
+        ToolbarTool.TRACKPAD to listOf("trackpad", "触控板", "觸控板", "トラックパッド", "트랙패드"),
+        // Not "send" alone: it is the commonest verb in a chat. The compound forms are meant.
+        ToolbarTool.SEND_FILES to listOf("sendfile", "sendfiles", "fileshare", "wetransfer", "发送文件", "傳送檔案", "ファイル送信", "파일전송"),
+        ToolbarTool.KDE_CONNECT to listOf("kdeconnect", "kde"),
+        ToolbarTool.APP_LAUNCHER to listOf("apps", "launch", "应用列表", "應用程式", "アプリ", "앱목록"),
+        ToolbarTool.TEXT_REPEAT to listOf("repeat", "重复文本", "重複文字", "繰り返し", "반복"),
     )
 
     fun keywordsFor(tool: ToolbarTool, overrides: String): List<String> =

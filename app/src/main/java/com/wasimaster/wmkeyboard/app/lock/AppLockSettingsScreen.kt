@@ -7,7 +7,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -22,12 +25,14 @@ import com.wasimaster.wmkeyboard.app.SettingsRowIcons
 import com.wasimaster.wmkeyboard.app.SettingsRouteIcons
 import com.wasimaster.wmkeyboard.app.ToggleSetting
 import com.wasimaster.wmkeyboard.core.settings.AppLockDefaults
+import com.wasimaster.wmkeyboard.core.settings.AppLockMethod
 import com.wasimaster.wmkeyboard.core.settings.AppLockRelock
 import com.wasimaster.wmkeyboard.core.settings.SettingsRepository
 import kotlinx.coroutines.launch
+import com.wasimaster.wmkeyboard.core.ui.DisabledReason
 
 /**
- * Which settings the fingerprint stands in front of.
+ * Which settings the lock stands in front of, and what answers it.
  *
  * The screen guards itself: `SettingsScreen` resolves this route to
  * [AppLockTargets.SELF], so once the lock is on you cannot reach these
@@ -41,8 +46,11 @@ internal fun AppLockSettingsScreen(repository: SettingsRepository) {
     val context = LocalContext.current
     val lock = LocalAppLock.current
     val status by lock.status.collectAsStateWithLifecycle()
+    val biometric by lock.biometric.collectAsStateWithLifecycle()
     val config by lock.config.collectAsStateWithLifecycle()
     val cfg = config ?: return
+    // The method whose secret is being set, while its setup sheet is up.
+    var settingUp by remember { mutableStateOf<AppLockMethod?>(null) }
 
     Spacer(Modifier.height(12.dp))
 
@@ -101,10 +109,71 @@ internal fun AppLockSettingsScreen(repository: SettingsRepository) {
         }
     }
 
+    SettingsGroup(
+        stringResource(R.string.privacy_lock_method_group_title),
+        info = stringResource(R.string.privacy_lock_method_info),
+    ) {
+        item {
+            ChoiceSetting(
+                R.string.privacy_lock_method_title,
+                options = methodOptions(),
+                // A secret method with no secret reads as the fingerprint,
+                // because that is what the lock then asks for.
+                selected = if (cfg.usesSecret) cfg.method else AppLockMethod.BIOMETRIC,
+                default = AppLockDefaults.method,
+            ) { picked ->
+                // No extra check to switch: once the lock is on, this whole
+                // screen is already behind it. A new secret is only stored
+                // once it has been entered twice; until then nothing changes.
+                if (picked == AppLockMethod.BIOMETRIC) {
+                    scope.launch { repository.setAppLockMethod(AppLockMethod.BIOMETRIC, null) }
+                } else if (picked != cfg.method || !cfg.usesSecret) {
+                    settingUp = picked
+                }
+            }
+        }
+        if (cfg.usesSecret) {
+            item {
+                NavRow(
+                    changeTitle(cfg.method),
+                    stringResource(R.string.privacy_lock_change_subtitle),
+                    icon = cfg.method.icon(),
+                ) { settingUp = cfg.method }
+            }
+            item {
+                ToggleSetting(
+                    R.string.privacy_lock_shortcut_title,
+                    stringResource(
+                        if (biometric == AppLockStatus.READY) {
+                            R.string.privacy_lock_shortcut_subtitle
+                        } else {
+                            R.string.privacy_lock_shortcut_unavailable
+                        },
+                    ),
+                    cfg.biometricShortcut,
+                    enabled = biometric == AppLockStatus.READY,
+                    disabledReason = DisabledReason(stringResource(R.string.privacy_lock_shortcut_unavailable)),
+                    default = AppLockDefaults.biometricShortcut,
+                ) { scope.launch { repository.setAppLockBiometricShortcut(it) } }
+            }
+        }
+    }
+
+    settingUp?.let { method ->
+        AppLockSecretSetupDialog(
+            method = method,
+            onDismiss = { settingUp = null },
+        ) { hash ->
+            settingUp = null
+            scope.launch { repository.setAppLockMethod(method, hash) }
+        }
+    }
+
     for ((group, targets) in AppLockTargets.grouped) {
         SettingsGroup(stringResource(group.title)) {
             for (target in targets) {
-                item {
+                // Which screens the lock guards: nothing to pick while it is off.
+                item(visible = cfg.enabled) {
                     ToggleSetting(
                         title = stringResource(target.label),
                         subtitle = stringResource(
@@ -121,7 +190,7 @@ internal fun AppLockSettingsScreen(repository: SettingsRepository) {
                         icon = target.route?.let { SettingsRouteIcons[it] }
                             ?: SettingsRowIcons[target.label],
                         highlightKey = target.label,
-                        enabled = cfg.enabled && status.canEnable,
+                        enabled = status.canEnable,
                         default = target.onByDefault,
                     ) { checked ->
                         scope.launch { repository.setAppLockTarget(target.id, checked) }
@@ -135,7 +204,11 @@ internal fun AppLockSettingsScreen(repository: SettingsRepository) {
         stringResource(R.string.privacy_lock_behaviour_group_title),
         info = stringResource(R.string.privacy_lock_threat_info),
     ) {
-        item {
+        // When to ask again only matters once something asks at all: the gate
+        // returns before it reads this while the lock is off. The credential
+        // row below stays — it can be what makes the lock usable in the first
+        // place, so it does work while the lock is still off.
+        if (cfg.enabled) item {
             ChoiceSetting(
                 R.string.privacy_lock_relock_title,
                 info = stringResource(R.string.privacy_lock_relock_info),
@@ -156,6 +229,20 @@ internal fun AppLockSettingsScreen(repository: SettingsRepository) {
     }
 
     // The last thing on the screen is the limit, not the promise.
+}
+
+@Composable
+private fun methodOptions(): List<Pair<AppLockMethod, String>> = listOf(
+    AppLockMethod.BIOMETRIC to stringResource(R.string.privacy_lock_method_biometric),
+    AppLockMethod.PIN to stringResource(R.string.privacy_lock_method_pin),
+    AppLockMethod.PASSWORD to stringResource(R.string.privacy_lock_method_password),
+    AppLockMethod.PATTERN to stringResource(R.string.privacy_lock_method_pattern),
+)
+
+private fun changeTitle(method: AppLockMethod): Int = when (method) {
+    AppLockMethod.PASSWORD -> R.string.privacy_lock_change_password
+    AppLockMethod.PATTERN -> R.string.privacy_lock_change_pattern
+    else -> R.string.privacy_lock_change_pin
 }
 
 @Composable

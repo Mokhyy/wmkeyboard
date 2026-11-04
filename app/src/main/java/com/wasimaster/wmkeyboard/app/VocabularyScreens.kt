@@ -3,6 +3,8 @@
 package com.wasimaster.wmkeyboard.app
 
 import android.content.Context
+import com.wasimaster.wmkeyboard.core.providers.ProviderTool
+import com.wasimaster.wmkeyboard.core.settings.resolveProviders
 import android.net.ConnectivityManager
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -18,24 +20,38 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.VolumeUp
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Download
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.FileUpload
-import androidx.compose.material.icons.outlined.PlaylistAdd
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.School
-import androidx.compose.material.icons.outlined.Share
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.VolumeUp
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.OpenInBrowser
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Check
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.CheckCircle
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Close
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Delete
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Download
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Edit
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.ExpandLess
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.ExpandMore
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Lightbulb
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Search
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.FileUpload
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.PlaylistAdd
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Refresh
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.School
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -43,6 +59,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -64,10 +81,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import com.wasimaster.wmkeyboard.BuildConfig
 import com.wasimaster.wmkeyboard.core.addons.AddonType
+import com.wasimaster.wmkeyboard.core.endpoints.ServiceEndpoint
 import com.wasimaster.wmkeyboard.core.script.LanguageRegistry
 import com.wasimaster.wmkeyboard.core.settings.DataSaverStatus
 import com.wasimaster.wmkeyboard.core.settings.DeviceNetworkState
@@ -93,10 +118,14 @@ import com.wasimaster.wmkeyboard.core.vocab.VocabChipTap
 import com.wasimaster.wmkeyboard.core.vocab.VocabCooldown
 import com.wasimaster.wmkeyboard.core.vocab.VocabDownloadManager
 import com.wasimaster.wmkeyboard.core.vocab.VocabIndex
+import com.wasimaster.wmkeyboard.core.vocab.VocabIndexCache
+import com.wasimaster.wmkeyboard.core.vocab.VocabLanguages
+import com.wasimaster.wmkeyboard.core.vocab.VocabWordInterval
 import com.wasimaster.wmkeyboard.core.vocab.VocabNudgeLevel
 import com.wasimaster.wmkeyboard.core.vocab.VocabNudgeScope
 import com.wasimaster.wmkeyboard.core.vocab.VocabPack
 import com.wasimaster.wmkeyboard.core.vocab.VocabPackFile
+import com.wasimaster.wmkeyboard.core.vocab.VocabQuotation
 import com.wasimaster.wmkeyboard.core.vocab.VocabPacks
 import com.wasimaster.wmkeyboard.core.vocab.VocabProgress
 import com.wasimaster.wmkeyboard.core.vocab.VocabRelatedTap
@@ -127,17 +156,60 @@ internal fun vocabWordRoute(packId: String, word: String): String = "vocab/word/
 
 // ---- shared state ----
 
-/** The merged index of every enabled pack, built off the main thread; null while loading. */
+/**
+ * The merged index of every enabled pack: the process's one copy
+ * ([VocabIndexCache]), so a screen that opens after another has built it
+ * paints at once; null only on the very first opening while it is built.
+ * [revision] bumps after this screen wrote a pack, so the cache re-checks
+ * the disk.
+ */
 @Composable
-internal fun rememberVocabIndex(revision: Int): VocabIndex? {
+internal fun rememberVocabIndex(revision: Int, settings: LiveSettings): VocabIndex? {
     val context = LocalContext.current
-    val state = produceState<VocabIndex?>(initialValue = null, key1 = revision) {
-        value = withContext(Dispatchers.IO) {
-            val packs = VocabPacks.languages(context.filesDir).flatMap { VocabPacks.load(context.filesDir, it) }
-            VocabIndex.build(packs, VocabPacks.stateToken(context.filesDir))
-        }
+    val codes = settings.watch { vocabTranslationCodes(it) }
+    val state = produceState(initialValue = VocabIndexCache.peek(), key1 = revision, key2 = codes) {
+        value = VocabIndexCache.get(context.filesDir, codes)
     }
     return state.value
+}
+
+/**
+ * The sidecar codes the user reads translations in: the ones they chose, or
+ * else the keyboard's languages (`bn_rom` reads `bn`, `zh` reads `cmn`).
+ */
+internal fun vocabTranslationCodes(settings: KeyboardSettings): List<String> =
+    VocabLanguages.wantedCodes(settings.vocabulary.translationLangList, settings.enabledLanguages.map { it.id })
+
+/** Catalogue packs on disk, by id, whether enabled or switched off. */
+internal fun installedCatalogIds(filesDir: File): Set<String> =
+    VocabPacks.languages(filesDir)
+        .flatMap { VocabPacks.files(filesDir, it) }
+        .map { VocabPacks.packIdOf(it) }
+        .filter { VocabCatalog.byId(it) != null }
+        .toSet()
+
+/**
+ * Fetches the translation sidecars the user's languages call for and nobody
+ * asked for by hand: for every installed catalogue pack, the wanted codes it
+ * offers that are neither on disk nor in flight. Only when data saving allows
+ * it outright — a connection that wants asking waits for a tap on the chip —
+ * and never a retry of one that failed, so a dead network does not loop.
+ */
+internal suspend fun autoFetchVocabTranslations(context: Context, settings: KeyboardSettings) {
+    if (downloadDecisionNow(context, settings) != MeteredDecision.ALLOWED) return
+    val wanted = vocabTranslationCodes(settings)
+    if (wanted.isEmpty()) return
+    VocabDownloadManager.refresh(context.filesDir)
+    val installed = withContext(Dispatchers.IO) { installedCatalogIds(context.filesDir) }
+    val states = VocabDownloadManager.translationStates.value
+    for (entry in VocabCatalog.entries) {
+        if (entry.id !in installed) continue
+        val codes = VocabLanguages.codesToFetch(wanted, entry.translationCodes).filter { code ->
+            val status = states[VocabDownloadManager.translationKey(entry.id, code)]
+            status == null || status == VocabDownloadManager.DownloadStatus.NotDownloaded
+        }
+        if (codes.isNotEmpty()) VocabDownloadManager.startTranslations(context.filesDir, entry, codes)
+    }
 }
 
 /** The learning record, shared with the keyboard through its file. */
@@ -157,8 +229,9 @@ internal fun rememberVocabSpeaker(): VocabSpeaker {
 
 internal fun vocabToday(): Int = TypingStatsMath.localEpochDay(System.currentTimeMillis(), TimeZone.getDefault())
 
-private fun isMeteredNetwork(context: Context): Boolean =
+private fun isMeteredNetwork(context: Context): Boolean = runCatching {
     (context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)?.isActiveNetworkMetered == true
+}.getOrDefault(false)
 
 /** What data saving says about one vocabulary fetch right now. */
 internal fun vocabDecisionNow(context: Context, settings: KeyboardSettings, feature: MeteredFeature): MeteredDecision {
@@ -178,7 +251,7 @@ internal fun speakVocabWord(context: Context, settings: KeyboardSettings, speake
 }
 
 internal fun languageNameFor(code: String): String =
-    LanguageRegistry.all.firstOrNull { it.id == code }?.englishName ?: code
+    VocabLanguages.displayName(code) { id -> LanguageRegistry.all.firstOrNull { it.id == id }?.englishName }
 
 private fun VocabCardField.titleRes(): Int = when (this) {
     VocabCardField.IPA -> R.string.tooldetail_vocab_field_ipa_title
@@ -206,17 +279,25 @@ private fun VocabCardField.titleRes(): Int = when (this) {
 
 // ---- the tool's own page ----
 
+/** Where a word not in the packs is looked up, in the order of the tool's provider list. */
+private fun vocabSources(settings: KeyboardSettings): List<VocabAutofill.Source> =
+    settings.resolveProviders(ProviderTool.VOCAB_AUTOFILL).mapNotNull { VocabAutofill.sourceOf(it.typeId) }
+
 /** The Vocabulary tool's settings page body, called from [ToolDetailSettings]. */
 @Composable
 internal fun VocabularyToolSettings(
     repository: SettingsRepository,
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     onNavigate: (String) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val v = settings.vocabulary
     val d = SettingsDefaults.vocabulary
+    // What decides which rows the groups hold; each row reads its own value.
+    val nudges = settings.watch { it.vocabulary.nudges }
+    val ttsTunable = settings.watch { it.vocabulary.audioSource != VocabAudioSource.WIKTIONARY }
+    val showsWord = settings.watch { it.vocabulary.wordOfTheDayCard || it.vocabulary.wordOfTheDayChip }
+    val wordChip = settings.watch { it.vocabulary.wordOfTheDayChip }
     val numberFormat = stringResource(R.string.values_number)
     val speedFormat = stringResource(R.string.tooldetail_vocab_speed_value)
     val summary by produceState<Pair<Int, Int>?>(initialValue = null) {
@@ -225,6 +306,12 @@ internal fun VocabularyToolSettings(
             val progress = VocabProgress(File(context.filesDir, VocabProgress.FILE_PATH))
             packs to progress.stats(vocabToday()).due
         }
+    }
+
+    // A language added to the keyboard, or picked below, gets its translations
+    // fetched here rather than on the next visit to the packs screen.
+    LaunchedEffect(settings.watch { it.vocabulary.translationLangs }, settings.watch { it.enabledLanguages }) {
+        autoFetchVocabTranslations(context, settings.value)
     }
 
     SettingsGroup(stringResource(R.string.tooldetail_vocab_manage_group)) {
@@ -241,7 +328,11 @@ internal fun VocabularyToolSettings(
             ) { onNavigate(VOCAB_PACKS_ROUTE) }
         }
         item {
-            NavRow(R.string.tooldetail_vocab_lists_title, stringResource(R.string.tooldetail_vocab_lists_subtitle), route = VOCAB_LISTS_ROUTE) {
+            NavRow(
+                R.string.tooldetail_vocab_lists_title,
+                stringResource(R.string.tooldetail_vocab_lists_subtitle),
+                route = VOCAB_LISTS_ROUTE,
+            ) {
                 onNavigate(VOCAB_LISTS_ROUTE)
             }
         }
@@ -255,7 +346,11 @@ internal fun VocabularyToolSettings(
             ) { onNavigate(VOCAB_REVIEW_ROUTE) }
         }
         item {
-            NavRow(R.string.tooldetail_vocab_browse_title, stringResource(R.string.tooldetail_vocab_browse_subtitle), route = VOCAB_BROWSE_ROUTE) {
+            NavRow(
+                R.string.tooldetail_vocab_browse_title,
+                stringResource(R.string.tooldetail_vocab_browse_subtitle),
+                route = VOCAB_BROWSE_ROUTE,
+            ) {
                 onNavigate(VOCAB_BROWSE_ROUTE)
             }
         }
@@ -263,77 +358,80 @@ internal fun VocabularyToolSettings(
 
     SettingsGroup(stringResource(R.string.tooldetail_vocab_nudges_group), info = stringResource(R.string.tooldetail_vocab_nudges_info)) {
         item {
-            ToggleSetting(R.string.tooldetail_vocab_nudges_title, stringResource(R.string.tooldetail_vocab_nudges_subtitle), v.nudges, default = d.nudges) {
+            ToggleSetting(
+                R.string.tooldetail_vocab_nudges_title,
+                stringResource(R.string.tooldetail_vocab_nudges_subtitle),
+                nudges,
+                default = d.nudges,
+            ) {
                 scope.launch { repository.setVocabNudges(it) }
             }
         }
-        if (v.nudges) {
-            item {
-                ToggleSetting(
-                    R.string.tooldetail_vocab_nudge_self_title,
-                    stringResource(R.string.tooldetail_vocab_nudge_self_subtitle),
-                    v.nudgeOnVocabWord,
-                    default = d.nudgeOnVocabWord,
-                ) { scope.launch { repository.setVocabNudgeOnVocabWord(it) } }
-            }
-            item {
-                ChoiceSetting(
-                    R.string.tooldetail_vocab_tap_title,
-                    subtitle = stringResource(R.string.tooldetail_vocab_tap_subtitle),
-                    options = listOf(
-                        VocabChipTap.OPEN to stringResource(R.string.tooldetail_vocab_tap_open_label),
-                        VocabChipTap.REPLACE to stringResource(R.string.tooldetail_vocab_tap_replace_label),
-                    ),
-                    selected = v.chipTapAction,
-                    default = d.chipTapAction,
-                ) { scope.launch { repository.setVocabChipTapAction(it) } }
-            }
-            item {
-                ChoiceSetting(
-                    R.string.tooldetail_vocab_scope_title,
-                    options = listOf(
-                        VocabNudgeScope.UNLEARNT to stringResource(R.string.tooldetail_vocab_scope_unlearnt_label),
-                        VocabNudgeScope.ALL to stringResource(R.string.tooldetail_vocab_scope_all_label),
-                        VocabNudgeScope.LEARNT_ONLY to stringResource(R.string.tooldetail_vocab_scope_learnt_label),
-                    ),
-                    selected = v.nudgeScope,
-                    default = d.nudgeScope,
-                ) { scope.launch { repository.setVocabNudgeScope(it) } }
-            }
-            item {
-                ChoiceSetting(
-                    R.string.tooldetail_vocab_level_title,
-                    subtitle = stringResource(R.string.tooldetail_vocab_level_subtitle),
-                    options = listOf(
-                        VocabNudgeLevel.LOW to stringResource(R.string.tooldetail_vocab_level_low_label),
-                        VocabNudgeLevel.MEDIUM to stringResource(R.string.tooldetail_vocab_level_medium_label),
-                        VocabNudgeLevel.HIGH to stringResource(R.string.tooldetail_vocab_level_high_label),
-                    ),
-                    selected = v.nudgeLevel,
-                    default = d.nudgeLevel,
-                ) { scope.launch { repository.setVocabNudgeLevel(it) } }
-            }
-            item {
-                ChoiceSetting(
-                    R.string.tooldetail_vocab_cooldown_title,
-                    options = listOf(
-                        VocabCooldown.EVERY_TIME to stringResource(R.string.tooldetail_vocab_cooldown_every_label),
-                        VocabCooldown.ONCE_PER_FIELD to stringResource(R.string.tooldetail_vocab_cooldown_field_label),
-                        VocabCooldown.ONCE_PER_DAY to stringResource(R.string.tooldetail_vocab_cooldown_day_label),
-                    ),
-                    selected = v.cooldown,
-                    default = d.cooldown,
-                ) { scope.launch { repository.setVocabCooldown(it) } }
-            }
+        item(visible = nudges, level = SettingLevel.ADVANCED) {
+            ToggleSetting(
+                R.string.tooldetail_vocab_nudge_self_title,
+                stringResource(R.string.tooldetail_vocab_nudge_self_subtitle),
+                settings.watch { it.vocabulary.nudgeOnVocabWord },
+                default = d.nudgeOnVocabWord,
+            ) { scope.launch { repository.setVocabNudgeOnVocabWord(it) } }
+        }
+        item(visible = nudges, level = SettingLevel.STANDARD) {
+            ChoiceSetting(
+                R.string.tooldetail_vocab_tap_title,
+                subtitle = stringResource(R.string.tooldetail_vocab_tap_subtitle),
+                options = listOf(
+                    VocabChipTap.OPEN to stringResource(R.string.tooldetail_vocab_tap_open_label),
+                    VocabChipTap.REPLACE to stringResource(R.string.tooldetail_vocab_tap_replace_label),
+                ),
+                selected = settings.watch { it.vocabulary.chipTapAction },
+                default = d.chipTapAction,
+            ) { scope.launch { repository.setVocabChipTapAction(it) } }
+        }
+        item(visible = nudges, level = SettingLevel.ADVANCED) {
+            ChoiceSetting(
+                R.string.tooldetail_vocab_scope_title,
+                options = listOf(
+                    VocabNudgeScope.UNLEARNT to stringResource(R.string.tooldetail_vocab_scope_unlearnt_label),
+                    VocabNudgeScope.ALL to stringResource(R.string.tooldetail_vocab_scope_all_label),
+                    VocabNudgeScope.LEARNT_ONLY to stringResource(R.string.tooldetail_vocab_scope_learnt_label),
+                ),
+                selected = settings.watch { it.vocabulary.nudgeScope },
+                default = d.nudgeScope,
+            ) { scope.launch { repository.setVocabNudgeScope(it) } }
+        }
+        item(visible = nudges, level = SettingLevel.STANDARD) {
+            ChoiceSetting(
+                R.string.tooldetail_vocab_level_title,
+                subtitle = stringResource(R.string.tooldetail_vocab_level_subtitle),
+                options = listOf(
+                    VocabNudgeLevel.LOW to stringResource(R.string.tooldetail_vocab_level_low_label),
+                    VocabNudgeLevel.MEDIUM to stringResource(R.string.tooldetail_vocab_level_medium_label),
+                    VocabNudgeLevel.HIGH to stringResource(R.string.tooldetail_vocab_level_high_label),
+                ),
+                selected = settings.watch { it.vocabulary.nudgeLevel },
+                default = d.nudgeLevel,
+            ) { scope.launch { repository.setVocabNudgeLevel(it) } }
+        }
+        item(visible = nudges, level = SettingLevel.STANDARD) {
+            ChoiceSetting(
+                R.string.tooldetail_vocab_cooldown_title,
+                options = listOf(
+                    VocabCooldown.EVERY_TIME to stringResource(R.string.tooldetail_vocab_cooldown_every_label),
+                    VocabCooldown.ONCE_PER_FIELD to stringResource(R.string.tooldetail_vocab_cooldown_field_label),
+                    VocabCooldown.ONCE_PER_DAY to stringResource(R.string.tooldetail_vocab_cooldown_day_label),
+                ),
+                selected = settings.watch { it.vocabulary.cooldown },
+                default = d.cooldown,
+            ) { scope.launch { repository.setVocabCooldown(it) } }
         }
     }
 
-    val resolved = remember(v.cardFields) { VocabCardFields.resolve(v.cardFields) }
     SettingsGroup(
         stringResource(R.string.tooldetail_vocab_card_group),
         foldKey = "vocab_card",
         info = stringResource(R.string.tooldetail_vocab_card_info),
         foldSummary = {
+            val resolved = settings.watch { VocabCardFields.resolve(it.vocabulary.cardFields) }
             // joinToString's lambda is not composable, so resolve the names first.
             val names = VocabCardField.entries
                 .filter { resolved[it] == FieldVisibility.KEYBOARD }
@@ -341,12 +439,13 @@ internal fun VocabularyToolSettings(
             names.joinToString(", ")
         },
         action = {
-            if (v.cardFields.isNotEmpty()) {
+            if (settings.watch { it.vocabulary.cardFields.isNotEmpty() }) {
                 TextButton(onClick = { scope.launch { repository.setVocabCardFields("") } }) {
                     Text(stringResource(CommonR.string.common_reset))
                 }
             }
         },
+        level = SettingLevel.ADVANCED,
     ) {
         for (field in VocabCardField.entries) {
             item {
@@ -357,15 +456,25 @@ internal fun VocabularyToolSettings(
                         FieldVisibility.SETTINGS to stringResource(R.string.tooldetail_vocab_visibility_settings_label),
                         FieldVisibility.KEYBOARD to stringResource(R.string.tooldetail_vocab_visibility_keyboard_label),
                     ),
-                    selected = resolved[field] ?: field.defaultVisibility,
+                    selected = settings.watch { VocabCardFields.resolve(it.vocabulary.cardFields)[field] }
+                        ?: field.defaultVisibility,
                     default = field.defaultVisibility,
-                ) { scope.launch { repository.setVocabCardFields(VocabCardFields.with(v.cardFields, field, it)) } }
+                ) {
+                    val fields = settings.value.vocabulary.cardFields
+                    scope.launch { repository.setVocabCardFields(VocabCardFields.with(fields, field, it)) }
+                }
             }
         }
     }
 
-    SettingsGroup(stringResource(R.string.tooldetail_vocab_related_group)) {
-        item {
+    ServerFieldsGroup(
+        repository,
+        settings,
+        endpoints = listOf(ServiceEndpoint.KAIKKI, ServiceEndpoint.WIKTIONARY, ServiceEndpoint.DICTIONARY_API),
+        level = SettingLevel.ADVANCED,
+    )
+    SettingsGroup(stringResource(R.string.tooldetail_vocab_related_group), level = SettingLevel.STANDARD) {
+        item(level = SettingLevel.ADVANCED) {
             ChoiceSetting(
                 R.string.tooldetail_vocab_related_title,
                 subtitle = stringResource(R.string.tooldetail_vocab_related_subtitle),
@@ -374,19 +483,23 @@ internal fun VocabularyToolSettings(
                     VocabRelatedTap.INSERT to stringResource(R.string.tooldetail_vocab_related_insert_label),
                     VocabRelatedTap.DICTIONARY_LOOKUP to stringResource(R.string.tooldetail_vocab_related_lookup_label),
                 ),
-                selected = v.relatedTap,
+                selected = settings.watch { it.vocabulary.relatedTap },
                 default = d.relatedTap,
             ) { scope.launch { repository.setVocabRelatedTap(it) } }
         }
         item {
             var picking by remember { mutableStateOf(false) }
-            val chosen = v.translationLangList
+            val chosen = settings.watch { it.vocabulary.translationLangList }
+            val automatic = settings.watch { vocabTranslationCodes(it) }
             NavRow(
                 R.string.tooldetail_vocab_translations_title,
-                subtitle = if (chosen.isEmpty()) {
-                    stringResource(R.string.tooldetail_vocab_translations_auto_subtitle)
-                } else {
-                    chosen.joinToString(", ") { languageNameFor(it) }
+                subtitle = when {
+                    chosen.isNotEmpty() -> chosen.joinToString(", ") { languageNameFor(it) }
+                    automatic.isNotEmpty() -> stringResource(
+                        R.string.tooldetail_vocab_translations_auto_named_subtitle,
+                        automatic.joinToString(", ") { languageNameFor(it) },
+                    )
+                    else -> stringResource(R.string.tooldetail_vocab_translations_auto_subtitle)
                 },
             ) { picking = true }
             if (picking) {
@@ -399,7 +512,19 @@ internal fun VocabularyToolSettings(
         }
     }
 
-    SettingsGroup(stringResource(R.string.tooldetail_vocab_audio_group), info = stringResource(R.string.tooldetail_vocab_audio_info)) {
+    // Where a word that no pack knows is looked up when you add it.
+    ProvidersGroup(
+        repository,
+        settings,
+        ProviderTool.VOCAB_AUTOFILL,
+        info = stringResource(R.string.tooldetail_vocab_providers_info),
+        level = SettingLevel.STANDARD,
+    )
+    SettingsGroup(
+        stringResource(R.string.tooldetail_vocab_audio_group),
+        info = stringResource(R.string.tooldetail_vocab_audio_info),
+        level = SettingLevel.STANDARD,
+    ) {
         item {
             ChoiceSetting(
                 R.string.tooldetail_vocab_audio_source_title,
@@ -408,7 +533,7 @@ internal fun VocabularyToolSettings(
                     VocabAudioSource.WIKTIONARY to stringResource(R.string.tooldetail_vocab_audio_wiktionary_label),
                     VocabAudioSource.TTS to stringResource(R.string.tooldetail_vocab_audio_tts_label),
                 ),
-                selected = v.audioSource,
+                selected = settings.watch { it.vocabulary.audioSource },
                 default = d.audioSource,
             ) { scope.launch { repository.setVocabAudioSource(it) } }
         }
@@ -420,49 +545,51 @@ internal fun VocabularyToolSettings(
                     VocabAccent.US to stringResource(R.string.tooldetail_vocab_accent_us_label),
                     VocabAccent.UK to stringResource(R.string.tooldetail_vocab_accent_uk_label),
                 ),
-                selected = v.accent,
+                selected = settings.watch { it.vocabulary.accent },
                 default = d.accent,
             ) { scope.launch { repository.setVocabAccent(it) } }
         }
-        if (v.audioSource != VocabAudioSource.WIKTIONARY) {
-            item {
-                SliderSetting(
-                    R.string.tooldetail_vocab_tts_rate_title,
-                    value = v.ttsRate,
-                    range = VocabularySettings.MIN_TTS..VocabularySettings.MAX_TTS,
-                    display = { speedFormat.format(it) },
-                    default = d.ttsRate,
-                ) { scope.launch { repository.setVocabTtsRate(it) } }
-            }
-            item {
-                SliderSetting(
-                    R.string.tooldetail_vocab_tts_pitch_title,
-                    value = v.ttsPitch,
-                    range = VocabularySettings.MIN_TTS..VocabularySettings.MAX_TTS,
-                    display = { speedFormat.format(it) },
-                    default = d.ttsPitch,
-                ) { scope.launch { repository.setVocabTtsPitch(it) } }
-            }
+        item(visible = ttsTunable, level = SettingLevel.ADVANCED) {
+            SliderSetting(
+                R.string.tooldetail_vocab_tts_rate_title,
+                value = settings.watch { it.vocabulary.ttsRate },
+                range = VocabularySettings.MIN_TTS..VocabularySettings.MAX_TTS,
+                display = { speedFormat.format(it) },
+                default = d.ttsRate,
+            ) { scope.launch { repository.setVocabTtsRate(it) } }
+        }
+        item(visible = ttsTunable, level = SettingLevel.ADVANCED) {
+            SliderSetting(
+                R.string.tooldetail_vocab_tts_pitch_title,
+                value = settings.watch { it.vocabulary.ttsPitch },
+                range = VocabularySettings.MIN_TTS..VocabularySettings.MAX_TTS,
+                display = { speedFormat.format(it) },
+                default = d.ttsPitch,
+            ) { scope.launch { repository.setVocabTtsPitch(it) } }
         }
         item {
             val speaker = rememberVocabSpeaker()
             WmRow(
                 title = stringResource(R.string.tooldetail_vocab_audio_test_title),
                 icon = SettingsRowIcons[R.string.tooldetail_vocab_audio_test_title],
-                onClick = { speakVocabWord(context, settings, speaker, VocabWord("serendipity")) },
+                onClick = { speakVocabWord(context, settings.value, speaker, VocabWord("serendipity")) },
             )
         }
     }
 
-    SettingsGroup(stringResource(R.string.tooldetail_vocab_flashcards_group), info = stringResource(R.string.tooldetail_vocab_flashcards_info)) {
-        item {
+    SettingsGroup(
+        stringResource(R.string.tooldetail_vocab_flashcards_group),
+        info = stringResource(R.string.tooldetail_vocab_flashcards_info),
+        level = SettingLevel.STANDARD,
+    ) {
+        item(level = SettingLevel.ADVANCED) {
             ChoiceSetting(
                 R.string.tooldetail_vocab_scheduler_title,
                 options = listOf(
                     VocabScheduler.LEITNER to stringResource(R.string.tooldetail_vocab_scheduler_leitner_label),
                     VocabScheduler.SM2 to stringResource(R.string.tooldetail_vocab_scheduler_sm2_label),
                 ),
-                selected = v.scheduler,
+                selected = settings.watch { it.vocabulary.scheduler },
                 default = d.scheduler,
                 detail = { option ->
                     ChoiceDetail(
@@ -481,7 +608,7 @@ internal fun VocabularyToolSettings(
             SliderSetting(
                 R.string.tooldetail_vocab_goal_title,
                 subtitle = stringResource(R.string.tooldetail_vocab_goal_subtitle),
-                value = v.dailyGoal.toFloat(),
+                value = settings.watch { it.vocabulary.dailyGoal }.toFloat(),
                 range = VocabularySettings.MIN_DAILY_GOAL.toFloat()..VocabularySettings.MAX_DAILY_GOAL.toFloat(),
                 display = { numberFormat.format(it.roundToInt()) },
                 default = d.dailyGoal.toFloat(),
@@ -489,39 +616,90 @@ internal fun VocabularyToolSettings(
         }
     }
 
-    SettingsGroup(stringResource(R.string.tooldetail_vocab_wotd_group)) {
+    SettingsGroup(stringResource(R.string.tooldetail_vocab_wotd_group), level = SettingLevel.STANDARD) {
         item {
-            ToggleSetting(R.string.tooldetail_vocab_wotd_card_title, stringResource(R.string.tooldetail_vocab_wotd_card_subtitle), v.wordOfTheDayCard, default = d.wordOfTheDayCard) {
+            ToggleSetting(
+                R.string.tooldetail_vocab_wotd_card_title,
+                stringResource(R.string.tooldetail_vocab_wotd_card_subtitle),
+                settings.watch { it.vocabulary.wordOfTheDayCard },
+                default = d.wordOfTheDayCard,
+            ) {
                 scope.launch { repository.setVocabWordOfTheDayCard(it) }
             }
         }
         item {
-            ToggleSetting(R.string.tooldetail_vocab_wotd_chip_title, stringResource(R.string.tooldetail_vocab_wotd_chip_subtitle), v.wordOfTheDayChip, default = d.wordOfTheDayChip) {
+            ToggleSetting(
+                R.string.tooldetail_vocab_wotd_chip_title,
+                stringResource(R.string.tooldetail_vocab_wotd_chip_subtitle),
+                wordChip,
+                default = d.wordOfTheDayChip,
+            ) {
                 scope.launch { repository.setVocabWordOfTheDayChip(it) }
             }
+        }
+        // How often the word turns over only matters where a word is shown:
+        // the card on the settings home, the chip on the keyboard, or both.
+        if (showsWord) item {
+            ChoiceSetting(
+                R.string.tooldetail_vocab_wotd_interval_title,
+                subtitle = stringResource(R.string.tooldetail_vocab_wotd_interval_subtitle),
+                options = listOf(
+                    VocabWordInterval.DAILY to stringResource(R.string.tooldetail_vocab_wotd_interval_day_label),
+                    VocabWordInterval.EVERY_12_HOURS to stringResource(R.string.tooldetail_vocab_wotd_interval_12h_label),
+                    VocabWordInterval.EVERY_6_HOURS to stringResource(R.string.tooldetail_vocab_wotd_interval_6h_label),
+                    VocabWordInterval.EVERY_3_HOURS to stringResource(R.string.tooldetail_vocab_wotd_interval_3h_label),
+                    VocabWordInterval.HOURLY to stringResource(R.string.tooldetail_vocab_wotd_interval_hour_label),
+                ),
+                selected = settings.watch { it.vocabulary.wordInterval },
+                default = d.wordInterval,
+            ) { scope.launch { repository.setVocabWordInterval(it) } }
+        }
+        item(visible = wordChip, level = SettingLevel.ADVANCED) {
+            SliderSetting(
+                R.string.tooldetail_vocab_wotd_chip_times_title,
+                subtitle = stringResource(R.string.tooldetail_vocab_wotd_chip_times_subtitle),
+                value = settings.watch { it.vocabulary.chipTimesPerWord }.toFloat(),
+                range = VocabularySettings.MIN_CHIP_TIMES.toFloat()..VocabularySettings.MAX_CHIP_TIMES.toFloat(),
+                display = { numberFormat.format(it.roundToInt()) },
+                default = d.chipTimesPerWord.toFloat(),
+            ) { scope.launch { repository.setVocabChipTimesPerWord(it.roundToInt()) } }
         }
     }
 }
 
+/**
+ * Checkboxes over Wiktionary's language codes: the packs' sidecars, the
+ * keyboard's languages and [extraCodes]. [chosenNow] is the stored pick
+ * list. The Dictionary tool's translations (#764) use it too, with more
+ * languages offered, since Wiktionary's pages carry far more than the packs.
+ */
 @Composable
-private fun TranslationLanguagesDialog(
-    settings: KeyboardSettings,
+internal fun TranslationLanguagesDialog(
+    settings: LiveSettings,
     onDismiss: () -> Unit,
     onChange: (List<String>) -> Unit,
+    chosenNow: (KeyboardSettings) -> List<String> = { it.vocabulary.translationLangList },
+    title: String = stringResource(R.string.tooldetail_vocab_translations_title),
+    body: String = stringResource(R.string.tooldetail_vocab_translations_dialog_body),
+    extraCodes: List<String> = emptyList(),
 ) {
+    // Sidecar codes only: a keyboard language maps to its code (bn_rom reads
+    // bn) so Bangla is one entry, not two, and a pick always matches a file.
+    val keyboardCodes = settings.watch { s -> s.enabledLanguages.flatMap { VocabLanguages.codesFor(it.id) } }
     val offered = remember {
-        (VocabCatalog.entries.flatMap { it.translationCodes } + settings.enabledLanguages.map { it.id })
+        (VocabCatalog.entries.flatMap { it.translationCodes } + keyboardCodes + extraCodes)
             .filter { it != "en" }
             .distinct()
             .sortedBy { languageNameFor(it) }
     }
-    var chosen by remember { mutableStateOf(settings.vocabulary.translationLangList) }
+    val initialChosen = settings.watch { s -> chosenNow(s).flatMap { VocabLanguages.codesFor(it) }.distinct() }
+    var chosen by remember { mutableStateOf(initialChosen) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.tooldetail_vocab_translations_title)) },
+        title = { Text(title) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                CaptionText(stringResource(R.string.tooldetail_vocab_translations_dialog_body))
+                CaptionText(body)
                 for (code in offered) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(
@@ -546,39 +724,61 @@ private fun TranslationLanguagesDialog(
 
 private data class InstalledVocabPack(val file: File, val pack: VocabPack, val learnt: Int, val seen: Int)
 
+/**
+ * What the packs screen showed last time, so coming back paints it on the
+ * first frame instead of listing every pack as "not downloaded" until the
+ * disk has been read. Process-held and keyed on the pack files and the
+ * learning record, like the daily card's draw.
+ */
+private object InstalledPacksCache {
+    var key: Long = Long.MIN_VALUE
+    var packs: List<InstalledVocabPack>? = null
+}
+
+private suspend fun readInstalledPacks(context: Context): List<InstalledVocabPack> = withContext(Dispatchers.IO) {
+    val filesDir = context.filesDir
+    val progressFile = File(filesDir, VocabProgress.FILE_PATH)
+    val key = VocabPacks.stateToken(filesDir).toLong() * 31 + progressFile.lastModified() + progressFile.length()
+    InstalledPacksCache.packs?.takeIf { InstalledPacksCache.key == key }?.let { return@withContext it }
+    val progress = VocabProgress(progressFile)
+    val today = vocabToday()
+    val packs = VocabPacks.languages(filesDir).flatMap { langId ->
+        VocabPacks.files(filesDir, langId).mapNotNull { file ->
+            val pack = VocabPacks.loadFile(file) ?: return@mapNotNull null
+            if (pack.meta.userCreated) return@mapNotNull null
+            val stats = progress.stats(today, pack.words.map { it.word })
+            InstalledVocabPack(file, pack, stats.learnt, stats.seen)
+        }
+    }
+    InstalledPacksCache.key = key
+    InstalledPacksCache.packs = packs
+    packs
+}
+
 /** The packs screen: the catalogue's downloads, what is installed, imports and translation sidecars. */
 @Composable
 internal fun VocabPacksScreen(
     repository: SettingsRepository,
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     onNavigate: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var revision by remember { mutableIntStateOf(0) }
-    var installed by remember { mutableStateOf<List<InstalledVocabPack>>(emptyList()) }
+    var installed by remember { mutableStateOf(InstalledPacksCache.packs) }
     var message by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf<InstalledVocabPack?>(null) }
     var blocked by remember { mutableStateOf(false) }
     var confirmMetered by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var showLinks by remember { mutableStateOf(false) }
     val states by VocabDownloadManager.states.collectAsState()
     val translationStates by VocabDownloadManager.translationStates.collectAsState()
     val downloadDecision = rememberDownloadDecision(settings)
 
     LaunchedEffect(revision) {
         VocabDownloadManager.refresh(context.filesDir)
-        installed = withContext(Dispatchers.IO) {
-            val progress = VocabProgress(File(context.filesDir, VocabProgress.FILE_PATH))
-            VocabPacks.languages(context.filesDir).flatMap { langId ->
-                VocabPacks.files(context.filesDir, langId).mapNotNull { file ->
-                    val pack = VocabPacks.loadFile(file) ?: return@mapNotNull null
-                    if (pack.meta.userCreated) return@mapNotNull null
-                    val lemmas = pack.words.map { it.word }
-                    val stats = progress.stats(vocabToday(), lemmas)
-                    InstalledVocabPack(file, pack, stats.learnt, stats.seen)
-                }
-            }
-        }
+        installed = readInstalledPacks(context)
+        autoFetchVocabTranslations(context, settings.value)
     }
     LaunchedEffect(Unit) {
         VocabDownloadManager.completions.collect { revision++ }
@@ -595,7 +795,11 @@ internal fun VocabPacksScreen(
                 }.getOrNull()
             }
             message = when (result) {
-                is VocabPacks.ImportResult.Imported -> context.resources.getQuantityString(R.plurals.vocab_import_done, result.wordCount, result.wordCount)
+                is VocabPacks.ImportResult.Imported -> context.resources.getQuantityString(
+                    R.plurals.vocab_import_done,
+                    result.wordCount,
+                    result.wordCount,
+                )
                 VocabPacks.ImportResult.TooLarge -> context.getString(R.string.vocab_import_too_large_error)
                 VocabPacks.ImportResult.Empty -> context.getString(R.string.vocab_import_empty_error)
                 VocabPacks.ImportResult.NotAPack, null -> context.getString(R.string.vocab_import_error)
@@ -603,6 +807,8 @@ internal fun VocabPacksScreen(
             if (result is VocabPacks.ImportResult.Imported) revision++
         }
     }
+
+    val notifyDownload = rememberDownloadNotifier()
 
     fun gated(action: () -> Unit) {
         when (downloadDecision()) {
@@ -614,29 +820,24 @@ internal fun VocabPacksScreen(
 
     AddonStoreGroup(AddonType.Vocabulary, onNavigate)
 
-    val installedIds = installed.map { VocabPacks.packIdOf(it.file) }.toSet()
-    val available = VocabCatalog.entries.filter { it.id !in installedIds }
-    if (available.isNotEmpty()) {
-        SettingsGroup(stringResource(R.string.vocab_packs_available_title), info = stringResource(R.string.vocab_packs_available_info)) {
-            for (entry in available) {
-                item {
-                    VocabCatalogRow(
-                        entry = entry,
-                        status = states[entry.id],
-                        onDownload = { gated { VocabDownloadManager.start(context.filesDir, entry) } },
-                        onCancel = { VocabDownloadManager.cancel(entry.id) },
-                    )
-                }
-            }
-        }
+    // Nothing read yet (first opening of the process): say so rather than
+    // list every pack as missing and then flip once the disk answers.
+    val known = installed
+    if (known == null) {
+        CaptionText(stringResource(R.string.vocab_packs_loading), Modifier.padding(16.dp))
+        return
     }
 
+    val installedIds = known.map { VocabPacks.packIdOf(it.file) }.toSet()
+    val available = VocabCatalog.entries.filter { it.id !in installedIds }
+    // What you have first: the packs you use are the ones you come back for;
+    // the catalogue below is for the odd new one.
     SettingsGroup(stringResource(R.string.vocab_packs_installed_title), highlightKey = R.string.vocab_packs_installed_title) {
-        if (installed.isEmpty()) {
+        if (known.isEmpty()) {
             item { CaptionText(stringResource(R.string.vocab_packs_installed_empty)) }
         }
-        for (item in installed) {
-            item {
+        for (item in known) {
+            item(key = item.file.absolutePath) {
                 val packId = VocabPacks.packIdOf(item.file)
                 val catalog = VocabCatalog.byId(packId)
                 HighlightableItem(packId) {
@@ -645,6 +846,11 @@ internal fun VocabPacksScreen(
                             title = item.pack.name,
                             subtitle = stringResource(R.string.vocab_pack_progress_subtitle, item.pack.words.size, item.seen, item.learnt),
                             icon = Icons.Outlined.School,
+                            swipeActions = listOf(
+                                deleteSwipeAction(stringResource(CommonR.string.common_delete)) {
+                                    confirmDelete = item
+                                },
+                            ),
                             trailing = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     IconButton(onClick = { confirmDelete = item }) {
@@ -667,7 +873,12 @@ internal fun VocabPacksScreen(
                             TranslationChips(
                                 entry = catalog,
                                 states = translationStates,
-                                onFetch = { code -> gated { VocabDownloadManager.startTranslations(context.filesDir, catalog, listOf(code)) } },
+                                wanted = settings.watch { vocabTranslationCodes(it) },
+                                onFetch = { code -> gated { VocabDownloadManager.startTranslations(
+                                    context.filesDir,
+                                    catalog,
+                                    listOf(code),
+                                ) } },
                                 onRemove = { code -> VocabDownloadManager.deleteTranslation(context.filesDir, catalog, code) },
                             )
                         }
@@ -684,7 +895,45 @@ internal fun VocabPacksScreen(
                 onClick = { importLauncher.launch(arrayOf("*/*")) },
             )
         }
+        // Where each pack is published, to fetch in a browser when the
+        // download here cannot run: the no-internet build, a blocked network
+        // (#665). The file then comes in through Import above.
+        item {
+            WmRow(
+                title = stringResource(R.string.vocab_packs_links_title),
+                subtitle = stringResource(R.string.vocab_packs_links_subtitle),
+                icon = Icons.Outlined.OpenInBrowser,
+                onClick = { showLinks = true },
+            )
+        }
     }
+    if (showLinks) {
+        OfflineLinksDialog(VocabCatalog.entries.map { OfflineLink(it.name, it.url) }) { showLinks = false }
+    }
+    if (available.isNotEmpty() && !offlineBuild) {
+        SettingsGroup(stringResource(R.string.vocab_packs_available_title), info = stringResource(R.string.vocab_packs_available_info)) {
+            for (entry in available) {
+                item {
+                    VocabCatalogRow(
+                        entry = entry,
+                        status = states[entry.id],
+                        onDownload = {
+                            gated {
+                                VocabDownloadManager.start(context.filesDir, entry, vocabTranslationCodes(settings.value))
+                                notifyDownload(
+                                    entry.id,
+                                    entry.name,
+                                    DownloadProgressFlows.vocab(context, entry.id),
+                                )
+                            }
+                        },
+                        onCancel = { VocabDownloadManager.cancel(entry.id) },
+                    )
+                }
+            }
+        }
+    }
+
     Spacer(Modifier.height(16.dp))
 
     confirmDelete?.let { item ->
@@ -706,14 +955,10 @@ internal fun VocabPacksScreen(
         )
     }
     confirmMetered?.let { action ->
-        AlertDialog(
-            onDismissRequest = { confirmMetered = null },
-            title = { Text(stringResource(R.string.languages_metered_confirm_title)) },
-            text = { Text(stringResource(R.string.vocab_metered_confirm_body)) },
-            confirmButton = {
-                TextButton(onClick = { confirmMetered = null; action() }) { Text(stringResource(CommonR.string.common_download)) }
-            },
-            dismissButton = { TextButton(onClick = { confirmMetered = null }) { Text(stringResource(CommonR.string.common_cancel)) } },
+        MeteredDownloadDialog(
+            detail = null,
+            onConfirm = { confirmMetered = null; action() },
+            onDismiss = { confirmMetered = null },
         )
     }
     if (blocked) MeteredBlockedDialog { blocked = false }
@@ -737,7 +982,11 @@ private fun VocabCatalogRow(
 ) {
     val sizeText = formatVocabBytes(entry.approxGzBytes)
     val subtitle = when (status) {
-        is VocabDownloadManager.DownloadStatus.Downloading -> stringResource(R.string.vocab_pack_downloading_subtitle, formatVocabBytes(status.bytes), sizeText)
+        is VocabDownloadManager.DownloadStatus.Downloading -> stringResource(
+            R.string.vocab_pack_downloading_subtitle,
+            formatVocabBytes(status.bytes),
+            sizeText,
+        )
         VocabDownloadManager.DownloadStatus.Queued -> stringResource(R.string.vocab_pack_queued_subtitle)
         is VocabDownloadManager.DownloadStatus.Failed ->
             if (status.messageArg.isEmpty()) stringResource(status.messageRes) else stringResource(status.messageRes, status.messageArg)
@@ -771,31 +1020,69 @@ private fun VocabCatalogRow(
     }
 }
 
+/**
+ * One line under an installed pack — "Translations · 2 of 56 languages" —
+ * that opens into the chips. Folded by default: fifty-odd chips under every
+ * pack made the screen a wall, and the languages the user reads are fetched
+ * on their own; the chips are for the odd extra one.
+ */
 @Composable
 private fun TranslationChips(
     entry: VocabCatalogEntry,
     states: Map<String, VocabDownloadManager.DownloadStatus>,
+    wanted: List<String>,
     onFetch: (String) -> Unit,
     onRemove: (String) -> Unit,
 ) {
-    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-        CaptionText(stringResource(R.string.vocab_pack_translations_caption))
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            for (code in entry.translationCodes) {
-                val status = states[VocabDownloadManager.translationKey(entry.id, code)]
-                val have = status is VocabDownloadManager.DownloadStatus.Downloaded
-                val busy = status is VocabDownloadManager.DownloadStatus.Downloading || status == VocabDownloadManager.DownloadStatus.Queued
-                FilterChip(
-                    selected = have,
-                    enabled = !busy,
-                    onClick = { if (have) onRemove(code) else onFetch(code) },
-                    label = { Text(languageNameFor(code)) },
-                    leadingIcon = if (have) {
-                        { Icon(Icons.Outlined.Check, contentDescription = null) }
-                    } else {
-                        null
-                    },
-                )
+    var expanded by remember(entry.id) { mutableStateOf(false) }
+    val have = entry.translationCodes.count { states[VocabDownloadManager.translationKey(
+        entry.id,
+        it,
+    )] is VocabDownloadManager.DownloadStatus.Downloaded }
+    // The user's own languages first, then the rest by name.
+    val ordered = remember(entry.id, wanted) {
+        val mine = wanted.filter { it in entry.translationCodes }
+        mine + (entry.translationCodes - mine.toSet()).sortedBy { languageNameFor(it) }
+    }
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.small)
+                .clickable { expanded = !expanded }
+                .padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                stringResource(R.string.vocab_pack_translations_summary, have, entry.translationCodes.size),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                contentDescription = stringResource(if (expanded) R.string.vocab_pack_translations_collapse_desc else R.string.vocab_pack_translations_expand_desc),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (expanded) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+                for (code in ordered) {
+                    val status = states[VocabDownloadManager.translationKey(entry.id, code)]
+                    val downloaded = status is VocabDownloadManager.DownloadStatus.Downloaded
+                    val busy = status is VocabDownloadManager.DownloadStatus.Downloading || status == VocabDownloadManager.DownloadStatus.Queued
+                    FilterChip(
+                        selected = downloaded,
+                        enabled = !busy,
+                        onClick = { if (downloaded) onRemove(code) else onFetch(code) },
+                        label = { Text(languageNameFor(code)) },
+                        leadingIcon = if (downloaded) {
+                            { Icon(Icons.Outlined.Check, contentDescription = null) }
+                        } else {
+                            null
+                        },
+                    )
+                }
             }
         }
     }
@@ -815,7 +1102,7 @@ private data class UserVocabList(val file: File, val pack: VocabPack, val learnt
 @Composable
 internal fun VocabListsScreen(
     repository: SettingsRepository,
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     onNavigate: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -823,7 +1110,6 @@ internal fun VocabListsScreen(
     var revision by remember { mutableIntStateOf(0) }
     var lists by remember { mutableStateOf<List<UserVocabList>>(emptyList()) }
     var newName by remember { mutableStateOf<String?>(null) }
-    val langId = remember(settings) { settings.enabledLanguages.firstOrNull { it.id == "en" }?.id ?: "en" }
 
     LaunchedEffect(revision) {
         lists = withContext(Dispatchers.IO) {
@@ -884,11 +1170,17 @@ internal fun VocabListsScreen(
                 TextButton(
                     enabled = draft.isNotBlank(),
                     onClick = {
+                        val langId = settings.value.enabledLanguages.firstOrNull { it.id == "en" }?.id ?: "en"
                         val meta = VocabPacks.newUserPack(draft, langId)
                         newName = null
                         scope.launch {
                             withContext(Dispatchers.IO) {
-                                VocabPacks.write(context.filesDir, VocabPack(meta, emptyList()), BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME)
+                                VocabPacks.write(
+                                    context.filesDir,
+                                    VocabPack(meta, emptyList()),
+                                    BuildConfig.VERSION_CODE,
+                                    BuildConfig.VERSION_NAME,
+                                )
                             }
                             onNavigate(vocabListRoute(meta.id))
                         }
@@ -909,7 +1201,7 @@ internal fun VocabListsScreen(
 internal fun VocabListEditorScreen(
     packId: String,
     repository: SettingsRepository,
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     onNavigate: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -921,8 +1213,8 @@ internal fun VocabListEditorScreen(
     var confirmDelete by remember { mutableStateOf(false) }
     var adding by remember { mutableStateOf<VocabWord?>(null) }
     var showSheet by remember { mutableStateOf(false) }
-    var bulk by remember { mutableStateOf<String?>(null) }
-    val index = rememberVocabIndex(revision)
+    var bulk by remember { mutableStateOf(false) }
+    val index = rememberVocabIndex(revision, settings)
     val progress = rememberVocabProgress()
 
     LaunchedEffect(revision) {
@@ -967,7 +1259,11 @@ internal fun VocabListEditorScreen(
 
     SettingsGroup(current.name) {
         item {
-            WmRow(title = stringResource(R.string.vocab_list_rename_title), icon = Icons.Outlined.Edit, onClick = { renaming = current.name })
+            WmRow(
+                title = stringResource(R.string.vocab_list_rename_title),
+                icon = Icons.Outlined.Edit,
+                onClick = { renaming = current.name },
+            )
         }
         item {
             WmRow(
@@ -981,10 +1277,19 @@ internal fun VocabListEditorScreen(
             )
         }
         item {
-            WmRow(title = stringResource(R.string.vocab_list_bulk_title), subtitle = stringResource(R.string.vocab_list_bulk_subtitle), icon = Icons.Outlined.PlaylistAdd, onClick = { bulk = "" })
+            WmRow(
+                title = stringResource(R.string.vocab_list_bulk_title),
+                subtitle = stringResource(R.string.vocab_list_bulk_subtitle),
+                icon = Icons.Outlined.PlaylistAdd,
+                onClick = { bulk = true },
+            )
         }
         item {
-            WmRow(title = stringResource(R.string.vocab_list_delete_title), icon = Icons.Outlined.Delete, onClick = { confirmDelete = true })
+            WmRow(
+                title = stringResource(R.string.vocab_list_delete_title),
+                icon = Icons.Outlined.Delete,
+                onClick = { confirmDelete = true },
+            )
         }
     }
 
@@ -993,15 +1298,31 @@ internal fun VocabListEditorScreen(
             item { CaptionText(stringResource(R.string.vocab_list_words_empty)) }
         }
         for (word in current.words) {
-            item {
+            item(key = word.word) {
                 val learnt = progress.isLearnt(word.word)
                 WmRow(
                     title = word.word,
                     subtitle = word.definition.ifBlank { stringResource(R.string.vocab_word_needs_details_label) },
+                    swipeActions = listOf(
+                        SwipeAction(Icons.Outlined.Edit, stringResource(CommonR.string.common_edit)) {
+                            adding = word
+                            showSheet = true
+                        },
+                        deleteSwipeAction(stringResource(CommonR.string.common_delete)) {
+                            save(current.copy(words = current.words.filter { it.word != word.word }))
+                        },
+                    ),
                     trailing = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (learnt) Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            IconButton(onClick = { adding = word; showSheet = true }) { Icon(Icons.Outlined.Edit, contentDescription = stringResource(CommonR.string.common_edit)) }
+                            if (learnt) Icon(
+                                Icons.Outlined.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                            IconButton(onClick = { adding = word; showSheet = true }) { Icon(
+                                Icons.Outlined.Edit,
+                                contentDescription = stringResource(CommonR.string.common_edit),
+                            ) }
                             IconButton(onClick = { save(current.copy(words = current.words.filter { it.word != word.word })) }) {
                                 Icon(Icons.Outlined.Delete, contentDescription = stringResource(CommonR.string.common_delete))
                             }
@@ -1059,15 +1380,13 @@ internal fun VocabListEditorScreen(
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(CommonR.string.common_cancel)) } },
         )
     }
-    bulk?.let { text ->
+    if (bulk) {
         BulkAddDialog(
-            text = text,
-            onText = { bulk = it },
             index = index,
             settings = settings,
-            onDismiss = { bulk = null },
+            onDismiss = { bulk = false },
             onAdd = { words ->
-                bulk = null
+                bulk = false
                 val existing = current.words.map { it.word }.toSet()
                 val fresh = words.filter { it.word !in existing }
                 message = context.getString(R.string.vocab_bulk_done, fresh.size, fresh.count { it.senses.isNotEmpty() })
@@ -1087,14 +1406,16 @@ internal fun VocabListEditorScreen(
 }
 
 /**
- * The add/edit sheet: type a word, take what an installed pack or the online
- * dictionary knows about it, or type the details yourself.
+ * The add/edit sheet: type a word, take what an installed pack or the
+ * network knows about it, or type the details yourself. Opens full-height
+ * and scrolls, with Save in the header where it can always be reached; the
+ * fields sit under small headings so a glance says what each one is for.
  */
 @Composable
 private fun AddVocabWordSheet(
     initial: VocabWord,
     index: VocabIndex?,
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     onDismiss: () -> Unit,
     onSave: (VocabWord) -> Unit,
 ) {
@@ -1112,8 +1433,9 @@ private fun AddVocabWordSheet(
     var found by remember { mutableStateOf<VocabWord?>(null) }
     var status by remember { mutableStateOf<String?>(null) }
     var lookingUp by remember { mutableStateOf(false) }
-    val translationCode = settings.vocabulary.translationLangList.firstOrNull()
-        ?: settings.enabledLanguages.map { it.id }.firstOrNull { it != "en" } ?: "bn"
+    val translationCodes = settings.watch { vocabTranslationCodes(it) }
+    val translationCode = translationCodes.firstOrNull() ?: "bn"
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     fun fill(record: VocabWord) {
         pos = record.pos.firstOrNull().orEmpty()
@@ -1136,16 +1458,21 @@ private fun AddVocabWordSheet(
         found = hit
     }
 
+    // One tap, a few kilobytes: not a thing data saving has a say in. The
+    // policy it used to consult governs the Dictionary tool's automatic
+    // look-up on every selection, which is a different amount of traffic.
     fun lookupOnline() {
         val lemma = VocabPackFile.normalizeLemma(word) ?: return
-        val decision = vocabDecisionNow(context, settings, MeteredFeature.DICTIONARY_LOOKUP)
-        if (decision == MeteredDecision.BLOCKED) {
-            status = context.getString(R.string.vocab_add_lookup_blocked_body)
-            return
-        }
         lookingUp = true
+        status = context.getString(R.string.vocab_add_looking_up)
         scope.launch {
-            val result = VocabAutofill.resolve(VocabIndex.EMPTY, lemma, allowOnline = true)
+            val result = VocabAutofill.resolve(
+                VocabIndex.EMPTY,
+                lemma,
+                allowOnline = true,
+                translationCodes = translationCodes,
+                sources = vocabSources(settings.value),
+            )
             lookingUp = false
             when (result) {
                 is VocabAutofill.Result.Found -> {
@@ -1158,12 +1485,56 @@ private fun AddVocabWordSheet(
         }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                stringResource(if (initial.word.isEmpty()) R.string.vocab_list_add_word_action else CommonR.string.common_edit),
-                style = MaterialTheme.typography.titleMedium,
-            )
+    fun save() {
+        val lemma = VocabPackFile.normalizeLemma(word) ?: return
+        fun list(text: String) = text.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        val base = found?.takeIf { it.word == lemma } ?: initial.takeIf { it.word == lemma } ?: VocabWord(lemma)
+        val senses = if (definition.isBlank()) {
+            base.senses
+        } else {
+            listOf(VocabSense(pos = pos, definition = definition.trim(), example = example.trim().takeIf { it.isNotEmpty() })) +
+                base.senses.drop(1)
+        }
+        onSave(
+            base.copy(
+                word = lemma,
+                pos = if (pos.isNotEmpty()) listOf(pos) else base.pos,
+                senses = senses,
+                synonyms = list(synonyms),
+                antonyms = list(antonyms),
+                mnemonic = mnemonic.trim().takeIf { it.isNotEmpty() },
+                triggers = list(triggers).map { com.wasimaster.wmkeyboard.core.vocab.VocabTrigger(it.lowercase()) },
+                translations = if (translation.isBlank()) {
+                    base.translations - translationCode
+                } else {
+                    base.translations + (translationCode to VocabTranslation(list(translation)))
+                },
+            ),
+        )
+    }
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .imePadding()
+                .navigationBarsPadding()
+                .padding(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    stringResource(if (initial.word.isEmpty()) R.string.vocab_list_add_word_action else CommonR.string.common_edit),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onDismiss) { Text(stringResource(CommonR.string.common_cancel)) }
+                TextButton(enabled = VocabPackFile.normalizeLemma(word) != null, onClick = ::save) {
+                    Text(stringResource(CommonR.string.common_save))
+                }
+            }
             OutlinedTextField(
                 value = word,
                 onValueChange = { word = it },
@@ -1188,17 +1559,58 @@ private fun AddVocabWordSheet(
                 )
             }
             status?.let { CaptionText(it) }
+
+            SheetHeading(stringResource(R.string.vocab_add_section_meaning))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 for (option in listOf("noun", "verb", "adjective", "adverb")) {
                     FilterChip(selected = pos == option, onClick = { pos = if (pos == option) "" else option }, label = { Text(option) })
                 }
             }
-            OutlinedTextField(value = definition, onValueChange = { definition = it }, label = { Text(stringResource(R.string.vocab_add_definition_label)) }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = example, onValueChange = { example = it }, label = { Text(stringResource(R.string.vocab_add_example_label)) }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = synonyms, onValueChange = { synonyms = it }, label = { Text(stringResource(R.string.vocab_add_synonyms_label)) }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = antonyms, onValueChange = { antonyms = it }, label = { Text(stringResource(R.string.vocab_add_antonyms_label)) }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = triggers, onValueChange = { triggers = it }, label = { Text(stringResource(R.string.vocab_add_triggers_label)) }, supportingText = { Text(stringResource(R.string.vocab_add_triggers_hint)) }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = mnemonic, onValueChange = { mnemonic = it }, label = { Text(stringResource(R.string.vocab_add_mnemonic_label)) }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(
+                value = definition,
+                onValueChange = { definition = it },
+                label = { Text(stringResource(R.string.vocab_add_definition_label)) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = example,
+                onValueChange = { example = it },
+                label = { Text(stringResource(R.string.vocab_add_example_label)) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            SheetHeading(stringResource(R.string.vocab_add_section_related))
+            OutlinedTextField(
+                value = synonyms,
+                onValueChange = { synonyms = it },
+                label = { Text(stringResource(R.string.vocab_add_synonyms_label)) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = antonyms,
+                onValueChange = { antonyms = it },
+                label = { Text(stringResource(R.string.vocab_add_antonyms_label)) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            SheetHeading(stringResource(R.string.vocab_add_section_nudge))
+            OutlinedTextField(
+                value = triggers,
+                onValueChange = { triggers = it },
+                label = { Text(stringResource(R.string.vocab_add_triggers_label)) },
+                supportingText = { Text(stringResource(R.string.vocab_add_triggers_hint)) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            SheetHeading(stringResource(R.string.vocab_add_section_remember))
+            OutlinedTextField(
+                value = mnemonic,
+                onValueChange = { mnemonic = it },
+                label = { Text(stringResource(R.string.vocab_add_mnemonic_label)) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            SheetHeading(stringResource(R.string.vocab_add_section_translation))
             OutlinedTextField(
                 value = translation,
                 onValueChange = { translation = it },
@@ -1207,64 +1619,53 @@ private fun AddVocabWordSheet(
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text(stringResource(CommonR.string.common_cancel)) }
-                TextButton(
-                    enabled = VocabPackFile.normalizeLemma(word) != null,
-                    onClick = {
-                        val lemma = VocabPackFile.normalizeLemma(word) ?: return@TextButton
-                        fun list(text: String) = text.split(',').map { it.trim() }.filter { it.isNotEmpty() }
-                        val base = found?.takeIf { it.word == lemma } ?: initial.takeIf { it.word == lemma } ?: VocabWord(lemma)
-                        val senses = if (definition.isBlank()) {
-                            base.senses
-                        } else {
-                            listOf(VocabSense(pos = pos, definition = definition.trim(), example = example.trim().takeIf { it.isNotEmpty() })) +
-                                base.senses.drop(1)
-                        }
-                        onSave(
-                            base.copy(
-                                word = lemma,
-                                pos = if (pos.isNotEmpty()) listOf(pos) else base.pos,
-                                senses = senses,
-                                synonyms = list(synonyms),
-                                antonyms = list(antonyms),
-                                mnemonic = mnemonic.trim().takeIf { it.isNotEmpty() },
-                                triggers = list(triggers).map { com.wasimaster.wmkeyboard.core.vocab.VocabTrigger(it.lowercase()) },
-                                translations = if (translation.isBlank()) {
-                                    base.translations - translationCode
-                                } else {
-                                    base.translations + (translationCode to VocabTranslation(list(translation)))
-                                },
-                            ),
-                        )
-                    },
-                ) { Text(stringResource(CommonR.string.common_save)) }
+                TextButton(enabled = VocabPackFile.normalizeLemma(word) != null, onClick = ::save) {
+                    Text(stringResource(CommonR.string.common_save))
+                }
             }
         }
     }
 }
 
-/** Paste many words; each takes its details from an installed pack, or (optionally) from the online dictionary. */
+@Composable
+private fun SheetHeading(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 8.dp),
+    )
+}
+
+/**
+ * Paste many words; each takes its details from an installed pack, or
+ * (optionally) from Wiktionary. The text lives in the dialog as a
+ * `TextFieldValue` rather than being hoisted as a `String`: a multi-line
+ * field whose value round-trips through the parent's state a frame late
+ * had the keyboard re-committing its composing text, which doubled the
+ * last word pasted.
+ */
 @Composable
 private fun BulkAddDialog(
-    text: String,
-    onText: (String) -> Unit,
     index: VocabIndex?,
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     onDismiss: () -> Unit,
     onAdd: (List<VocabWord>) -> Unit,
 ) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var field by remember { mutableStateOf(TextFieldValue("")) }
     var online by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
-    val words = remember(text) { VocabAutofill.parseWordList(text) }
+    val words = remember(field.text) { VocabAutofill.parseWordList(field.text) }
+    val translationCodes = settings.watch { vocabTranslationCodes(it) }
     AlertDialog(
         onDismissRequest = { if (progress == null) onDismiss() },
         title = { Text(stringResource(R.string.vocab_list_bulk_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
-                    value = text,
-                    onValueChange = onText,
+                    value = field,
+                    onValueChange = { field = it },
                     label = { Text(pluralStringResource(R.plurals.vocab_bulk_count_label, words.size, words.size)) },
                     minLines = 4,
                     maxLines = 8,
@@ -1275,7 +1676,10 @@ private fun BulkAddDialog(
                     Text(stringResource(R.string.vocab_bulk_online_label), style = MaterialTheme.typography.bodyMedium)
                 }
                 progress?.let { (done, total) ->
-                    LinearProgressIndicator(progress = { if (total == 0) 0f else done.toFloat() / total }, modifier = Modifier.fillMaxWidth())
+                    LinearProgressIndicator(
+                        progress = { if (total == 0) 0f else done.toFloat() / total },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
         },
@@ -1283,8 +1687,6 @@ private fun BulkAddDialog(
             TextButton(
                 enabled = words.isNotEmpty() && progress == null,
                 onClick = {
-                    val allowOnline = online &&
-                        vocabDecisionNow(context, settings, MeteredFeature.DICTIONARY_LOOKUP) == MeteredDecision.ALLOWED
                     progress = 0 to words.size
                     scope.launch {
                         val out = ArrayList<VocabWord>()
@@ -1293,9 +1695,15 @@ private fun BulkAddDialog(
                             val fromIndex = index?.lookupAnyForm(lemma)
                             val record = when {
                                 fromIndex != null -> fromIndex
-                                allowOnline && onlineLeft > 0 -> {
+                                online && onlineLeft > 0 -> {
                                     onlineLeft--
-                                    val result = VocabAutofill.resolve(VocabIndex.EMPTY, lemma, allowOnline = true)
+                                    val result = VocabAutofill.resolve(
+                                        VocabIndex.EMPTY,
+                                        lemma,
+                                        allowOnline = true,
+                                        translationCodes = translationCodes,
+                                        sources = vocabSources(settings.value),
+                                    )
                                     delay(300)
                                     (result as? VocabAutofill.Result.Found)?.word ?: VocabWord(lemma)
                                 }
@@ -1310,7 +1718,10 @@ private fun BulkAddDialog(
                 },
             ) { Text(stringResource(R.string.vocab_bulk_add_action)) }
         },
-        dismissButton = { TextButton(enabled = progress == null, onClick = onDismiss) { Text(stringResource(CommonR.string.common_cancel)) } },
+        dismissButton = { TextButton(
+            enabled = progress == null,
+            onClick = onDismiss,
+        ) { Text(stringResource(CommonR.string.common_cancel)) } },
     )
 }
 
@@ -1321,11 +1732,11 @@ private const val MAX_BULK_ONLINE = 100
 /** Every word of the enabled packs, searchable and filterable, paged for the scrolling screen. */
 @Composable
 internal fun VocabBrowseScreen(
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     packArg: String?,
     onNavigate: (String) -> Unit,
 ) {
-    val index = rememberVocabIndex(0)
+    val index = rememberVocabIndex(0, settings)
     val progress = rememberVocabProgress()
     var query by remember { mutableStateOf("") }
     var packId by remember { mutableStateOf(packArg) }
@@ -1353,13 +1764,19 @@ internal fun VocabBrowseScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(selected = packId == null, onClick = { packId = null }, label = { Text(stringResource(R.string.vocab_browse_all_packs)) })
+            // One line each, scrolling sideways: eleven pack chips wrapped into
+            // four rows pushed the list itself off the screen.
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FilterChip(
+                    selected = packId == null,
+                    onClick = { packId = null },
+                    label = { Text(stringResource(R.string.vocab_browse_all_packs)) },
+                )
                 for (pack in index?.packs.orEmpty()) {
                     FilterChip(selected = packId == pack.id, onClick = { packId = pack.id }, label = { Text(pack.name) })
                 }
             }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 val labels = listOf(
                     R.string.vocab_browse_filter_all, R.string.vocab_browse_filter_new,
                     R.string.vocab_browse_filter_learning, R.string.vocab_browse_filter_learnt,
@@ -1394,17 +1811,16 @@ internal fun VocabBrowseScreen(
                     } else {
                         null
                     },
+                    flightTo = vocabWordRoute(index.packOf(word.word)?.id ?: "all", word.word),
                     onClick = { onNavigate(vocabWordRoute(index.packOf(word.word)?.id ?: "all", word.word)) },
                 )
             }
         }
-        if (rows.size > shown) {
-            item {
-                WmRow(
-                    title = pluralStringResource(R.plurals.vocab_browse_show_more, rows.size - shown, rows.size - shown),
-                    onClick = { shown += PAGE },
-                )
-            }
+        item(visible = rows.size > shown) {
+            WmRow(
+                title = pluralStringResource(R.plurals.vocab_browse_show_more, rows.size - shown, rows.size - shown),
+                onClick = { shown += PAGE },
+            )
         }
     }
     Spacer(Modifier.height(16.dp))
@@ -1421,13 +1837,13 @@ private const val PAGE = 60
 internal fun VocabWordScreen(
     packId: String,
     lemma: String,
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     onNavigate: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var revision by remember { mutableIntStateOf(0) }
-    val index = rememberVocabIndex(revision)
+    val index = rememberVocabIndex(revision, settings)
     val progress = rememberVocabProgress()
     val speaker = rememberVocabSpeaker()
     var tick by remember { mutableIntStateOf(0) }
@@ -1442,23 +1858,50 @@ internal fun VocabWordScreen(
         return
     }
     val state = remember(tick, word.word) { progress.stateOf(word.word) }
+    var lookup by remember { mutableStateOf<String?>(null) }
+    // A related word in a pack has a page of its own; any other is looked
+    // up online and shown in a sheet, where it can be filed into My words.
+    val openRelated: (String) -> Unit = { related ->
+        val target = index.lookupAnyForm(related)
+        if (target != null) {
+            lookup = null
+            onNavigate(vocabWordRoute(index.packOf(target.word)?.id ?: packId, target.word))
+        } else {
+            lookup = related
+        }
+    }
     VocabWordCard(
         word = word,
         settings = settings,
         index = index,
-        onRelated = { related ->
-            val target = index.lookupAnyForm(related)
-            if (target != null) onNavigate(vocabWordRoute(index.packOf(target.word)?.id ?: packId, target.word))
-        },
-        onSpeak = { speakVocabWord(context, settings, speaker, word) },
+        learnt = state.learnt,
+        box = state.box.takeIf { state.seen },
+        onRelated = openRelated,
+        onSpeak = { speakVocabWord(context, settings.value, speaker, word) },
+        onGetTranslations = { onNavigate(VOCAB_PACKS_ROUTE) },
     )
+    lookup?.let { looked ->
+        VocabLookupSheet(
+            word = looked,
+            settings = settings,
+            index = index,
+            onDismiss = { lookup = null },
+            onRelated = openRelated,
+            onSaved = { revision++ },
+        )
+    }
     SettingsGroup(stringResource(R.string.vocab_word_progress_group)) {
         item {
             CaptionText(
                 when {
                     state.learnt -> stringResource(R.string.vocab_word_progress_learnt)
                     !state.seen -> stringResource(R.string.vocab_word_progress_new)
-                    else -> stringResource(R.string.vocab_word_progress_learning, state.box + 1, state.reps, (state.dueDay - vocabToday()).coerceAtLeast(0))
+                    else -> stringResource(
+                        R.string.vocab_word_progress_learning,
+                        state.box + 1,
+                        state.reps,
+                        (state.dueDay - vocabToday()).coerceAtLeast(0),
+                    )
                 },
                 Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
@@ -1474,14 +1917,12 @@ internal fun VocabWordScreen(
                 },
             )
         }
-        if (state.seen) {
-            item {
-                WmRow(title = stringResource(R.string.vocab_word_reset_action), icon = Icons.Outlined.Refresh, onClick = {
-                    progress.reset(word.word)
-                    progress.save()
-                    tick++
-                })
-            }
+        item(visible = state.seen) {
+            WmRow(title = stringResource(R.string.vocab_word_reset_action), icon = Icons.Outlined.Refresh, onClick = {
+                progress.reset(word.word)
+                progress.save()
+                tick++
+            })
         }
         item {
             WmRow(title = stringResource(R.string.vocab_word_add_list_action), icon = Icons.Outlined.PlaylistAdd, onClick = {
@@ -1508,7 +1949,14 @@ internal fun VocabWordScreen(
                         lists = null
                         scope.launch {
                             withContext(Dispatchers.IO) {
-                                VocabPacks.addToMyWords(context.filesDir, word.let { index.packOf(it.word)?.langId ?: "en" }, word, myWordsName, BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME)
+                                VocabPacks.addToMyWords(
+                                    context.filesDir,
+                                    word.let { index.packOf(it.word)?.langId ?: "en" },
+                                    word,
+                                    myWordsName,
+                                    BuildConfig.VERSION_CODE,
+                                    BuildConfig.VERSION_NAME,
+                                )
                             }
                             revision++
                         }
@@ -1519,7 +1967,12 @@ internal fun VocabWordScreen(
                             scope.launch {
                                 withContext(Dispatchers.IO) {
                                     if (pack.words.none { it.word == word.word }) {
-                                        VocabPacks.write(context.filesDir, pack.copy(words = pack.words + word), BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME)
+                                        VocabPacks.write(
+                                            context.filesDir,
+                                            pack.copy(words = pack.words + word),
+                                            BuildConfig.VERSION_CODE,
+                                            BuildConfig.VERSION_NAME,
+                                        )
                                     }
                                 }
                                 revision++
@@ -1533,123 +1986,587 @@ internal fun VocabWordScreen(
     }
 }
 
-/** The Material card of one word: every section whose visibility is not Off. */
+/**
+ * A word that is in no pack, fetched from the network and shown as a card:
+ * kaikki.org first, Wiktionary's endpoint as the backup, the free
+ * dictionary API last. Its related words open here too when they are not
+ * in a pack, and the word can be filed into My words from the sheet.
+ */
 @Composable
-internal fun VocabWordCard(
-    word: VocabWord,
-    settings: KeyboardSettings,
+private fun VocabLookupSheet(
+    word: String,
+    settings: LiveSettings,
     index: VocabIndex?,
-    compact: Boolean = false,
+    onDismiss: () -> Unit,
     onRelated: (String) -> Unit,
-    onSpeak: () -> Unit,
+    onSaved: () -> Unit,
 ) {
-    val v = settings.vocabulary
-    val fields = remember(v.cardFields) { VocabCardFields.resolve(v.cardFields) }
-    fun shown(field: VocabCardField) = VocabCardFields.inApp(fields, field)
-    Surface(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(word.word, style = MaterialTheme.typography.headlineSmall)
-                    val line = listOfNotNull(
-                        word.pos.joinToString(", ").takeIf { it.isNotEmpty() },
-                        word.ipaFor(v.accent).takeIf { shown(VocabCardField.IPA) },
-                        word.respelling.takeIf { shown(VocabCardField.RESPELLING) },
-                    ).joinToString("  ·  ")
-                    if (line.isNotEmpty()) Text(line, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val speaker = rememberVocabSpeaker()
+    val codes = settings.watch { vocabTranslationCodes(it) }
+    val result by produceState<VocabAutofill.Result?>(initialValue = null, key1 = word) {
+        value = VocabAutofill.resolve(
+            VocabIndex.EMPTY,
+            word,
+            allowOnline = true,
+            translationCodes = codes,
+            sources = vocabSources(settings.value),
+        )
+    }
+    var saved by remember(word) { mutableStateOf(false) }
+    val myWordsName = stringResource(com.wasimaster.wmkeyboard.tools.R.string.core_tools_vocab_my_words)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+                .padding(bottom = 24.dp),
+        ) {
+            when (val current = result) {
+                null -> Row(Modifier.padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Text(stringResource(R.string.vocab_lookup_loading, word), style = MaterialTheme.typography.bodyMedium)
                 }
-                IconButton(onClick = onSpeak) { Icon(Icons.AutoMirrored.Outlined.VolumeUp, contentDescription = stringResource(R.string.vocab_word_speak_desc)) }
-            }
-            if (shown(VocabCardField.SOURCES) && word.sources.isNotEmpty()) {
-                Text(
-                    word.sources.joinToString(" · ") { id -> index?.sources?.get(id)?.name ?: id },
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            val senses = if (compact) word.senses.take(2) else word.senses
-            senses.forEachIndexed { i, sense ->
-                Column {
-                    Row {
-                        Text("${i + 1}. ", style = MaterialTheme.typography.bodyMedium)
-                        Column {
-                            val head = listOfNotNull(
-                                sense.pos.takeIf { it.isNotEmpty() },
-                                sense.tags.joinToString(", ").takeIf { shown(VocabCardField.TAGS) && it.isNotEmpty() },
-                            ).joinToString(" · ")
-                            if (head.isNotEmpty()) Text(head, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontStyle = FontStyle.Italic)
-                            Text(sense.definition, style = MaterialTheme.typography.bodyMedium)
-                            if (shown(VocabCardField.EXAMPLES) && sense.example != null) {
-                                Text("“${sense.example}”", style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            if (!compact && shown(VocabCardField.QUOTATIONS)) {
-                                for (quote in sense.quotations) {
-                                    Text("“${quote.text}” — ${quote.ref}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                is VocabAutofill.Result.Found -> {
+                    VocabWordCard(
+                        word = current.word,
+                        settings = settings,
+                        index = index,
+                        onRelated = onRelated,
+                        onSpeak = { speakVocabWord(context, settings.value, speaker, current.word) },
+                    )
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
+                        TextButton(
+                            enabled = !saved,
+                            onClick = {
+                                scope.launch {
+                                    withContext(Dispatchers.IO) {
+                                        VocabPacks.addToMyWords(
+                                            context.filesDir,
+                                            "en",
+                                            current.word,
+                                            myWordsName,
+                                            BuildConfig.VERSION_CODE,
+                                            BuildConfig.VERSION_NAME,
+                                        )
+                                    }
+                                    saved = true
+                                    onSaved()
                                 }
-                            }
-                            if (!compact && shown(VocabCardField.TOPICS) && sense.topics.isNotEmpty()) {
-                                Text(sense.topics.joinToString(", "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
+                            },
+                        ) { Text(stringResource(if (saved) R.string.vocab_lookup_added_label else R.string.vocab_lookup_add_action)) }
                     }
                 }
-            }
-            if (compact) return@Column
-            val chipRows = buildList {
-                if (shown(VocabCardField.SYNONYMS) && word.synonyms.isNotEmpty()) add(R.string.vocab_word_synonyms_label to word.synonyms)
-                if (shown(VocabCardField.ANTONYMS) && word.antonyms.isNotEmpty()) add(R.string.vocab_word_antonyms_label to word.antonyms)
-                if (shown(VocabCardField.FAMILY) && word.familyWords.isNotEmpty()) add(R.string.vocab_word_family_label to word.familyWords)
-                if (shown(VocabCardField.HYPERNYMS) && word.hypernyms.isNotEmpty()) add(R.string.vocab_word_hypernyms_label to word.hypernyms)
-                if (shown(VocabCardField.HYPERNYMS) && word.hyponyms.isNotEmpty()) add(R.string.vocab_word_hyponyms_label to word.hyponyms)
-            }
-            for ((labelRes, words) in chipRows) {
-                Text(stringResource(labelRes), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    for (related in words) {
-                        val known = index?.lookupAnyForm(related) != null
-                        AssistChip(onClick = { onRelated(related) }, enabled = known, label = { Text(related) })
-                    }
-                }
-            }
-            val lines = buildList {
-                if (shown(VocabCardField.ORIGIN) && word.origin.isNotEmpty()) add(R.string.vocab_word_origin_label to word.origin.joinToString(" ← ") { "${it.lang} ${it.word}" })
-                if (shown(VocabCardField.ETYMOLOGY) && !word.etymology.isNullOrBlank()) add(R.string.vocab_word_etymology_label to word.etymology!!)
-                if (shown(VocabCardField.ROOT) && !word.root.isNullOrBlank()) add(R.string.vocab_word_root_label to word.root!!)
-                if (shown(VocabCardField.ATTESTED) && !word.attested.isNullOrBlank()) add(R.string.vocab_word_attested_label to word.attested!!)
-                if (shown(VocabCardField.MNEMONIC) && !word.mnemonic.isNullOrBlank()) add(R.string.vocab_word_mnemonic_label to word.mnemonic!!)
-                if (shown(VocabCardField.HYPHENATION) && word.hyphenation.size > 1) add(R.string.vocab_word_hyphenation_label to word.hyphenation.joinToString("·"))
-                if (shown(VocabCardField.RHYMES) && !word.rhymes.isNullOrBlank()) add(R.string.vocab_word_rhymes_label to word.rhymes!!)
-                if (shown(VocabCardField.FORMS) && word.forms.isNotEmpty()) add(R.string.vocab_word_forms_label to word.forms.joinToString(", "))
-                if (shown(VocabCardField.WIKIPEDIA) && !word.wikipedia.isNullOrBlank()) add(R.string.vocab_word_wikipedia_label to word.wikipedia!!)
-            }
-            for ((labelRes, body) in lines) {
-                Column {
-                    Text(stringResource(labelRes), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(body, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-            if (shown(VocabCardField.TRANSLATIONS) && word.translations.isNotEmpty()) {
-                val wanted = v.translationLangList.ifEmpty { word.translations.keys.sorted() }
-                for (code in wanted) {
-                    val tr = word.translations[code] ?: continue
-                    Row {
-                        Text(languageNameFor(code) + ": ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(
-                            tr.w.joinToString(", ") + (tr.r.takeIf { it.isNotEmpty() }?.let { " (${it.joinToString(", ")})" } ?: ""),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
-            }
-            if (word.translations.isEmpty() && v.translationLangList.isNotEmpty()) {
-                Spacer(Modifier.width(0.dp))
+                VocabAutofill.Result.NotFound -> CaptionText(stringResource(R.string.vocab_lookup_not_found, word), Modifier.padding(24.dp))
+                else -> CaptionText(stringResource(R.string.vocab_lookup_error), Modifier.padding(24.dp))
             }
         }
     }
+}
+
+/**
+ * One word's card in the app. A hero with the headword, then one section
+ * per kind of thing the record knows — meaning, related words, the
+ * mnemonic, translations, where the word comes from, and the rest — each
+ * in its own surface so the eye finds a section before it reads a line.
+ * Origin and the odds and ends fold away; the meaning never does.
+ */
+@Composable
+internal fun VocabWordCard(
+    word: VocabWord,
+    settings: LiveSettings,
+    index: VocabIndex?,
+    compact: Boolean = false,
+    learnt: Boolean = false,
+    /** The Leitner box, when the word has been reviewed. */
+    box: Int? = null,
+    onRelated: (String) -> Unit,
+    onSpeak: () -> Unit,
+    /** Where to go when the pack has no translation for the user's languages yet. */
+    onGetTranslations: (() -> Unit)? = null,
+) {
+    val fields = settings.watch { VocabCardFields.resolve(it.vocabulary.cardFields) }
+    val shown: (VocabCardField) -> Boolean = { VocabCardFields.inApp(fields, it) }
+    val enabledIds = settings.watch { s -> s.enabledLanguages.map { it.id } }
+    val wantedCodes = settings.watch { vocabTranslationCodes(it) }
+    val accent = settings.watch { it.vocabulary.accent }
+
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        VocabHero(word, accent, index, learnt, box, shown, onSpeak)
+        VocabMeaningSection(if (compact) word.senses.take(2) else word.senses, compact, shown)
+        if (compact) return@Column
+        VocabRelatedSection(word, index, shown, onRelated)
+        if (shown(VocabCardField.MNEMONIC)) word.mnemonic?.takeIf { it.isNotBlank() }?.let { VocabMnemonicCard(it) }
+        if (shown(VocabCardField.TRANSLATIONS)) VocabTranslationsSection(word, wantedCodes, enabledIds, onGetTranslations)
+        VocabOriginSection(word, shown)
+        VocabMoreSection(word, shown)
+    }
     @Suppress("UNUSED_VARIABLE")
     val unusedTool = ToolbarTool.VOCABULARY
+}
+
+/** The headword, how to say it, the speaker, and the tags: parts of speech, progress, the lists it is in. */
+@Composable
+private fun VocabHero(
+    word: VocabWord,
+    accent: VocabAccent,
+    index: VocabIndex?,
+    learnt: Boolean,
+    box: Int?,
+    shown: (VocabCardField) -> Boolean,
+    onSpeak: () -> Unit,
+) {
+    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(start = 18.dp, end = 8.dp, top = 14.dp, bottom = 14.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                Column(Modifier.weight(1f)) {
+                    Text(word.word, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    val line = listOfNotNull(
+                        word.ipaFor(accent).takeIf { shown(VocabCardField.IPA) },
+                        word.respelling.takeIf { shown(VocabCardField.RESPELLING) },
+                    ).joinToString("  ·  ")
+                    if (line.isNotEmpty()) {
+                        Text(
+                            line,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                        )
+                    }
+                }
+                IconButton(onClick = onSpeak) {
+                    Icon(
+                        Icons.AutoMirrored.Outlined.VolumeUp,
+                        contentDescription = stringResource(R.string.vocab_word_speak_desc),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+            }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(top = 6.dp, end = 10.dp),
+            ) {
+                for (pos in word.pos) VocabTag(pos, strong = true)
+                if (learnt) {
+                    VocabTag(stringResource(R.string.vocab_word_learnt_badge), strong = true)
+                } else if (box != null && box > 0) {
+                    VocabTag(stringResource(R.string.vocab_word_box_badge, box + 1), strong = true)
+                }
+                if (shown(VocabCardField.SOURCES)) {
+                    for (id in word.sources) VocabTag(index?.sources?.get(id)?.name?.takeIf { it.isNotEmpty() } ?: id, strong = false)
+                }
+            }
+        }
+    }
+}
+
+/** The senses, grouped under their parts of speech when there is more than one. */
+@Composable
+private fun VocabMeaningSection(senses: List<VocabSense>, compact: Boolean, shown: (VocabCardField) -> Boolean) {
+    if (senses.isEmpty()) return
+    VocabSection(title = stringResource(R.string.vocab_word_section_meaning)) {
+        val grouped = senses.groupBy { it.pos }
+        var number = 0
+        for ((pos, group) in grouped) {
+            if (pos.isNotEmpty() && grouped.size > 1) {
+                Text(
+                    pos,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontStyle = FontStyle.Italic,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+            for (sense in group) {
+                number++
+                VocabSenseBlock(number, sense, compact, shown)
+            }
+        }
+    }
+}
+
+/** Synonyms, antonyms, the family, broader and narrower words, as chips; every one tappable. */
+@Composable
+private fun VocabRelatedSection(word: VocabWord, index: VocabIndex?, shown: (VocabCardField) -> Boolean, onRelated: (String) -> Unit) {
+    val chipRows = buildList {
+        if (shown(VocabCardField.SYNONYMS) && word.synonyms.isNotEmpty()) add(R.string.vocab_word_synonyms_label to word.synonyms)
+        if (shown(VocabCardField.ANTONYMS) && word.antonyms.isNotEmpty()) add(R.string.vocab_word_antonyms_label to word.antonyms)
+        if (shown(VocabCardField.FAMILY) && word.familyWords.isNotEmpty()) add(R.string.vocab_word_family_label to word.familyWords)
+        if (shown(VocabCardField.HYPERNYMS) && word.hypernyms.isNotEmpty()) add(R.string.vocab_word_hypernyms_label to word.hypernyms)
+        if (shown(VocabCardField.HYPERNYMS) && word.hyponyms.isNotEmpty()) add(R.string.vocab_word_hyponyms_label to word.hyponyms)
+    }
+    if (chipRows.isEmpty()) return
+    VocabSection(title = stringResource(R.string.vocab_word_section_related)) {
+        for ((labelRes, words) in chipRows) {
+            Text(
+                stringResource(labelRes),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                for (related in words) VocabRelatedChip(
+                    related,
+                    known = index?.lookupAnyForm(related) != null,
+                    onClick = { onRelated(related) },
+                )
+            }
+        }
+    }
+}
+
+/** A related word; the ones with no page of their own carry a look-up glyph. */
+@Composable
+private fun VocabRelatedChip(word: String, known: Boolean, onClick: () -> Unit) {
+    AssistChip(
+        onClick = onClick,
+        label = { Text(word) },
+        trailingIcon = if (known) {
+            null
+        } else {
+            {
+                Icon(
+                    Icons.Outlined.Search,
+                    contentDescription = stringResource(R.string.vocab_word_lookup_chip_desc),
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+    )
+}
+
+/** The mnemonic, set apart: it is the one line meant to stick. */
+@Composable
+private fun VocabMnemonicCard(mnemonic: String) {
+    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.tertiaryContainer, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
+            Icon(Icons.Outlined.Lightbulb, contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer)
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(
+                    stringResource(R.string.vocab_word_section_remember),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+                Text(mnemonic, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
+            }
+        }
+    }
+}
+
+/** The user's languages only, romanisation beside each gloss; a way to the packs screen when none is downloaded. */
+@Composable
+private fun VocabTranslationsSection(
+    word: VocabWord,
+    wantedCodes: List<String>,
+    enabledIds: List<String>,
+    onGetTranslations: (() -> Unit)?,
+) {
+    // The user's languages when the record has them, else whatever it has:
+    // a sidecar fetched by hand is worth showing whichever language it is.
+    val codes = VocabLanguages.codesToShow(
+        wantedCodes,
+        word.translations.keys,
+    ) { id -> LanguageRegistry.all.firstOrNull { it.id == id }?.englishName }
+    val rows = codes.mapNotNull { code -> word.translations[code]?.let { code to it } }
+    if (rows.isNotEmpty()) {
+        VocabSection(title = stringResource(R.string.vocab_word_section_translations)) {
+            for ((code, tr) in rows) {
+                VocabTranslationRow(code, tr, romanizedFirst = VocabLanguages.prefersRomanized(code, enabledIds))
+            }
+        }
+    } else if (wantedCodes.isNotEmpty() && onGetTranslations != null && word.sources.isNotEmpty()) {
+        VocabSection(title = stringResource(R.string.vocab_word_section_translations)) {
+            Text(
+                stringResource(R.string.vocab_word_no_translations_body),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(onClick = onGetTranslations, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                Text(stringResource(R.string.vocab_word_get_translations_action))
+            }
+        }
+    }
+}
+
+/** Where the word comes from: the chain up front, the etymology, root and first use folded behind it. */
+@Composable
+private fun VocabOriginSection(word: VocabWord, shown: (VocabCardField) -> Boolean) {
+    val lines = buildList {
+        if (shown(VocabCardField.ETYMOLOGY)) word.etymology?.takeIf { it.isNotBlank() }?.let { add(R.string.vocab_word_etymology_label to it) }
+        if (shown(VocabCardField.ROOT)) word.root?.takeIf { it.isNotBlank() }?.let { add(R.string.vocab_word_root_label to it) }
+        if (shown(VocabCardField.ATTESTED)) word.attested?.takeIf { it.isNotBlank() }?.let { add(R.string.vocab_word_attested_label to it) }
+    }
+    val chain = word.origin.takeIf { shown(VocabCardField.ORIGIN) }.orEmpty()
+    if (chain.isEmpty() && lines.isEmpty()) return
+    VocabSection(
+        title = stringResource(R.string.vocab_word_section_origin),
+        collapsible = lines.isNotEmpty(),
+        summary = if (chain.isEmpty()) {
+            null
+        } else {
+            {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(top = 4.dp),
+                ) {
+                    chain.forEachIndexed { i, step ->
+                        if (i > 0) Text("←", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        VocabTag("${step.lang} ${step.word}", strong = false)
+                    }
+                }
+            }
+        },
+    ) {
+        for ((labelRes, body) in lines) VocabLabeledText(stringResource(labelRes), body)
+    }
+}
+
+/** Forms, hyphenation, rhymes and the Wikipedia title, folded away. */
+@Composable
+private fun VocabMoreSection(word: VocabWord, shown: (VocabCardField) -> Boolean) {
+    val lines = buildList {
+        if (shown(VocabCardField.FORMS) && word.forms.isNotEmpty()) add(R.string.vocab_word_forms_label to word.forms.joinToString(", "))
+        if (shown(VocabCardField.HYPHENATION) && word.hyphenation.size > 1) add(R.string.vocab_word_hyphenation_label to word.hyphenation.joinToString("·"))
+        if (shown(VocabCardField.RHYMES)) word.rhymes?.takeIf { it.isNotBlank() }?.let { add(R.string.vocab_word_rhymes_label to it) }
+        if (shown(VocabCardField.WIKIPEDIA)) word.wikipedia?.takeIf { it.isNotBlank() }?.let { add(R.string.vocab_word_wikipedia_label to it) }
+    }
+    if (lines.isEmpty()) return
+    VocabSection(title = stringResource(R.string.vocab_word_section_more), collapsible = true) {
+        for ((labelRes, body) in lines) VocabLabeledText(stringResource(labelRes), body)
+    }
+}
+
+/** One surface of the card. Collapsible ones show [summary] always and the body on a tap. */
+@Composable
+private fun VocabSection(
+    title: String,
+    collapsible: Boolean = false,
+    summary: (@Composable () -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
+    var expanded by remember(title) { mutableStateOf(!collapsible) }
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            Modifier
+                .then(if (collapsible) Modifier.clickable { expanded = !expanded } else Modifier)
+                .padding(16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f),
+                )
+                if (collapsible) {
+                    Icon(
+                        if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                        contentDescription = stringResource(if (expanded) R.string.vocab_word_section_collapse_desc else R.string.vocab_word_section_expand_desc),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            summary?.invoke()
+            if (expanded) {
+                Spacer(Modifier.height(2.dp))
+                content()
+            }
+        }
+    }
+}
+
+/** A numbered sense: the definition, its example set in from the margin, quotations behind a toggle. */
+@Composable
+private fun VocabSenseBlock(number: Int, sense: VocabSense, compact: Boolean, shown: (VocabCardField) -> Boolean) {
+    Row(Modifier.padding(top = 8.dp)) {
+        Text(
+            "$number",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.width(22.dp).padding(top = 2.dp),
+        )
+        Column(Modifier.weight(1f)) {
+            if (shown(VocabCardField.TAGS) && sense.tags.isNotEmpty()) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 4.dp)) {
+                    for (tag in sense.tags) VocabTag(tag, strong = false)
+                }
+            }
+            Text(sense.definition, style = MaterialTheme.typography.bodyLarge)
+            if (shown(VocabCardField.EXAMPLES) && sense.example != null) {
+                Text(
+                    "“${sense.example}”",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontStyle = FontStyle.Italic,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp, start = 8.dp),
+                )
+            }
+            if (!compact && shown(VocabCardField.QUOTATIONS) && sense.quotations.isNotEmpty()) {
+                var open by remember(sense.definition) { mutableStateOf(false) }
+                TextButton(onClick = { open = !open }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                    Text(
+                        pluralStringResource(R.plurals.vocab_word_quotations_toggle, sense.quotations.size, sense.quotations.size),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+                if (open) {
+                    for (quote in sense.quotations) VocabQuotationBlock(quote)
+                }
+            }
+            if (!compact && shown(VocabCardField.TOPICS) && sense.topics.isNotEmpty()) {
+                Text(
+                    sense.topics.joinToString(", "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Language name on the left; on the right one line per gloss with its own
+ * romanisation set smaller beside it, so "ঘৃণা করা · ghrina kora" reads as
+ * one thing. On a romanised layout the romanisation leads.
+ */
+@Composable
+private fun VocabTranslationRow(code: String, tr: VocabTranslation, romanizedFirst: Boolean) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.Top) {
+        Text(
+            languageNameFor(code),
+            style = MaterialTheme.typography.labelMedium,
+            color = muted,
+            modifier = Modifier.width(96.dp).padding(top = 2.dp),
+        )
+        Column(Modifier.weight(1f)) {
+            for (gloss in tr.glosses()) {
+                val lead = if (romanizedFirst && gloss.roman != null) gloss.roman else gloss.word
+                val trail = if (romanizedFirst && gloss.roman != null) gloss.word else gloss.roman
+                Text(
+                    buildAnnotatedString {
+                        append(lead)
+                        if (trail != null) {
+                            withStyle(SpanStyle(color = muted, fontSize = 12.sp)) { append("  ·  $trail") }
+                        }
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The word's meaning in the user's language, one line, for the surfaces
+ * that otherwise speak only English (#651): the word-of-the-day card and the
+ * Review screen's flashcard back. Null, and nothing drawn, when the record
+ * has no translation or Card sections has translations off.
+ */
+@Composable
+internal fun rememberVocabMeaning(word: VocabWord, settings: LiveSettings): com.wasimaster.wmkeyboard.core.vocab.VocabMeaning? {
+    val off = settings.watch { VocabCardFields.resolve(it.vocabulary.cardFields)[VocabCardField.TRANSLATIONS] == FieldVisibility.OFF }
+    val wanted = settings.watch { vocabTranslationCodes(it) }
+    val enabledIds = settings.watch { s -> s.enabledLanguages.map { it.id } }
+    return remember(word, off, wanted, enabledIds) {
+        if (off) null else VocabLanguages.primaryMeaning(word, wanted, enabledIds)
+    }
+}
+
+/** [meaning] as one line: the gloss, its romanisation smaller after it, and the language when it is not obvious. */
+@Composable
+internal fun VocabMeaningLine(
+    meaning: com.wasimaster.wmkeyboard.core.vocab.VocabMeaning,
+    style: androidx.compose.ui.text.TextStyle,
+    modifier: Modifier = Modifier,
+    textAlign: androidx.compose.ui.text.style.TextAlign? = null,
+    maxLines: Int = 2,
+) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val language = languageNameFor(meaning.code)
+    Text(
+        buildAnnotatedString {
+            withStyle(SpanStyle(color = muted, fontSize = 12.sp)) { append("$language  ") }
+            append(meaning.text)
+            meaning.trail?.let { trail -> withStyle(SpanStyle(color = muted, fontSize = 12.sp)) { append("  ·  $trail") } }
+        },
+        style = style,
+        textAlign = textAlign,
+        maxLines = maxLines,
+        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        modifier = modifier,
+    )
+}
+
+/**
+ * One quotation from print: the year as a badge, the quote against a thin
+ * rule, and the reference stripped to who, what and where.
+ */
+@Composable
+private fun VocabQuotationBlock(quote: VocabQuotation) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(Modifier.padding(top = 6.dp, start = 4.dp).height(IntrinsicSize.Min), verticalAlignment = Alignment.Top) {
+        Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)) {
+            Text(
+                quote.year ?: "·",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        androidx.compose.foundation.layout.Box(
+            Modifier.width(2.dp).fillMaxHeight().padding(vertical = 2.dp).background(
+                muted.copy(alpha = 0.35f),
+                MaterialTheme.shapes.extraSmall,
+            ),
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text("“${quote.text}”", style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic)
+            val citation = quote.citation
+            if (citation.isNotEmpty()) {
+                Text("— $citation", style = MaterialTheme.typography.labelSmall, color = muted, modifier = Modifier.padding(top = 2.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun VocabLabeledText(label: String, body: String) {
+    Column(Modifier.padding(top = 6.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(body, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+/** A small rounded label: a part of speech, a list badge, a register tag, a step of the origin chain. */
+@Composable
+private fun VocabTag(text: String, strong: Boolean) {
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = if (strong) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (strong) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (strong) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+        )
+    }
 }

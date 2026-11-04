@@ -2,25 +2,30 @@ plugins {
     alias(libs.plugins.android.library)
     id("wmkeyboard.detekt")
     alias(libs.plugins.kotlin.compose)
+    id("wmkeyboard.compose-metrics")
     alias(libs.plugins.kotlin.serialization)
+    // Applied at the root with their versions; see build.gradle.kts there.
+    id("org.jetbrains.kotlinx.kover")
+    id("com.autonomousapps.dependency-analysis")
+}
+
+// Coverage for the root's merged report (`./gradlew koverHtmlReportUnit`):
+// this module's debug unit tests.
+kover {
+    currentProject {
+        createVariant("unit") { add("debug") }
+    }
 }
 
 android {
     namespace = "com.wasimaster.wmkeyboard.settings"
     compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
+        version = release(37)
     }
     defaultConfig {
         minSdk = 24
     }
 
-    flavorDimensions += "capabilities"
-    productFlavors {
-        create("full") { dimension = "capabilities" }
-        create("lite") { dimension = "capabilities" }
-    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -48,12 +53,16 @@ dependencies {
     api(project(":core:icons"))
     api(project(":core:content"))
     api(project(":core:tools"))
+    api(project(":core:homeassistant"))
     api(project(":core:addons"))
     api(project(":core:voice"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
+    implementation(libs.jsch)
+    implementation(libs.bouncycastle.prov)
+    implementation(libs.bouncycastle.pg)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
@@ -61,4 +70,9 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons)
     implementation(libs.androidx.datastore.preferences)
+    testImplementation(libs.junit)
 }
+
+// Tests that reach the Rust text engines load libwm_engine_jni for this
+// machine, which :core:language builds; see the comment on its task.
+tasks.withType<Test>().configureEach { dependsOn(":core:language:buildHostEngine") }

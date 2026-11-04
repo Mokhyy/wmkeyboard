@@ -20,6 +20,10 @@ This page covers a picture from your own device. A photo from Unsplash or Pexels
 
 <SettingsPath path="Appearance / Keyboard themes / (edit a theme) / Board" />
 
+<PhoneFrame side caption="Cropping a background image to the keyboard's own shape.">
+  ![Cropping a background image to the keyboard's own shape.](@assets/screens/themes/background-crop-dialog.webp)
+</PhoneFrame>
+
 Open a theme for editing. Scroll to the **Board** section. Tap **Background image** to open the **Select a background** dialog. **Add from this device** opens the system photo picker, which offers image files only. The app copies the picture you choose into its own storage, and it never reads the original file again.
 
 Picking an image changes two things about the theme so the photo is actually visible, both of which stay editable afterward:
@@ -35,22 +39,20 @@ The photo also joins your [photo collection](/themes/online-photos/#the-photo-co
 
 Once an image is set, a **Crop image** row appears. In the crop dialog, pinch to zoom and drag to reposition. The image always scales to cover the frame, so there's never a gap at the edges. Four crop ratios are available:
 
-- **Keyboard** (2.4:1): matches the keyboard's own proportions, and is selected by default
+- **Keyboard**: the shape your keyboard actually has on screen, in portrait for the portrait image and in landscape for the landscape one, so the frame shows exactly what ends up behind the keys. The keyboard measures itself each time it opens, so this follows your key height, number row, toolbar and width settings. Selected by default. Until the keyboard has been opened once in that orientation, it uses 2.4:1.
 - **Wide** (1.7:1)
 - **Square** (1:1)
 - **Free**: keeps the picture's own shape. The other three are all wider-than-tall keyboard shapes, which crop a split or floating keyboard down.
 
-Confirm the crop and the app saves a new file, then discards the original. Cropping is optional, and an uncropped image still renders correctly, scaled to cover the board. Crop when you want to control which part of the photo lines up with the keys.
+Confirm the crop and the app saves the cropped picture, and keeps the uncropped one beside it. Opening **Crop image** again starts from the whole picture, with the frame where you left it, so you can move to a part an earlier crop cut away, or zoom back out. Cropping is optional, and an uncropped image still renders correctly, scaled to cover the board. Crop when you want to control which part of the photo lines up with the keys.
 
-<PhoneFrame caption="Cropping a background image to the keyboard's 2.4:1 aspect ratio.">
-  ![Cropping a background image to the keyboard's 2.4:1 aspect ratio.](@assets/screens/themes/background-crop-dialog.webp)
-</PhoneFrame>
+The photo grid in [Online photos](/themes/online-photos/) dims the parts of each photo outside the keyboard's shape, using the same measured portrait shape.
 
 ## Keeping keys readable
 
 A photo behind your keys can easily fight with legibility, so two sliders and a switch sit right below the image row:
 
-- **Image opacity** fades the image itself, from fully transparent to fully opaque (the default).
+- **Image opacity** fades the image itself, from fully transparent to fully opaque (the default). Below 100%, with the board color still see-through, whatever is behind the keyboard shows through the photo. An image with transparent areas of its own does the same.
 - **Image blur** softens the image from sharp (the default) up to a heavy blur.
 - **Play animated image** plays the background when it's a GIF or an animated WebP, and turns itself on when the picture you picked is one. Turning it on zeroes the blur, and raising the blur turns it off: blurring a running animation would re-render the effect on every frame. The animation also stays still under reduce motion or power saving, and on app versions from before this feature the same file shows its first frame.
 
@@ -69,6 +71,26 @@ Opacity and blur are shared between both images rather than set per orientation,
 <PhoneFrame caption="A theme with distinct portrait and landscape background images.">
   ![A theme with distinct portrait and landscape background images.](@assets/screens/themes/background-landscape.webp)
 </PhoneFrame>
+
+## Image sizes and templates
+
+<SettingsPath path="Appearance / Keyboard themes / (edit a theme) / Board / Image sizes and templates" />
+
+If you draw a theme yourself, this screen tells you how big each picture should be before you start. It lists the background, the letter, function and Enter keys, the space bar, the pressed key, the key popup, stickers and press effect images, each with two sizes:
+
+- **On screen** is what the picture covers on the keyboard.
+- **Draw at** is the same shape, made as large as the keyboard keeps. A key image is kept at up to 256 pixels on its long side and a space bar image at up to 1024 × 320, so a larger drawing only gets made smaller again.
+
+The sizes are measured from the keyboard itself, so they are right for your layout, number row, key height and spacing. **Screen** picks what they are measured for:
+
+- **This phone** (the default): your own layout and sizes on this screen.
+- **Phone**: a 1080 pixel wide phone with the default sizes. Use this for a theme you want to share, since other people see the defaults.
+- **Phone, landscape**: the same phone on its side, for the [landscape image](#separate-landscape-image).
+- **Tablet**: a 1600 pixel wide tablet or an open foldable, with the default sizes.
+
+The picture under the selector is the board template: every key's outline over the background area, the toolbar band at the top, and the band under the navigation bar at the bottom. The background runs on under the navigation bar on Android 15 and later only, so keep that band plain.
+
+**Save board image** saves that template as a PNG. **Save all templates** saves a ZIP with the board template, one template each for the letter key, function key, Enter key, space bar and popup (with a dashed box where the label sits), and a `README.txt` with every size. The templates are transparent with white lines. Put one on the top layer of your drawing, and hide it before you export.
 
 ## Details and edge cases
 

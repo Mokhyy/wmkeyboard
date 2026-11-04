@@ -86,6 +86,45 @@ class StickerPackFileTest {
     }
 
     @Test
+    fun `stages a pack and adds only the stickers picked from it`() {
+        val source = store("source")
+        val pack = seed(source, "Cats", 4)
+        val bytes = export(source, pack)
+
+        val target = store("target")
+        val staged = StickerPackFile.stage(ByteArrayInputStream(bytes), target, FALLBACK_NAME)
+        assertTrue(staged is StickerStageResult.Ready)
+        val ready = (staged as StickerStageResult.Ready).pack
+        assertEquals("Cats", ready.name)
+        assertEquals(listOf(0, 1, 2, 3), ready.pickable)
+        // Nothing is in the store until the user says which.
+        assertTrue(target.isEmpty())
+        assertTrue(ready.stickers.all { it.file!!.isFile })
+
+        val result = ready.adopt(target, setOf(1, 3), normalize = passthrough)
+
+        val imported = (result as StickerImportResult.Imported).pack
+        assertEquals(listOf("sticker 1", "sticker 3"), imported.stickers.map { it.name })
+        assertTrue(result.repairs.isEmpty())
+        // The staged pictures go once the pack is in.
+        assertFalse(ready.stickers.first().file!!.exists())
+    }
+
+    @Test
+    fun `discarding a staged pack keeps nothing`() {
+        val source = store("source")
+        val bytes = export(source, seed(source, "Cats", 2))
+
+        val target = store("target")
+        val ready = (StickerPackFile.stage(ByteArrayInputStream(bytes), target, FALLBACK_NAME) as StickerStageResult.Ready).pack
+        val file = ready.stickers.first().file!!
+        ready.discard()
+
+        assertFalse(file.exists())
+        assertTrue(target.isEmpty())
+    }
+
+    @Test
     fun `import regenerates ids so a re-import cannot collide`() {
         val source = store("source")
         val pack = seed(source, "Cats", 2)
@@ -365,6 +404,55 @@ class StickerPackFileTest {
         assertEquals("unDraw", result.pack.name)
         assertEquals(listOf("Airplane", "Barbecue"), result.pack.stickers.map { it.name })
         assertTrue(result.repairs.isEmpty())
+    }
+
+    /**
+     * Keywords are written under `emojis`, the key every older build and every
+     * pack already out there uses, so a pack exported now still carries its
+     * keywords into an older build. A hand-written manifest may say `keywords`
+     * instead, or both.
+     */
+    @Test
+    fun `keywords travel under the old emojis key and a keywords key is read too`() {
+        val source = store("source")
+        val pack = source.createPack("Cats")!!
+        source.addSticker(pack.id, passthrough(byteArrayOf(1))!!, name = "grumpy", keywords = listOf("cat", "😾"))
+        val bytes = export(source, source.pack(pack.id)!!)
+        val manifestText = java.util.zip.ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
+            generateSequence { zip.nextEntry }.first { it.name == "pack.json" }
+            zip.readBytes().decodeToString()
+        }
+        assertTrue(manifestText.contains("\"emojis\""))
+        assertFalse(manifestText.contains("\"keywords\""))
+        val imported = StickerPackFile.import(
+            ByteArrayInputStream(bytes),
+            store("target"),
+            FALLBACK_NAME,
+            normalize = passthrough,
+        ) as StickerImportResult.Imported
+        assertEquals(listOf("cat", "😾"), imported.pack.stickers.single().keywords)
+
+        val manifest = """
+            {"format":"wmkeyboard-stickers","version":1,
+             "pack":{"id":"p","name":"Hand"},
+             "stickers":[{"id":"a","name":"Wave","file":"a.png","emojis":["👋"],"keywords":["hello","👋"]}]}
+        """.trimIndent()
+        val out = ByteArrayOutputStream()
+        ZipOutputStream(out).use { zip ->
+            zip.putNextEntry(ZipEntry("pack.json"))
+            zip.write(manifest.toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("a.png"))
+            zip.write(byteArrayOf(1, 2, 3))
+            zip.closeEntry()
+        }
+        val hand = StickerPackFile.import(
+            ByteArrayInputStream(out.toByteArray()),
+            store("hand"),
+            FALLBACK_NAME,
+            normalize = passthrough,
+        ) as StickerImportResult.Imported
+        assertEquals(listOf("👋", "hello"), hand.pack.stickers.single().keywords)
     }
 
     /**

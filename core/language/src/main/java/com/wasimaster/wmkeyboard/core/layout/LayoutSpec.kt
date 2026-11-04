@@ -1,14 +1,18 @@
 package com.wasimaster.wmkeyboard.core.layout
 
 import com.wasimaster.wmkeyboard.core.script.ComposerType
+import com.wasimaster.wmkeyboard.core.share.RemixCredit
 import com.wasimaster.wmkeyboard.core.script.LanguageDef
 import com.wasimaster.wmkeyboard.core.script.LanguageRegistry
 import com.wasimaster.wmkeyboard.core.script.ScriptDef
+import com.wasimaster.wmkeyboard.core.script.ScriptId
 import com.wasimaster.wmkeyboard.core.script.ScriptRegistry
+import com.wasimaster.wmkeyboard.core.util.JsonPretty
 import com.wasimaster.wmkeyboard.core.util.firstJsonDocument
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.modules.SerializersModule
 
 /**
@@ -53,13 +57,31 @@ enum class LayoutLayer(val key: String) {
  * `{"letters": {"rows": [...]}}` is readable where `{"letters": [[...]]}` is
  * three levels of anonymous brackets.
  *
- * A null [numberRow] takes the digits the layer has always shown — see
- * `KeyRows`, which owns the per-layer defaults.
+ * A null [numberRow] takes the row the layer has always shown there — see
+ * [BuiltInLayouts.defaultNumberRow].
  */
 @Serializable
 data class LayerSpec(
     val rows: List<List<Key>>,
     val numberRow: List<Key>? = null,
+    /**
+     * The row drawn in place of this grid's own leading digit row while the
+     * number row is on, when that row already shows the same digits one row
+     * up. Only the symbols layer does this; the field is ignored elsewhere.
+     *
+     * Null takes [BuiltInLayouts.SYMBOLS_FILL_ROW]. Stored rather than left
+     * built in because the swap put a row on the keyboard that no editor
+     * could reach (issue #273).
+     */
+    val fillRow: List<Key>? = null,
+    /**
+     * The arrow keys row drawn under this grid while that setting is on
+     * (issue #769). Null takes the four arrows in the order the setting gives
+     * them. Stored here, like [numberRow], so a layout can put a Word left key
+     * or a second Shift on it: the row is under the thumbs, which is where
+     * those keys are wanted.
+     */
+    val arrowRow: List<Key>? = null,
     /**
      * Optional per-row height multipliers, one per entry in [rows] (index
      * aligned). Null — the normal case — keeps every row at the standard key
@@ -103,6 +125,26 @@ data class LayerSpec(
      */
     val persistent: Boolean = false,
     /**
+     * Draw this grid exactly as it is laid out here, whatever the Bottom row
+     * settings would do to it: no 🌐 key hidden, moved to its shared slot or
+     * swapped with the comma, and no key turned into the emoji key (issue #420).
+     *
+     * Those settings act on every layout at draw time, so the editor showed one
+     * bottom row and the keyboard drew another, and a key moved in the editor
+     * went straight back where the settings put it. The editor turns this on the
+     * moment a key the settings had moved or changed is moved or changed by
+     * hand, and writes the row as the keyboard was drawing it first, so nothing
+     * on screen jumps. See [arrangedBy].
+     *
+     * Per layer rather than per layout, because that write only touches the
+     * layer being edited: a symbols page the layout still inherits keeps
+     * following the settings, which is the row the letters were just written
+     * to match.
+     *
+     * Additive and defaulted, so no format-version bump.
+     */
+    val bottomRowAsLaidOut: Boolean = false,
+    /**
      * A theme of this layer's own (a `ThemeSpec.id`), shown while the layer is
      * on screen, over the layout's [LayoutSpec.themeId] and over whatever the
      * settings say (issue #61). Null — the normal case — follows the layout.
@@ -112,6 +154,25 @@ data class LayerSpec(
      * pairing once the theme arrives.
      */
     val themeId: String? = null,
+    /**
+     * Whether this layer's flick keys draw their arms on the face, over the
+     * keyboard-wide setting (`LayoutBehaviorSettings.flickHints`, #588). Null,
+     * the normal case, follows the setting: a number pad can keep its arms
+     * while the kana pad, whose flicks the hands already know, goes without.
+     *
+     * Additive and defaulted, so no format-version bump.
+     */
+    val flickHints: Boolean? = null,
+    /**
+     * A converted Keyman layer's own word on its space, backspace and enter
+     * keys, by Keyman key id (`K_SPACE`, `K_BKSP`, `K_ENTER`): the modifiers
+     * the rules see them pressed with, where the key's `layer` says something
+     * other than the layer it sits on, and the layer it switches to. The keys
+     * themselves stay our space, backspace and enter, so they keep repeating,
+     * swiping and naming the language; this is what they add when pressed on
+     * a Keyman layout. Null everywhere else.
+     */
+    val keymanFrames: Map<String, KeymanTarget>? = null,
 )
 
 /**
@@ -146,9 +207,25 @@ data class LayerSpec(
 data class LayoutAppearance(
     val fontId: String? = null,
     val fontScale: Float? = null,
+    /**
+     * This layout's own key height, key spacing and side padding, over the
+     * theme's and the global Layout & size settings (Telegram group): a
+     * one-handed grid sized for one thumb no longer resizes QWERTY with it.
+     * Each null follows the setting it stands in for.
+     */
+    val keyHeightDp: Int? = null,
+    val keyGapScale: Float? = null,
+    val sidePadLeftScale: Float? = null,
+    val sidePadRightScale: Float? = null,
 ) {
     /** Whether this says anything at all; an all-null instance is stored as null. */
-    val isEmpty: Boolean get() = fontId == null && fontScale == null
+    val isEmpty: Boolean
+        get() = fontId == null && fontScale == null && keyHeightDp == null && keyGapScale == null &&
+            sidePadLeftScale == null && sidePadRightScale == null
+
+    /** Whether this sets any of the board's sizes. */
+    val sizesBoard: Boolean
+        get() = keyHeightDp != null || keyGapScale != null || sidePadLeftScale != null || sidePadRightScale != null
 }
 
 /**
@@ -219,6 +296,13 @@ data class LayoutSpec(
      */
     val tabletExpand: Boolean = true,
     /**
+     * The layout drawn instead while the screen is sideways, by id: a wider grid
+     * for two thumbs, say. Null, or an id no longer around, draws this one. Only
+     * its keys are used, so what they type stays this layout's: the editor offers
+     * only layouts of the same language and composer.
+     */
+    val landscapeLayoutId: String? = null,
+    /**
      * The Keyman keyboard whose rules decide what this layout's keys type, for
      * a grid converted from one. Null for every layout of ours.
      *
@@ -230,6 +314,16 @@ data class LayoutSpec(
      */
     val keyman: KeymanBinding? = null,
     /**
+     * The imported input method (a `.cin` table, a Rime schema, an m17n
+     * `.mim`) whose files decide what this layout's keys type. Null for every
+     * layout that types its own key caps or uses one of this app's composers.
+     *
+     * Like [keyman], only the binding travels: on a device without the
+     * method's files the grid types its own caps. Defaulted, so no
+     * format-version bump, for the reason [tabletExpand] gives.
+     */
+    val inputMethod: InputMethodBinding? = null,
+    /**
      * This layout's own key-label font and size, over the theme's and the
      * global settings'. Null — every shipped layout — draws exactly as before.
      *
@@ -237,6 +331,17 @@ data class LayoutSpec(
      * [tabletExpand] gives.
      */
     val appearance: LayoutAppearance? = null,
+    /**
+     * The script this grid's keys write, when it is not its language's: Klingon
+     * is written in Latin letters, but its pIqaD layout types the pIqaD
+     * alphabet. Null, every other layout, takes the language's script.
+     *
+     * The script decides the face the keys draw in, among the rest, so this is
+     * what gives pIqaD a font choice of its own beside English's. An id this
+     * build does not know decodes as null, and the grid falls back to its
+     * language's script. Defaulted, so no format-version bump.
+     */
+    @SerialName("script") val ownScript: ScriptId? = null,
     /**
      * A grid the user reaches by a key or the toolbar, not by picking a
      * language: a symbols page of their own, a macro pad, a calculator strip
@@ -252,7 +357,7 @@ data class LayoutSpec(
      * [LayoutLayer.LETTERS] grid is used; the other layers are ignored.
      *
      * Reached from a [KeyAction.Layout] key naming its [id], or from the
-     * Custom layout toolbar tool. Left by a [KeyAction.Letters] key, a
+     * Secondary layout toolbar tool. Left by a [KeyAction.Letters] key, a
      * [KeyAction.Symbols] key, the same tool, or a second press of the key
      * that opened it.
      *
@@ -260,6 +365,19 @@ data class LayoutSpec(
      * [tabletExpand] gives.
      */
     val secondary: Boolean = false,
+    /**
+     * A writing canvas in place of the letter keys, the way Gboard offers
+     * handwriting as one of a language's layouts (issue #557). The canvas takes
+     * every reserved row above the [LayoutLayer.LETTERS] grid, so that grid is
+     * only the bottom row a writer still needs: ?123, the globe, space, delete,
+     * enter. The ink is recognised in this layout's language, through the same
+     * pipeline as the Handwriting tool, and the symbols layers are the ordinary
+     * ones.
+     *
+     * Additive and defaulted, so no format-version bump, for the reason
+     * [tabletExpand] gives.
+     */
+    val handwriting: Boolean = false,
     /**
      * A theme of this layout's own (a `ThemeSpec.id`), used while any of its
      * layers is on screen, in place of the theme the settings select and of an
@@ -271,11 +389,43 @@ data class LayoutSpec(
      * on than a mode is to be in, so the layout's theme wins.
      */
     val themeId: String? = null,
+    /**
+     * The repository addon this layout was installed from, so an edited copy
+     * still credits it when published; see `ThemeSpec.basedOn`. Defaulted, so
+     * no format-version bump, for the reason [tabletExpand] gives.
+     */
+    val basedOn: RemixCredit? = null,
     /** Format revision, bumped by [LayoutCodec] migrations. */
     val version: Int = CurrentLayoutSpecVersion,
 ) {
     /** The grid for [layer], or null when this layout does not override it. */
     fun layer(layer: LayoutLayer): LayerSpec? = layers[layer.key]
+}
+
+/**
+ * The keys of this layout's further pages: its layers that are neither a
+ * [LayoutLayer] nor a panel, which only a [KeyAction.LayerSwitch] key reaches.
+ * In reading order, so `page2` stays ahead of `page10`.
+ */
+fun LayoutSpec.pageLayerKeys(): List<String> =
+    layers.keys
+        .filter { key -> LayoutLayer.entries.none { it.key == key } && panelKindForLayerKey(key) == null }
+        .sortedWith(compareBy({ it.length }, { it }))
+
+/**
+ * This layout with [page] and the letters trading places, or as it stands for
+ * a null [page]. Its own inverse: the layout editor draws and edits a page
+ * through everything it has for the letters, then swaps the result back.
+ */
+fun LayoutSpec.withLettersSwappedFor(page: String?): LayoutSpec {
+    if (page == null) return this
+    val letters = LayoutLayer.LETTERS.key
+    val swapped = LinkedHashMap(layers)
+    swapped.remove(letters)
+    swapped.remove(page)
+    layers[page]?.let { swapped[letters] = it }
+    layers[letters]?.let { swapped[page] = it }
+    return copy(layers = swapped)
 }
 
 /**
@@ -286,7 +436,7 @@ data class LayoutSpec(
  * language layout, so it is not one either.
  */
 fun secondaryLayouts(custom: List<LayoutSpec>): List<LayoutSpec> =
-    custom.filter { it.secondary && BuiltInLayouts.byId(it.id) == null && AssetLayouts.byId(it.id) == null }
+    custom.filter { it.secondary && !isShippedLayoutId(it.id) }
 
 /**
  * The language this layout types, resolved from [LayoutSpec.langId] against the
@@ -295,8 +445,12 @@ fun secondaryLayouts(custom: List<LayoutSpec>): List<LayoutSpec> =
  */
 fun LayoutSpec.language(): LanguageDef = LanguageRegistry.byId(langId)
 
-/** The script [language] writes, carrying its direction, case and font behaviour. */
-fun LayoutSpec.script(): ScriptDef = ScriptRegistry[language().script]
+/**
+ * The script this layout writes, carrying its direction, case and font
+ * behaviour: its own [LayoutSpec.ownScript] when it names one, otherwise its
+ * [language]'s.
+ */
+fun LayoutSpec.script(): ScriptDef = ScriptRegistry[ownScript ?: language().script]
 
 /**
  * The composer that turns keystrokes into text: the layout's explicit
@@ -347,23 +501,29 @@ internal val layoutJson = Json {
  * read back — every one of those fields has a default — and shrinks the same
  * layout to about a tenth.
  *
- * Printed one field per line as well. As a single line the document was one
- * unbroken run of text the field could only wrap where it happened to find a
- * break, and the last characters of a long run drew past the field's right
- * edge (#56). Short lines wrap where they should, and the layout reads as
- * rows and keys rather than a wall.
+ * Indenting is [JsonPretty]'s, not this instance's. As a single line the
+ * document was one unbroken run of text the field could only wrap where it
+ * happened to find a break, and the last characters of a long run drew past the
+ * field's right edge (#56); one field per line, which is all `prettyPrint` can
+ * do, then turned a three-item list of alternates into five lines and the
+ * layout into thousands. `JsonPretty` breaks only what does not fit a line.
  */
 internal val layoutEditorJson = Json(layoutJson) {
     encodeDefaults = false
-    prettyPrint = true
-    prettyPrintIndent = "  "
 }
 
 object LayoutCodec {
     fun encodeList(layouts: List<LayoutSpec>): String = layoutJson.encodeToString(layouts)
 
-    /** [encode], without the fields that hold their default value. */
-    fun encodeForEditing(layout: LayoutSpec): String = layoutEditorJson.encodeToString(layout)
+    /**
+     * [encode], without the fields that hold their default value, and printed
+     * for a person rather than for a parser.
+     *
+     * Through a `JsonElement` rather than straight to text: the shape is what
+     * decides where the lines break, and only the element tree has it.
+     */
+    fun encodeForEditing(layout: LayoutSpec): String =
+        JsonPretty.print(layoutEditorJson.encodeToJsonElement(layout))
 
     fun decodeList(json: String): List<LayoutSpec> {
         // Blank is the ordinary state — nothing is written here until the user
@@ -415,54 +575,78 @@ object LayoutCodec {
     internal val json: Json get() = layoutJson
 }
 
+/** Whether [id] names a layout this build ships — built-in or JSON asset. Never parses. */
+fun isShippedLayoutId(id: String): Boolean =
+    BuiltInLayouts.byId(id) != null || AssetLayouts.isShipped(id)
+
 /**
- * Every layout the user has: the shipped ones first in their shipped order — the
- * Kotlin [BuiltInLayouts] then the JSON [AssetLayouts] (empty until loaded off
- * the main thread) — then the user's own. A custom layout whose id matches a
- * shipped one is an *edit* of it: it takes that slot rather than appearing
- * twice, so a reference pinned to "builtin_qwerty" keeps working and deleting
- * the edit restores the shipped grid — which is why the editor's button says
- * "Reset" on a shipped layout and "Delete" on a custom. Same rule as
- * `resolveSymbolSets`.
+ * The layout [id] names among everything the user has, or null when nothing
+ * does. The shipped layouts come first — a custom layout whose id matches a
+ * shipped one is an *edit* of it and takes its place, so a reference pinned to
+ * "builtin_qwerty" keeps working and deleting the edit restores the shipped
+ * grid, which is why the editor's button says "Reset" on a shipped layout and
+ * "Delete" on a custom. Same rule as `resolveSymbolSets`.
+ *
+ * Deliberately one layout rather than the whole catalogue: the catalogue is
+ * over sixteen hundred grids, the JSON ones are parsed only when asked for
+ * (see [AssetLayouts]), and no screen needs more than the few it shows.
+ * [resolveLayout] is the same lookup for callers that need a grid whatever
+ * happens.
  */
-fun resolveLayouts(custom: List<LayoutSpec>): List<LayoutSpec> {
-    val generation = AssetLayouts.generation
-    ResolvedLayouts.cache?.let {
-        if (it.generation == generation && it.custom === custom) return it.resolved
+fun findLayout(custom: List<LayoutSpec>, id: String): LayoutSpec? {
+    return if (isShippedLayoutId(id)) {
+        // `associateBy` semantics: the last edit of a shipped id wins.
+        custom.lastOrNull { it.id == id } ?: BuiltInLayouts.byId(id) ?: AssetLayouts.byId(id)
+    } else {
+        custom.firstOrNull { it.id == id }
     }
-    val shipped = BuiltInLayouts.all + AssetLayouts.all
-    val overrides = custom.associateBy { it.id }
-    val resolvedShipped = shipped.map { overrides[it.id] ?: it }
-    val shippedIds = shipped.mapTo(HashSet()) { it.id }
-    val resolved = resolvedShipped + custom.filter { it.id !in shippedIds }
-    ResolvedLayouts.cache = ResolvedLayouts.Entry(custom, generation, resolved)
-    return resolved
 }
 
 /**
- * One-entry memo for [resolveLayouts].
- *
- * The list it builds is ~1,277 layouts long and building it costs four
- * collections of that size, and the whole thing is a pure function of the
- * user's custom layouts and the shipped set. Callers ask for it far more often
- * than either changes: the settings decode resolves layouts several times per
- * emission, and entering a field resolves one per enabled layout.
- *
- * Keyed on the *identity* of the custom list — the settings object holds one
- * instance for its lifetime, so the hot callers all hit — and on
- * [AssetLayouts.generation], so the empty pre-load shipped set can never be
- * cached past the moment the assets finish parsing. A miss just recomputes;
- * two threads racing both compute the same list and the later write wins.
+ * Where [id] sits in the shipped order — the built-ins first in their compiled
+ * order, then the asset layouts in file order — or [Int.MAX_VALUE] when it is
+ * not shipped. For lists that show shipped layouts in the order they always
+ * have, without building every one of them to find out.
  */
-private object ResolvedLayouts {
-    class Entry(
-        val custom: List<LayoutSpec>,
-        val generation: Int,
-        val resolved: List<LayoutSpec>,
-    )
+fun shippedLayoutRank(id: String): Int {
+    val builtIn = BuiltInLayouts.all.indexOfFirst { it.id == id }
+    if (builtIn >= 0) return builtIn
+    val asset = AssetLayouts.index.indexOfFirst { it.id == id }
+    return if (asset >= 0) BuiltInLayouts.all.size + asset else Int.MAX_VALUE
+}
 
-    @Volatile
-    var cache: Entry? = null
+/**
+ * The index entry [resolveLayout] would answer from for [id], when the answer
+ * is a JSON asset layout the user has not edited. Null means "resolve it":
+ * a built-in, an edit, a custom layout, or an index that was never read.
+ */
+private fun untouchedAssetEntry(custom: List<LayoutSpec>, id: String): AssetLayouts.Entry? {
+    if (BuiltInLayouts.byId(id) != null) return null
+    val entry = AssetLayouts.entry(id) ?: return null
+    return entry.takeIf { custom.none { it.id == id } }
+}
+
+/**
+ * [resolveLayout]'s name, without parsing a JSON layout only to name it: the
+ * lists and summaries that show a layout's name show a great many of them.
+ */
+fun resolveLayoutName(custom: List<LayoutSpec>, id: String): String {
+    val canonical = canonicalLayoutId(id, custom)
+    return untouchedAssetEntry(custom, canonical)?.name ?: resolveLayout(custom, canonical).name
+}
+
+/** [resolveLayout]'s language, without parsing a JSON layout to find it. */
+fun resolveLayoutLanguage(custom: List<LayoutSpec>, id: String): LanguageDef {
+    val canonical = canonicalLayoutId(id, custom)
+    return untouchedAssetEntry(custom, canonical)?.let { LanguageRegistry.byId(it.langId) }
+        ?: resolveLayout(custom, canonical).language()
+}
+
+/** [resolveLayout]'s Keyman binding, without parsing a JSON layout to find it. */
+fun resolveLayoutKeyman(custom: List<LayoutSpec>, id: String): KeymanBinding? {
+    val canonical = canonicalLayoutId(id, custom)
+    val entry = untouchedAssetEntry(custom, canonical)
+    return if (entry != null) entry.keyman else resolveLayout(custom, canonical).keyman
 }
 
 /**
@@ -488,9 +672,9 @@ data class KeymanBinding(
  * Answered by lookup rather than by resolving the whole catalogue and scanning
  * it: this is called once per enabled layout when a field is focused, and
  * building 1,277 layouts to pick one out is the sort of thing that shows up as a
- * keyboard that is slow to appear. The branches mirror [resolveLayouts]
- * exactly — a custom layout sharing a shipped id is an edit of it and wins that
- * slot, a custom-only id resolves to itself, anything else is the default.
+ * keyboard that is slow to appear. The branches mirror [findLayout] exactly —
+ * a custom layout sharing a shipped id is an edit of it and wins that slot, a
+ * custom-only id resolves to itself, anything else is the default.
  */
 fun resolveLayout(custom: List<LayoutSpec>, id: String): LayoutSpec {
     // Retired ids (the per-style fancy layouts) fold onto their replacement
@@ -499,11 +683,14 @@ fun resolveLayout(custom: List<LayoutSpec>, id: String): LayoutSpec {
     // than healing to the default.
     @Suppress("NAME_SHADOWING")
     val id = canonicalLayoutId(id, custom)
-    val shipped = BuiltInLayouts.byId(id) ?: AssetLayouts.byId(id)
-    return if (shipped != null) {
+    return if (isShippedLayoutId(id)) {
         // `associateBy` keeps the last entry for a repeated key, so an override
-        // list with duplicate ids resolves the way it did through the map.
-        custom.lastOrNull { it.id == id } ?: shipped
+        // list with duplicate ids resolves the way it did through the map. The
+        // edit is looked for first: it wins, and finding it costs no parse.
+        custom.lastOrNull { it.id == id }
+            ?: BuiltInLayouts.byId(id)
+            ?: AssetLayouts.byId(id)
+            ?: BuiltInLayouts.default
     } else {
         // Not shipped: this is the `custom.filter { it.id !in shippedIds }`
         // tail, which is scanned front to back.

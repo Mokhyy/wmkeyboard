@@ -1,11 +1,17 @@
 package com.wasimaster.wmkeyboard.core.settings
 
+import java.io.InputStream
+import java.io.OutputStream
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.encodeToStream
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 
@@ -86,6 +92,70 @@ object ConfigBackup {
          * an older build reads bundles positionally in its tests.
          */
         VOCAB("vocab"),
+
+        /**
+         * The swipe style: where this hand lands when it glides, the readings
+         * the user corrected, and the shape they draw each word in. Everything
+         * the "learn my swipe style" switch governs, which is the same set its
+         * Forget deletes.
+         *
+         * A section of its own rather than a ride inside [DICTIONARY], the way
+         * the tap model rides: this one is a few hundred bytes a word across up
+         * to a thousand words, so it is worth its own switch. Off by default
+         * for [DICTIONARY]'s reason as well, since the shapes are filed under
+         * the words they were drawn for.
+         *
+         * Appended after [VOCAB] for the reason given there: sections encode in
+         * declaration order.
+         */
+        SWIPE("swipe"),
+
+        /**
+         * The Notes tool (#560): every note, its tags, and what is in the
+         * trash. Like [EMOJI], nothing here can be rebuilt. Locked notes leave
+         * only when the bundle carries secrets; see `NotesBackup`. Appended
+         * after [SWIPE] for the reason given on [VOCAB].
+         */
+        NOTES("notes"),
+
+        /**
+         * The Clock tool: alarms, timer presets, countdowns and its settings.
+         * Not what is running and not the history; see `ClockBackup`.
+         * Appended after [NOTES] for the reason given on [VOCAB].
+         */
+        CLOCK("clock"),
+
+        /**
+         * The kaomoji library: every face, its tags, the tag order, the stars
+         * and how often each was used. Only once the library was changed or
+         * used; an untouched one is the built-in catalog and has no file.
+         * Appended after [CLOCK] for the reason given on [VOCAB].
+         */
+        KAOMOJI("kaomoji"),
+
+        /**
+         * What the AI remembers about the user: the facts on Settings › AI ›
+         * Memory. Off by default everywhere, and never in sync (see
+         * [syncable]): the list is gathered from the user's chats, and it
+         * leaves the phone only in a backup the user told to carry it.
+         * Appended after [KAOMOJI] for the reason given on [VOCAB].
+         */
+        AI_MEMORY("ai_memory"),
+
+        /**
+         * The To-do tool (#920): every task and step, and the task-app
+         * deletes still to make. Typed by hand, so nothing rebuilds it. The
+         * task-app sync's own record stays on the phone. Appended after
+         * [AI_MEMORY] for the reason given on [VOCAB].
+         */
+        TODO("todo"),
+        ;
+
+        /**
+         * Whether sync may carry this section between devices. Everything but
+         * [AI_MEMORY], which goes into a backup or nowhere.
+         */
+        val syncable: Boolean get() = this != AI_MEMORY
     }
 
     private val json = Json { prettyPrint = true }
@@ -97,8 +167,50 @@ object ConfigBackup {
         appVersion: Int,
         appVersionName: String,
         sections: Map<Section, JsonElement>,
-    ): String {
-        val root = buildJsonObject {
+    ): String = json.encodeToString(JsonObject.serializer(), root(appVersion, appVersionName, sections))
+
+    /**
+     * [encode], written straight to [out]. A bundle carrying sticker packs
+     * runs to tens of megabytes; as a string it is held once in the builder,
+     * again as the finished string, and a third time as the bytes written out,
+     * which was enough to run a 256 MB heap out of memory (#693).
+     */
+    @OptIn(ExperimentalSerializationApi::class)
+    fun encodeTo(
+        out: OutputStream,
+        appVersion: Int,
+        appVersionName: String,
+        sections: Map<Section, JsonElement>,
+    ) {
+        json.encodeToStream(JsonObject.serializer(), root(appVersion, appVersionName, sections), out)
+    }
+
+    /** The two fields [isComplete] reads; everything else is skipped, not built. */
+    @Serializable
+    private data class BundleHead(val format: String = "", val version: Int = VERSION)
+
+    /**
+     * Whether [input] is a bundle this build can read, whole to its last byte,
+     * without building the bundle: a parsed copy costs far more heap than the
+     * file (#1080). A truncated file fails on the missing end of the document.
+     * The caller closes the stream.
+     */
+    @OptIn(ExperimentalSerializationApi::class)
+    fun isComplete(input: InputStream): Boolean = runCatching {
+        val head = parser.decodeFromStream(BundleHead.serializer(), input)
+        head.format == FORMAT && head.version <= VERSION
+    }.getOrElse { failure ->
+        // Not this file's fault, and it should be reported as what it is.
+        if (failure is OutOfMemoryError) throw failure
+        false
+    }
+
+    private fun root(
+        appVersion: Int,
+        appVersionName: String,
+        sections: Map<Section, JsonElement>,
+    ): JsonObject =
+        buildJsonObject {
             put("format", JsonPrimitive(FORMAT))
             put("version", JsonPrimitive(VERSION))
             put("appVersion", JsonPrimitive(appVersion))
@@ -113,8 +225,6 @@ object ConfigBackup {
                 },
             )
         }
-        return json.encodeToString(JsonObject.serializer(), root)
-    }
 
     /**
      * A list section's decoded contents, or null when the decode plainly failed.

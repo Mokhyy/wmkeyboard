@@ -10,16 +10,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Bolt
-import androidx.compose.material.icons.outlined.Calculate
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.ContentPaste
-import androidx.compose.material.icons.outlined.SpaceBar
-import androidx.compose.material.icons.outlined.Widgets
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Bolt
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Calculate
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.CheckCircle
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.ContentPaste
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.SpaceBar
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Widgets
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import com.wasimaster.wmkeyboard.R
 import com.wasimaster.wmkeyboard.core.settings.KeyboardSettings
 import com.wasimaster.wmkeyboard.core.settings.PersonaLanguages
+import com.wasimaster.wmkeyboard.ime.KeyboardAutomation
 import kotlinx.coroutines.delay
 
 /**
@@ -55,7 +57,7 @@ import kotlinx.coroutines.delay
  * fold here would be hiding the very prompts it is asking the user to try.
  */
 @Composable
-internal fun TryPage(settings: KeyboardSettings) {
+internal fun TryPage(settings: LiveSettings) {
     val context = LocalContext.current
     // Reachable with the keyboard still not set up (Skip exists, and a replay
     // may start after the keyboard was disabled elsewhere); the field would
@@ -95,7 +97,7 @@ internal fun TryPage(settings: KeyboardSettings) {
     )
     AnimatedVisibility(
         visible = text.text.isNotBlank(),
-        enter = onboardingRevealEnter(settings.reduceMotion),
+        enter = onboardingRevealEnter(settings.watch { it.reduceMotion }),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -115,8 +117,16 @@ internal fun TryPage(settings: KeyboardSettings) {
             )
         }
     }
+    // The keyboard is up by now, so the handles have something to grab. Its size
+    // is what a first-run reader notices first, and nothing else here reaches it (#1030).
+    TextButton(
+        onClick = { if (imeSelected(context)) KeyboardAutomation.host?.startResize() },
+        modifier = Modifier.padding(horizontal = 8.dp),
+    ) {
+        Text(stringResource(R.string.onboarding_try_resize))
+    }
     OnboardingSectionTitle(stringResource(R.string.onboarding_try_hints_title))
-    for ((icon, textRes) in tryHints(settings)) {
+    for ((icon, textRes) in settings.watch { tryHints(it) }) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier

@@ -48,6 +48,18 @@ internal object SettingsRoutes {
         // Same shape: PhotoSelection.current is set by the browse screen as it
         // navigates, and the screen pops itself when it is null.
         "photo_detail" to "opens only on the photo the browse screen just handed over",
+        // The route carries a pack key, and the screen asks Signal's servers
+        // for the pack as it opens. Both belong behind a link the user pasted
+        // or a row they pressed, where the link importer's confirm or the
+        // pack list stands in front of it.
+        "signal_pack/{packId}/{packKey}" to "opens on a pack the user picked or pasted; see AddonDeepLink",
+        // Same shape: asks Telegram, with the user's bot token, for the set as
+        // it opens.
+        "telegram_pack/{setName}" to "opens on a set the user picked or pasted; see AddonDeepLink",
+        // Asks GitHub for the Rboard list as it opens. A request to a third
+        // party belongs behind a button the user pressed on the Themes screen,
+        // not behind a link another app can fire.
+        "rboard_themes" to "fetches the Rboard list as it opens; reached from the Themes screen's Gboard button",
     )
 
     /**
@@ -62,11 +74,17 @@ internal object SettingsRoutes {
         "search",
         "typing",
         "typing/corrections",
+        "typing/writing",
         "typing/suggestions",
         "typing/autopilot",
+        "typing/octopus",
         "typing/chips",
         "typing/codes",
         "typing/gestures",
+        "typing/gestures/glide",
+        "typing/gestures/glide/checkup",
+        "typing/gestures/spacebar",
+        "typing/gestures/flicks",
         "typing/hardware",
         "keypress",
         "keypress/haptics",
@@ -75,12 +93,22 @@ internal object SettingsRoutes {
         "dictionary",
         "backup",
         "backup/auto",
+        "backup/sync",
         "backup/contents",
         "customdictionaries",
+        "emojicategories",
+        "emojiorder/{category}",
+        "emojiadded",
         "emojikeywords",
         "blacklist",
+        "learnedcorrections",
         "musicapps",
+        "launchercombos",
+        "kdeconnect/devices",
+        "send/instances",
+        "send/history",
         "phoneformats",
+        "cliprules",
         "hwshortcuts",
         "appearance",
         "appearance/toolbar",
@@ -93,24 +121,40 @@ internal object SettingsRoutes {
         "icons",
         "themes",
         "theme_edit/{themeId}",
+        "theme_assets/{themeId}",
         "photos",
         "photo_browse",
         "photo_library",
         "photo_rotation",
         "keymaps",
         "sticker_packs",
+        "signal_stickers",
+        "whatsapp_stickers",
+        "telegram_stickers",
+        "sticker_generator",
         "vocab/packs",
         "vocab/lists",
         "vocab/list/{packId}",
         "vocab/review",
         "vocab/browse",
         "vocab/word/{packId}/{word}",
+        "clock",
+        "music/history",
+        "homeassistant/entities",
+        "notes",
+        "notes/edit/{noteId}",
+        "notes/tags",
+        "notes/trash",
+        "todo",
         "plugins",
         "plugin/{pluginId}",
+        "plugin_ide",
+        "plugin_ide/{draftId}",
         "addons",
         "addon_repo/{repoUrl}",
         "addon/{repoUrl}/{addonId}",
         "sticker_pack/{packId}",
+        "sticker_pack/{packId}/add",
         "keymap_edit/{layoutId}",
         "keymap_json/{layoutId}",
         "panel_edit/{panel}",
@@ -119,27 +163,58 @@ internal object SettingsRoutes {
         "add_language",
         "language/{langId}",
         "language/{langId}/more",
+        "double_pinyin_custom",
         "emoji",
         "emoji/panel",
+        "emoji/mixes",
+        "kaomoji",
+        "kaomoji/faces",
+        "kaomoji/tags",
         "voice",
         "clipboard",
+        "clipboard/history",
+        "clipboard/chips",
+        "clipboard/rules",
         "expander",
+        "expander/folder/{folderId}",
+        "expander/folder/{folderId}/new",
         "expander/edit/{snippetId}",
+        "ai",
         "tools",
         "tool/{toolName}",
+        "provider/{tool}/{key}",
         "accessibility",
         "privacy",
         "permissions",
+        "automation",
+        "network_activity",
         "applock",
         "datasaver",
+        "servers",
+        "notifications",
         "selection_macros",
+        "selection_macros/actions",
+        "selection_macros/icons",
+        "selection_macros/ai",
+        "selection_macros/zones",
         "advanced",
+        "extensions",
+        "extension/{extension}",
+        "floating_button",
+        "share_sheet",
         "rows",
+        "rows/symbol",
         "ai_actions",
+        "ai_reply_tones",
         "ai_history",
+        "ai_memory",
         "ai_chat",
         "ai_chat/{conversationId}",
+        "settings_assistant",
         "ai_action_edit/{actionId}",
+        "ai_tools",
+        "ai_mcp",
+        "ai_mcp_edit/{serverId}",
         "symbol_set_edit/{setId}",
         "modes",
         "mode_edit/{modeId}",
@@ -147,9 +222,12 @@ internal object SettingsRoutes {
         "egg_game",
         "storage",
         "storage/{category}",
+        "feature_libraries",
+        "import_hub",
         "statistics",
         "debug_log",
         "licenses",
+        "supporters",
         "license_text/{asset}",
     )
 
@@ -178,7 +256,17 @@ internal object SettingsRoutes {
      * may shout `THEMES` and still land on `themes` — and the link's own text
      * for every argument, whose case and encoding are the caller's to decide.
      */
-    fun resolve(path: String?): String? {
+    fun resolve(path: String?): String? = match(path)?.second
+
+    /**
+     * The pattern in [all] that [route] fills in, such as `mode_edit/{modeId}`
+     * for `mode_edit/mode_browser`, or null when it names no screen. A plain
+     * screen is its own pattern.
+     */
+    fun patternOf(route: String?): String? = match(route)?.first
+
+    /** The matching pattern and the route it resolves to, or null. */
+    private fun match(path: String?): Pair<String, String>? {
         val segments = path.orEmpty().trim('/').split('/')
         if (segments.isEmpty() || segments.any { it.isEmpty() }) return null
         // "." and ".." mean something to a URI resolver and nothing to the nav
@@ -199,7 +287,7 @@ internal object SettingsRoutes {
                     break
                 }
             }
-            if (matched) return filled.joinToString("/")
+            if (matched) return pattern.joinToString("/") to filled.joinToString("/")
         }
         return null
     }

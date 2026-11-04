@@ -20,7 +20,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,6 +39,7 @@ import com.wasimaster.wmkeyboard.core.tools.DefaultLeader
 import com.wasimaster.wmkeyboard.core.tools.cheatSheetRows
 import com.wasimaster.wmkeyboard.core.tools.leaderLabel
 import com.wasimaster.wmkeyboard.core.tools.parseLeader
+import com.wasimaster.wmkeyboard.core.tools.parsePickModeKey
 import com.wasimaster.wmkeyboard.ime.KeyboardUiState
 import com.wasimaster.wmkeyboard.ime.R
 
@@ -74,6 +75,12 @@ internal fun ToolPickerOverlay(
         } else {
             stringResource(leaderParts.templateRes, leaderParts.text)
         }
+        // Spelled the same way as the leader: a chord names itself, a double
+        // tap needs its wording around the modifier.
+        val pickModeKeyText = parsePickModeKey(config.pickModeKey)?.let { trigger ->
+            val parts = leaderLabel(trigger)
+            if (parts.templateRes == 0) parts.text else stringResource(parts.templateRes, parts.text)
+        }
         Box(
             modifier = Modifier
                 .padding(6.dp)
@@ -91,6 +98,10 @@ internal fun ToolPickerOverlay(
                     altSuggestionDigits =
                         config.suggestionHotkeys == SuggestionHotkeyMode.ALT_DIGIT,
                     languageSwitchChord = config.languageSwitchChord,
+                    keysToggle = hardwareKeysToggleable(state),
+                    pickModeKey = pickModeKeyText,
+                    pickMode = state.hardwarePickMode,
+                    functionKeys = functionKeysPressToolbar(state),
                 ),
                 leader = leader,
                 onClose = onClose,
@@ -150,16 +161,18 @@ private fun CheatSheet(rows: List<CheatRow>, leader: String, onClose: () -> Unit
             // Escape closes this and so does any bound key, but every one of
             // those needs the keyboard that opened it. Unplug it, or put it
             // down, and the legend is a box on screen with no way out.
-            Icon(
-                Icons.Outlined.Close,
-                contentDescription = stringResource(R.string.ime_tool_picker_close_desc),
-                tint = kb.secondaryText,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .clickable(onClick = onClose)
-                    .padding(4.dp)
-                    .size(16.dp),
-            )
+            IconHint(stringResource(R.string.ime_tool_picker_close_desc)) {
+                Icon(
+                    Icons.Outlined.Close,
+                    contentDescription = stringResource(R.string.ime_tool_picker_close_desc),
+                    tint = kb.secondaryText,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(onClick = onClose)
+                        .padding(4.dp)
+                        .size(16.dp),
+                )
+            }
         }
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),

@@ -27,13 +27,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.VolumeUp
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.ExpandLess
-import androidx.compose.material.icons.outlined.ExpandMore
-import androidx.compose.material.icons.outlined.School
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.VolumeUp
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Check
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.CheckCircle
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Close
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.ExpandLess
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.ExpandMore
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.School
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -47,6 +47,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -56,10 +59,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wasimaster.wmkeyboard.core.settings.ToolbarTool
 import com.wasimaster.wmkeyboard.core.settings.usableTools
+import com.wasimaster.wmkeyboard.core.theme.FrostSurface
 import com.wasimaster.wmkeyboard.core.vocab.FieldVisibility
 import com.wasimaster.wmkeyboard.core.vocab.ReviewGrade
 import com.wasimaster.wmkeyboard.core.vocab.VocabCardField
 import com.wasimaster.wmkeyboard.core.vocab.VocabCardFields
+import com.wasimaster.wmkeyboard.core.vocab.VocabLanguages
+import com.wasimaster.wmkeyboard.core.vocab.VocabMeaning
 import com.wasimaster.wmkeyboard.core.vocab.VocabScheduler
 import com.wasimaster.wmkeyboard.core.vocab.VocabSense
 import com.wasimaster.wmkeyboard.core.vocab.VocabWord
@@ -70,6 +76,8 @@ import com.wasimaster.wmkeyboard.ime.R
 import com.wasimaster.wmkeyboard.ime.VocabBrowseFilter
 import com.wasimaster.wmkeyboard.ime.VocabCardUi
 import com.wasimaster.wmkeyboard.ime.VocabTab
+import com.wasimaster.wmkeyboard.ime.AiChatAction
+import com.wasimaster.wmkeyboard.ime.aichat.AskAiContext
 
 /**
  * The vocabulary panel's service callbacks, bundled into one value for the
@@ -119,7 +127,7 @@ internal fun VocabPanelHost(
         title = "",
         onClose = { if (vocab.stack.isNotEmpty()) callbacks.onBack() else onPanelChange(PanelMode.VOCABULARY) },
         compact = state.mediaSearchActive,
-        compactHeight = 44.dp,
+        compactHeight = FullBleedHeaderHeight,
         headerActions = {
             VocabHeader(state, callbacks, onQueryTap)
         },
@@ -166,7 +174,14 @@ internal fun VocabPanel(
     callbacks: VocabCallbacks,
     onOpenRoute: (String) -> Unit,
 ) {
-    Box(modifier = Modifier.fillMaxSize()) {
+    val tabs = VocabTab.entries
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .swipeTabs(state.vocab.tab.ordinal, tabs.size, enabled = !state.mediaSearchActive) {
+                callbacks.onTab(tabs[it])
+            },
+    ) {
         if (state.mediaSearchActive) return@Box
         val vocab = state.vocab
         if (!vocab.available) {
@@ -225,8 +240,28 @@ private fun VocabCard(
     val serif = remember { KeyboardFonts.googleFamily("Lora") }
     val fields = remember(settings.cardFields) { VocabCardFields.resolve(settings.cardFields) }
     fun shown(field: VocabCardField) = fields[field] == FieldVisibility.KEYBOARD
+    // Ask AI (#352): about the card from its chip, about a passage from a
+    // long press on a definition.
+    val tools = LocalSelectionTools.current
+    val askLabel = stringResource(R.string.ime_ask_ai_label_vocab, word.word)
+    val ask = remember(word.word, askLabel) { AskAiSource(AskAiContext.vocabularySource(word.word), askLabel) }
+    val askAction = if (tools.askAi) {
+        listOf(
+            stringResource(R.string.ime_selection_ask_ai) to {
+                val text = AskAiContext.vocabulary(word, word.ipaFor(settings.accent))
+                tools.onAiChat(AiChatAction.AskAbout(text, askLabel, fromSelection = false))
+            },
+        )
+    } else {
+        emptyList()
+    }
+    // The card as text, to the clipboard (#348).
+    val copyAction = stringResource(com.wasimaster.wmkeyboard.common.R.string.common_copy) to {
+        tools.onAiChat(AiChatAction.Copy(AskAiContext.vocabulary(word, word.ipaFor(settings.accent))))
+    }
     val actions = listOf(
         stringResource(R.string.ime_vocab_insert_action) to { callbacks.onInsert(word.word) },
+    ) + askAction + listOf(copyAction) + listOf(
         (if (card.inMyList) stringResource(R.string.ime_vocab_in_list_label) else stringResource(R.string.ime_vocab_add_list_action)) to
             { if (!card.inMyList) callbacks.onAddToList(word.word) },
         (if (card.learnt) stringResource(R.string.ime_vocab_unlearnt_action) else stringResource(R.string.ime_vocab_learnt_action)) to
@@ -282,13 +317,15 @@ private fun VocabCard(
                         )
                     }
                 }
-                IconButton(onClick = { callbacks.onSpeak(word) }, modifier = Modifier.size(34.dp)) {
-                    Icon(
-                        Icons.AutoMirrored.Outlined.VolumeUp,
-                        contentDescription = stringResource(R.string.ime_vocab_speak_desc),
-                        modifier = Modifier.size(20.dp),
-                        tint = kb.accent,
-                    )
+                IconHint(stringResource(R.string.ime_vocab_speak_desc)) {
+                    IconButton(onClick = { callbacks.onSpeak(word) }, modifier = Modifier.size(34.dp)) {
+                        Icon(
+                            Icons.AutoMirrored.Outlined.VolumeUp,
+                            contentDescription = stringResource(R.string.ime_vocab_speak_desc),
+                            modifier = Modifier.size(20.dp),
+                            tint = kb.accent,
+                        )
+                    }
                 }
                 if (card.learnt) {
                     Icon(
@@ -331,7 +368,7 @@ private fun VocabCard(
             }
         }
         itemsIndexed(word.senses) { index, sense ->
-            VocabSenseRow(index, sense, serif, ::shown)
+            VocabSenseRow(index, sense, serif, ::shown, ask)
         }
         val related = buildList {
             if (shown(VocabCardField.SYNONYMS) && word.synonyms.isNotEmpty()) {
@@ -362,23 +399,41 @@ private fun VocabCard(
                 )
             }
         }
-        val translation = shown(VocabCardField.TRANSLATIONS).let { on ->
-            if (!on) null else {
-                val wanted = settings.translationLangList.ifEmpty {
-                    state.settings.enabledLanguages.map { it.id }.filter { it != "en" }
-                }
-                wanted.firstNotNullOfOrNull { code -> word.translations[code]?.let { code to it } }
-            }
+        // The user's languages, up to two, the romanisation first for someone
+        // typing on a romanised layout.
+        val enabledIds = state.settings.enabledLanguages.map { it.id }
+        val translations = if (!shown(VocabCardField.TRANSLATIONS)) {
+            emptyList()
+        } else {
+            val wanted = VocabLanguages.wantedCodes(settings.translationLangList, enabledIds)
+            VocabLanguages.codesToShow(wanted, word.translations.keys)
+                .mapNotNull { code -> word.translations[code]?.let { code to it } }
+                .take(2)
         }
-        if (translation != null) {
-            item(key = "translation") {
-                val (code, glosses) = translation
+        items(translations, key = { "tr${it.first}" }) { (code, glosses) ->
+            val romanizedFirst = VocabLanguages.prefersRomanized(code, enabledIds)
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.Top) {
                 Text(
-                    "$code · " + glosses.w.joinToString(", ") + (glosses.r.takeIf { it.isNotEmpty() }?.let { " (${it.joinToString(", ")})" } ?: ""),
-                    color = kb.modifierKeyText,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(top = 8.dp),
+                    VocabLanguages.displayName(code),
+                    color = kb.toolbarIcon,
+                    fontSize = 11.sp,
+                    modifier = Modifier.width(66.dp).padding(top = 2.dp),
                 )
+                Column {
+                    // One line per gloss, its romanisation smaller beside it.
+                    for (gloss in glosses.glosses()) {
+                        val lead = if (romanizedFirst && gloss.roman != null) gloss.roman else gloss.word
+                        val trail = if (romanizedFirst && gloss.roman != null) gloss.word else gloss.roman
+                        Text(
+                            buildAnnotatedString {
+                                append(lead)
+                                if (trail != null) withStyle(SpanStyle(color = kb.toolbarIcon, fontSize = 11.sp)) { append("  ·  $trail") }
+                            },
+                            color = kb.modifierKeyText,
+                            fontSize = 13.sp,
+                        )
+                    }
+                }
             }
         }
         val sections = buildList {
@@ -431,6 +486,7 @@ private fun VocabSenseRow(
     sense: VocabSense,
     serif: FontFamily,
     shown: (VocabCardField) -> Boolean,
+    ask: AskAiSource,
 ) {
     val kb = LocalKbTheme.current
     Row(modifier = Modifier.padding(top = if (index == 0) 8.dp else 5.dp)) {
@@ -459,9 +515,10 @@ private fun VocabSenseRow(
                     }
                 }
             }
-            Text(sense.definition, color = kb.modifierKeyText, fontSize = 13.sp, lineHeight = 17.sp)
+            // A long press selects: Ask AI, Copy or Insert (#352).
+            SelectableText(sense.definition, color = kb.modifierKeyText, fontSize = 13.sp, lineHeight = 17.sp, ask = ask)
             if (shown(VocabCardField.EXAMPLES) && sense.example != null) {
-                Text(
+                SelectableText(
                     "“${sense.example}”",
                     color = kb.toolbarIcon,
                     fontSize = 12.sp,
@@ -469,18 +526,41 @@ private fun VocabSenseRow(
                     fontStyle = FontStyle.Italic,
                     fontFamily = serif,
                     modifier = Modifier.padding(top = 1.dp),
+                    ask = ask,
                 )
             }
             if (shown(VocabCardField.QUOTATIONS)) {
                 for (quote in sense.quotations) {
-                    Text(
-                        "“${quote.text}” — ${quote.ref}",
-                        color = kb.toolbarIcon,
-                        fontSize = 11.sp,
-                        lineHeight = 15.sp,
-                        fontFamily = serif,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
+                    Row(modifier = Modifier.padding(top = 3.dp), verticalAlignment = Alignment.Top) {
+                        Text(
+                            quote.year ?: "·",
+                            color = kb.accent,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.width(38.dp).padding(top = 1.dp),
+                        )
+                        Column {
+                            Text(
+                                "“${quote.text}”",
+                                color = kb.toolbarIcon,
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp,
+                                fontStyle = FontStyle.Italic,
+                                fontFamily = serif,
+                            )
+                            val citation = quote.citation
+                            if (citation.isNotEmpty()) {
+                                Text(
+                                    "— $citation",
+                                    color = kb.toolbarIcon,
+                                    fontSize = 10.sp,
+                                    lineHeight = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
                 }
             }
             if (shown(VocabCardField.TOPICS) && sense.topics.isNotEmpty()) {
@@ -583,6 +663,7 @@ private fun VocabChip(
         modifier = Modifier
             .focusRing(focused, shape)
             .clip(shape)
+            .frostGlass(kb, shape, FrostSurface.CHIPS)
             .background(if (filled) kb.chipActive else kb.chip)
             .chipBorder(kb, shape)
             .combinedClickable(
@@ -609,7 +690,10 @@ private fun VocabBrowse(state: KeyboardUiState, callbacks: VocabCallbacks) {
     val browse = state.vocab.browse
     val query = state.mediaQuery.trim().lowercase()
     val rows = remember(browse.rows, query) {
-        if (query.isEmpty()) browse.rows else browse.rows.filter { it.word.contains(query) || it.definition.contains(query, ignoreCase = true) }
+        if (query.isEmpty()) browse.rows else browse.rows.filter { it.word.contains(query) || it.definition.contains(
+            query,
+            ignoreCase = true,
+        ) }
     }
     val chips = listOf<Pair<String, () -> Unit>>(
         stringResource(R.string.ime_vocab_filter_all_packs) to { callbacks.onBrowsePack(null) },
@@ -742,6 +826,7 @@ private fun VocabReview(state: KeyboardUiState, callbacks: VocabCallbacks) {
                     cameraDistance = 12f * density
                 }
                 .clip(kb.cardShape())
+                .frostGlass(kb, kb.cardShape(), FrostSurface.CARDS)
                 .background(kb.chip)
                 .chipBorder(kb, kb.cardShape())
                 .clickable { callbacks.onFlip() }
@@ -758,7 +843,12 @@ private fun VocabReview(state: KeyboardUiState, callbacks: VocabCallbacks) {
                     val ipa = current.ipaFor(settings.accent)
                     if (ipa != null) Text(ipa, color = kb.toolbarIcon, fontSize = 13.sp)
                     IconButton(onClick = { callbacks.onSpeak(current) }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.AutoMirrored.Outlined.VolumeUp, contentDescription = null, tint = kb.accent, modifier = Modifier.size(18.dp))
+                        Icon(
+                            Icons.AutoMirrored.Outlined.VolumeUp,
+                            contentDescription = null,
+                            tint = kb.accent,
+                            modifier = Modifier.size(18.dp),
+                        )
                     }
                 } else {
                     Text(current.word, color = kb.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, fontFamily = serif)
@@ -771,6 +861,18 @@ private fun VocabReview(state: KeyboardUiState, callbacks: VocabCallbacks) {
                         maxLines = 4,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    // The meaning in the user's language under the English,
+                    // when the card shows translations in the keyboard (#651).
+                    val enabledIds = state.settings.enabledLanguages.map { it.id }
+                    val meaning = remember(current, settings.translationLangList, settings.cardFields, enabledIds) {
+                        val shown = VocabCardFields.resolve(settings.cardFields)[VocabCardField.TRANSLATIONS] == FieldVisibility.KEYBOARD
+                        if (!shown) {
+                            null
+                        } else {
+                            VocabLanguages.primaryMeaning(current, VocabLanguages.wantedCodes(settings.translationLangList, enabledIds), enabledIds)
+                        }
+                    }
+                    if (meaning != null) VocabMeaningText(meaning, TextAlign.Center)
                     current.senses.firstOrNull()?.example?.let {
                         Text(
                             "“$it”",
@@ -791,10 +893,38 @@ private fun VocabReview(state: KeyboardUiState, callbacks: VocabCallbacks) {
             horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
         ) {
             actions.forEachIndexed { index, (label, action) ->
-                VocabChip(label = label, filled = review.flipped && index == actions.lastIndex, focused = focused == index, onClick = action)
+                VocabChip(
+                    label = label,
+                    filled = review.flipped && index == actions.lastIndex,
+                    focused = focused == index,
+                    onClick = action,
+                )
             }
         }
     }
+}
+
+/**
+ * A word's meaning in the user's language on one line, the language named
+ * small in front: the flashcard back here and the Dictionary panel (#651).
+ */
+@Composable
+internal fun VocabMeaningText(meaning: VocabMeaning, textAlign: TextAlign? = null, modifier: Modifier = Modifier) {
+    val kb = LocalKbTheme.current
+    Text(
+        buildAnnotatedString {
+            withStyle(SpanStyle(color = kb.toolbarIcon, fontSize = 11.sp)) { append(VocabLanguages.displayName(meaning.code) + "  ") }
+            append(meaning.text)
+            meaning.trail?.let { withStyle(SpanStyle(color = kb.toolbarIcon, fontSize = 11.sp)) { append("  ·  $it") } }
+        },
+        color = kb.modifierKeyText,
+        fontSize = 13.sp,
+        lineHeight = 17.sp,
+        textAlign = textAlign,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier.padding(top = 2.dp),
+    )
 }
 
 private fun ReviewGrade.labelRes(): Int = when (this) {
@@ -810,6 +940,8 @@ private fun ReviewGrade.labelRes(): Int = when (this) {
 @Composable
 internal fun VocabDailyChip(
     word: String,
+    /** Whether the word changes within the day, which changes what the chip calls itself. */
+    hourly: Boolean = false,
     modifier: Modifier = Modifier,
     onOpen: () -> Unit,
     onDismiss: () -> Unit,
@@ -845,7 +977,7 @@ internal fun VocabDailyChip(
                 Icon(Icons.Outlined.School, contentDescription = null, tint = tint, modifier = Modifier.size(13.dp))
             }
             Text(
-                stringResource(R.string.ime_smart_vocab_daily, word),
+                stringResource(if (hourly) R.string.ime_smart_vocab_hourly else R.string.ime_smart_vocab_daily, word),
                 color = tint,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
@@ -854,13 +986,15 @@ internal fun VocabDailyChip(
                 modifier = Modifier.widthIn(max = 200.dp),
             )
         }
-        IconButton(onClick = { feedback(); onDismiss() }, modifier = Modifier.size(28.dp)) {
-            Icon(
-                Icons.Outlined.Close,
-                contentDescription = stringResource(R.string.ime_smart_vocab_daily_dismiss_desc),
-                tint = tint.copy(alpha = 0.7f),
-                modifier = Modifier.size(14.dp),
-            )
+        IconHint(stringResource(R.string.ime_smart_vocab_daily_dismiss_desc)) {
+            IconButton(onClick = { feedback(); onDismiss() }, modifier = Modifier.size(28.dp)) {
+                Icon(
+                    Icons.Outlined.Close,
+                    contentDescription = stringResource(R.string.ime_smart_vocab_daily_dismiss_desc),
+                    tint = tint.copy(alpha = 0.7f),
+                    modifier = Modifier.size(14.dp),
+                )
+            }
         }
     }
 }

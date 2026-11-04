@@ -88,12 +88,71 @@ object SnippetMatcher {
     }
 
     /**
+     * [trigger] split the way the composing buffer holds it when the trigger's
+     * last word is a hyphenated compound, or null when it has none (#659).
+     *
+     * A hyphen typed straight after a letter stays in the buffer as part of the
+     * word (`well-paid`, `e-mail`), so `m:f-u` reaches the end of the word as
+     * "f-u" with only "m:" in the field, and `f-u` reaches it as one word with
+     * nothing in front. [splitPrefix] keys both under "u", which is what a
+     * buffer that did not join the hyphen holds, so the index registers this
+     * spelling as well. `m:f-u` gives `("m:", "f-u")`; `f-u` gives `("", "f-u")`,
+     * a plain trigger.
+     */
+    fun splitCompound(trigger: String): Prefixed? {
+        var cut = trigger.length
+        while (cut > 0 && isTriggerWordChar(trigger[cut - 1])) cut--
+        if (cut == trigger.length) return null
+        var joined = false
+        // A hyphen with a word character on both sides is inside the word, the
+        // same rule the keyboard's buffer and its word read-back both use.
+        while (cut >= 2 && trigger[cut - 1] == '-' && isTriggerWordChar(trigger[cut - 2])) {
+            cut--
+            while (cut > 0 && isTriggerWordChar(trigger[cut - 1])) cut--
+            joined = true
+        }
+        if (!joined || cut > MAX_PREFIX) return null
+        val prefix = trigger.substring(0, cut)
+        if (prefix.any { it != ' ' && it.isWhitespace() }) return null
+        return Prefixed(prefix, trigger.substring(cut))
+    }
+
+    /**
      * True for a character the keyboard's composing buffer holds.
      *
      * Deliberately the same set as `isComposingWordChar` on the IME side: a
      * trigger word made of anything else could never be handed to a lookup.
      */
     fun isTriggerWordChar(c: Char): Boolean = c.isLetterOrDigit() || c == '\''
+
+    /**
+     * True when the keyboard could actually watch for [trigger]: a plain word,
+     * a word behind a lead-in ([splitPrefix]), or a symbol-ended trigger
+     * ([isSuffixTrigger]). Every importer asks this before it keeps a trigger,
+     * because a stored trigger that can never fire is a snippet that silently
+     * does nothing.
+     */
+    fun isMatchableTrigger(trigger: String): Boolean =
+        trigger.isNotEmpty() && (
+            trigger.all(::isTriggerWordChar) ||
+                splitPrefix(trigger) != null ||
+                isSuffixTrigger(trigger)
+            )
+
+    /**
+     * True for a trigger that ends in a symbol — `js:`, `->`, `gr db:` — and
+     * so fires the moment that symbol is typed, matched by reading the field
+     * back rather than by looking the composing word up (#471). The symbol
+     * itself is the lookup key; what stands in front of it is confirmed off
+     * the field, the way a lead-in is for [splitPrefix]. Spaces may appear
+     * inside it, but no other whitespace, for the reason [splitPrefix] gives.
+     */
+    fun isSuffixTrigger(trigger: String): Boolean {
+        if (trigger.length < 2 || trigger.length > MAX_PREFIX) return false
+        val last = trigger.last()
+        if (isTriggerWordChar(last) || last.isWhitespace()) return false
+        return trigger.none { it != ' ' && it.isWhitespace() }
+    }
 
     /** Why a pattern cannot be used. */
     enum class Fault {
@@ -492,9 +551,33 @@ internal class CompiledSnippet(
  */
 class PrefixTrigger(val prefix: String, val typed: String, val snippet: Snippet)
 
+/**
+ * A trigger that ends in a symbol (#471), keyed under that symbol: `js:`
+ * fires when the colon lands behind "js". [typed] is the trigger as written,
+ * for the casing rule and for how much of the field to take back.
+ */
+class SuffixTrigger(val typed: String, val snippet: Snippet)
+
+/**
+ * A trigger that expands on the keystroke that finishes it ([Snippet.immediate]),
+ * keyed under its last character. [typed] is the trigger as written.
+ *
+ * [tail] is the run of word characters it ends with — all of `btw`, the
+ * `sig` of `:sig`, the `db` of `gr db` — which is the most the composing buffer
+ * can hold of it. A buffer that does not end with it cannot be finishing this
+ * trigger, so it is asked before the field is read.
+ */
+class ImmediateTrigger(val typed: String, val snippet: Snippet) {
+    val tail: String = typed.substring(typed.indexOfLast { !SnippetMatcher.isTriggerWordChar(it) } + 1)
+}
+
 class SnippetIndex private constructor(
     private val plain: Map<String, Snippet>,
     private val prefixed: Map<String, List<PrefixTrigger>>,
+    private val suffixed: Map<Char, List<SuffixTrigger>>,
+    private val immediate: Map<Char, List<ImmediateTrigger>>,
+    /** The one-word immediate triggers, lowercased, for a glide to land on. */
+    private val immediateWords: Map<String, Snippet>,
     private val byHead: Map<Char, List<CompiledSnippet>>,
     private val ungated: List<CompiledSnippet>,
     /**
@@ -536,11 +619,122 @@ class SnippetIndex private constructor(
     /** The snippet whose plain trigger is [word], ignoring case. */
     fun matchTrigger(word: String): Snippet? = plain[word.lowercase(Locale.ROOT)]
 
+    /**
+     * Every plain trigger that expands on its own, lowercased.
+     *
+     * What a glide may decode to (#170). A trigger like "omw" is in no word
+     * list, so a stroke could never spell it; handed to the decoder, it can.
+     * The asking ones are left out because a glide has nowhere to ask: it
+     * commits its word the moment the finger lifts. Built once per index, so
+     * the same set comes back until the snippets change — which is what lets
+     * the keyboard tell by identity whether to rebuild anything.
+     *
+     * One-word immediate triggers are in it too: a glide commits a whole word
+     * at once, so the keystroke an immediate trigger waits for is the lift.
+     */
+    val expandingTriggers: Set<String> = plain
+        .filter { (key, snippet) -> snippet.id !in asking && key.all(SnippetMatcher::isTriggerWordChar) }
+        .keys
+        .let { typed -> if (immediateWords.isEmpty()) typed else typed + immediateWords.keys }
+
+    /**
+     * True when some expanding plain trigger opens with a digit, like `123`
+     * (#554). A word-initial digit commits straight to the field and never
+     * reaches the composing buffer, so such a trigger can only be matched by
+     * reading the field back — and the keyboard asks this first, so a user
+     * without one never pays for the read. Immediate triggers are not counted:
+     * they are read back on their own keystroke, not at the space.
+     */
+    val hasDigitLedTriggers: Boolean = plain.any { (key, snippet) ->
+        snippet.id !in asking && key.firstOrNull()?.isDigit() == true && key.all(SnippetMatcher::isTriggerWordChar)
+    }
+
+    /** True when some trigger expands on its own last keystroke. */
+    val hasImmediateTriggers: Boolean = immediate.isNotEmpty()
+
+    /**
+     * Longest immediate trigger, in characters: how far back the keyboard has
+     * to read to confirm one, before the one character in front of it that
+     * decides the word boundary and the escape.
+     */
+    val immediateReach: Int = immediate.values.maxOfOrNull { list -> list.maxOf { it.typed.length } } ?: 0
+
+    /**
+     * True when typing [last] could finish an immediate trigger, given [buffer]
+     * is what the composing buffer holds with [last] already in it (empty when
+     * nothing composes).
+     *
+     * The free half of the immediate gate, asked on every keystroke. A user
+     * whose immediate triggers end in `w` pays a map lookup per key, and a field
+     * read only on a `w` that ends the buffer the way one of them ends.
+     */
+    fun couldFinishImmediate(last: Char, buffer: CharSequence): Boolean {
+        val list = immediate[last.lowercaseChar()] ?: return false
+        if (buffer.isEmpty()) return true
+        return list.any { buffer.endsWith(it.tail, ignoreCase = true) }
+    }
+
+    /**
+     * The immediate trigger that [before] ends with — the text in front of the
+     * caret, the keystroke just typed included — or null. Longest wins, so
+     * `;;addr` beats `addr`.
+     *
+     * A trigger that starts with a word character needs a word boundary in
+     * front of it unless its snippet allows [Snippet.insideWords]; one that
+     * starts with a symbol is its own boundary, as everywhere else.
+     */
+    fun matchImmediate(before: CharSequence): ImmediateTrigger? {
+        val last = before.lastOrNull() ?: return null
+        for (candidate in immediate[last.lowercaseChar()].orEmpty()) {
+            val typed = candidate.typed
+            if (before.length < typed.length) continue
+            if (!before.endsWith(typed, ignoreCase = true)) continue
+            if (!candidate.snippet.insideWords && SnippetMatcher.isTriggerWordChar(typed[0])) {
+                val ahead = before.getOrNull(before.length - typed.length - 1)
+                if (ahead != null && SnippetMatcher.isTriggerWordChar(ahead)) continue
+            }
+            return candidate
+        }
+        return null
+    }
+
+    /** The snippet whose one-word immediate trigger is [word], ignoring case. */
+    fun matchImmediateWord(word: String): Snippet? =
+        if (immediateWords.isEmpty()) null else immediateWords[word.lowercase(Locale.ROOT)]
+
     /** True when some trigger reaches back past its last word, so the keyboard need not look. */
     val hasPrefixTriggers: Boolean = prefixed.isNotEmpty()
 
     /** True when some prefix trigger offers itself instead of expanding. */
     val hasConfirmPrefixTriggers: Boolean = prefixed.values.any { list -> list.any { asks(it.snippet) } }
+
+    /** True when some trigger ends in a symbol, so the keyboard need not look otherwise (#471). */
+    val hasSuffixTriggers: Boolean = suffixed.isNotEmpty()
+
+    /** True when a trigger ends in [symbol]: the free half of the suffix gate, asked before any read. */
+    fun couldEndWith(symbol: Char): Boolean = suffixed.containsKey(symbol.lowercaseChar())
+
+    /**
+     * The symbol-ending trigger that [before] ends with — the text in front of
+     * the caret, the symbol just typed included — or null. Longest wins, so
+     * `gr db:` beats `db:`. A trigger that starts with a word character needs
+     * a word boundary in front of it, as every other trigger does; one that
+     * starts with a symbol is its own boundary.
+     */
+    fun matchSuffix(before: CharSequence): SuffixTrigger? {
+        val last = before.lastOrNull() ?: return null
+        for (candidate in suffixed[last.lowercaseChar()].orEmpty()) {
+            val typed = candidate.typed
+            if (before.length < typed.length) continue
+            if (!before.endsWith(typed, ignoreCase = true)) continue
+            if (SnippetMatcher.isTriggerWordChar(typed[0])) {
+                val ahead = before.getOrNull(before.length - typed.length - 1)
+                if (ahead != null && SnippetMatcher.isTriggerWordChar(ahead)) continue
+            }
+            return candidate
+        }
+        return null
+    }
 
     /**
      * The prefix triggers whose word part is [word], longest prefix first, or
@@ -607,6 +801,12 @@ class SnippetIndex private constructor(
      * to err toward consuming less; it also stops one careless `^(.+)$` from
      * eating every commit's whole window.
      *
+     * A span starts at a word, or at the run of spaces in front of one. The
+     * second kind exists for patterns about spacing: `\s+([.,?!:;])` can only
+     * ever match a span that begins with the space it wants to remove, and a
+     * word-only start would never hand it one. The space run counts as part of
+     * the word it precedes for the word budget, and is tried right after it.
+     *
      * [atFieldStart] says whether [window] reached the beginning of the field.
      * When it did not, a span is never anchored at the very first character:
      * the read may have cut a word in half, and a pattern matching that half
@@ -649,37 +849,51 @@ class SnippetIndex private constructor(
         // says about the field.
         val cutAtCap = trimmed.length < line.length
         val anchored = !cutAtCap && (atFieldStart || line.length < whole.length)
-        return search(w, wordStarts(w), anchored, now, context, confirm)
+        return search(w, spanStarts(w), anchored, now, context, confirm)
     }
 
-    /** Word start offsets in [w], nearest to the cursor first. */
-    private fun wordStarts(w: String): IntArray {
-        val starts = IntArray(SnippetMatcher.MAX_WORDS)
-        var found = 0
+    /**
+     * Where a candidate span may start in [w], nearest to the cursor first:
+     * each word's first character, then the first space of the run in front
+     * of it (when there is one). [SpanStart.back] is how many words the span
+     * reaches past the nearest one, the number the word budget is checked
+     * against; a space run shares it with the word it precedes.
+     */
+    private fun spanStarts(w: String): List<SpanStart> {
+        val starts = ArrayList<SpanStart>(SnippetMatcher.MAX_WORDS * 2)
+        var back = 0
         var i = w.length
-        while (i > 0 && found < starts.size) {
+        while (i > 0 && back < SnippetMatcher.MAX_WORDS) {
             var j = i - 1
             while (j >= 0 && w[j].isWhitespace()) j--
             if (j < 0) break
             while (j >= 0 && !w[j].isWhitespace()) j--
-            val start = j + 1
-            starts[found++] = start
-            i = start
+            val word = j + 1
+            starts += SpanStart(word, back)
+            while (j >= 0 && w[j].isWhitespace()) j--
+            val gap = j + 1
+            if (gap < word) starts += SpanStart(gap, back)
+            back++
+            i = word
         }
-        return starts.copyOf(found)
+        return starts
     }
+
+    /** One place a span may begin, and how many words back from the cursor it is. */
+    private class SpanStart(val offset: Int, val back: Int)
 
     private fun search(
         w: String,
-        starts: IntArray,
+        starts: List<SpanStart>,
         anchored: Boolean,
         now: Long,
         context: SnippetStore.Companion.Context,
         confirm: Boolean,
     ): SnippetMatch? {
         var attempts = 0
-        for (back in starts.indices) {
-            val start = starts[back]
+        for (candidate in starts) {
+            val start = candidate.offset
+            val back = candidate.back
             if (start == 0 && !anchored) continue
             val span = w.substring(start)
             val gated = byHead[span[0].lowercaseChar()].orEmpty()
@@ -748,10 +962,16 @@ class SnippetIndex private constructor(
             val asking = HashSet<Long>()
             val plain = LinkedHashMap<String, Snippet>()
             val prefixed = LinkedHashMap<String, MutableList<PrefixTrigger>>()
+            val suffixed = LinkedHashMap<Char, MutableList<SuffixTrigger>>()
+            val immediate = LinkedHashMap<Char, MutableList<ImmediateTrigger>>()
+            val immediateWords = LinkedHashMap<String, Snippet>()
             val byHead = LinkedHashMap<Char, MutableList<CompiledSnippet>>()
             val ungated = ArrayList<CompiledSnippet>()
             for (snippet in snippets) {
                 if (snippet.asks(multiExpand)) asking.add(snippet.id)
+                // A snippet that asks has nothing to fire early, so it keeps
+                // the ordinary trigger paths and its chip.
+                val early = snippet.immediate && snippet.id !in asking
                 // A plain trigger is the more specific and the cheaper rule, so
                 // a snippet carrying both never reaches the pattern side. Every
                 // alias is registered exactly as the trigger is, prefix rules
@@ -760,12 +980,42 @@ class SnippetIndex private constructor(
                 var triggered = false
                 for (spelling in snippet.spellings()) {
                     triggered = true
+                    // A symbol at the end is matched off the field the moment
+                    // it lands (#471); it has no word for either map below.
+                    if (SnippetMatcher.isSuffixTrigger(spelling)) {
+                        suffixed.getOrPut(spelling.last().lowercaseChar()) { ArrayList() } +=
+                            SuffixTrigger(spelling, snippet)
+                        continue
+                    }
+                    // Fired on its own last character, and kept out of the two
+                    // maps below on purpose: those are read when a word ends,
+                    // and an immediate trigger still standing at that point was
+                    // escaped or taken back, so it must stay as typed.
+                    if (early) {
+                        immediate.getOrPut(spelling.last().lowercaseChar()) { ArrayList() } +=
+                            ImmediateTrigger(spelling, snippet)
+                        if (spelling.all(SnippetMatcher::isTriggerWordChar)) {
+                            immediateWords.putIfAbsent(spelling.lowercase(Locale.ROOT), snippet)
+                        }
+                        continue
+                    }
                     val split = SnippetMatcher.splitPrefix(spelling)
                     if (split == null) {
                         plain.putIfAbsent(spelling.lowercase(Locale.ROOT), snippet)
                     } else {
                         prefixed.getOrPut(split.word.lowercase(Locale.ROOT)) { ArrayList() } +=
                             PrefixTrigger(split.prefix, spelling, snippet)
+                    }
+                    // A hyphenated last word also arrives whole, the way the
+                    // buffer joins it (#659). Only one of the two spellings can
+                    // ever fit what was typed, so registering both never
+                    // doubles a match.
+                    val compound = SnippetMatcher.splitCompound(spelling) ?: continue
+                    if (compound.prefix.isEmpty()) {
+                        plain.putIfAbsent(compound.word.lowercase(Locale.ROOT), snippet)
+                    } else {
+                        prefixed.getOrPut(compound.word.lowercase(Locale.ROOT)) { ArrayList() } +=
+                            PrefixTrigger(compound.prefix, spelling, snippet)
                     }
                 }
                 if (triggered) continue
@@ -788,7 +1038,9 @@ class SnippetIndex private constructor(
             // Longest prefix first, so `::x` is preferred to `:x` when a user
             // has installed both and the field ends in "::".
             for (list in prefixed.values) list.sortByDescending { it.prefix.length }
-            return SnippetIndex(plain, prefixed, byHead, ungated, asking)
+            for (list in suffixed.values) list.sortByDescending { it.typed.length }
+            for (list in immediate.values) list.sortByDescending { it.typed.length }
+            return SnippetIndex(plain, prefixed, suffixed, immediate, immediateWords, byHead, ungated, asking)
         }
     }
 }

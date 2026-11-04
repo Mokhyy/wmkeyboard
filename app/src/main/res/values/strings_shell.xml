@@ -2,17 +2,30 @@
 <resources xmlns:tools="http://schemas.android.com/tools"
     xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
 
-    <!-- Settings search screen: the search field and its two empty states. -->
+    <!-- Settings search screen: the search field and the line shown when it finds nothing. -->
     <!-- Placeholder inside the search field at the top of the search screen. -->
     <string name="shell_search_hint">Search settings</string>
-    <!-- Shown while the search field is still empty. The three quoted words are examples of what to type. -->
-    <string name="shell_search_help_body">Search every setting by name, for example \"haptic\", \"number row\" or \"incognito\". You can also search by the tool that the setting belongs to.</string>
     <!-- Shown when a search finds nothing. %1$s = the text the user typed. -->
     <string name="shell_search_empty">No setting matches \"<xliff:g id="query" example="haptic">%1$s</xliff:g>\".</string>
     <!-- Heading over the settings opened from search before, shown while the field is empty. -->
     <string name="shell_search_recent_title">Recent</string>
     <!-- Heading over the results that only carry the search words in their description or their path, not in their name. -->
     <string name="shell_search_mentions_title">Mentioned in the description</string>
+    <!-- Name of the ranked results on the index beside a long list of results. Kept to one word: it is drawn in a small bubble beside the reader's finger. -->
+    <string name="shell_search_results_stop">Matches</string>
+    <!-- Name of the weaker results on the index beside a long list of results. See shell_search_results_stop. -->
+    <string name="shell_search_mentions_stop">Mentions</string>
+
+    <!-- #970: the bar at the bottom of the settings screens after an update, walking through the settings the update added. -->
+    <plurals name="shell_new_settings_count">
+        <item quantity="one"><xliff:g id="count" example="1">%d</xliff:g> new setting in this version</item>
+        <item quantity="other"><xliff:g id="count" example="7">%d</xliff:g> new settings in this version</item>
+    </plurals>
+    <!-- %1$d = which new setting is open, %2$d = how many there are, %3$s = its name. -->
+    <string name="shell_new_settings_position"><xliff:g id="position" example="2">%1$d</xliff:g> of <xliff:g id="count" example="7">%2$d</xliff:g>: <xliff:g id="setting" example="More slots for short words">%3$s</xliff:g></string>
+    <string name="shell_new_settings_previous_desc">Previous new setting</string>
+    <string name="shell_new_settings_next_desc">Next new setting</string>
+    <string name="shell_new_settings_dismiss_desc">Stop showing the new settings</string>
 
     <!-- The path strip under the heading, on screens more than one step below the settings home. -->
     <!-- Name of the settings home in the path strip. The screen itself is titled with the app name. -->
@@ -21,6 +34,8 @@
     <string name="shell_breadcrumb_open_desc">Go to <xliff:g id="screen" example="Appearance">%1$s</xliff:g></string>
     <!-- Screen reader label for the last step of the path strip, the screen being shown. Pressing it scrolls the screen back to its top. -->
     <string name="shell_breadcrumb_top_desc">Back to the top</string>
+    <!-- Under the path strip, on a screen the user has reached before by another path in this session. %1$s = that other path, e.g. "Home › Emoji". -->
+    <string name="shell_breadcrumb_also_under">Also under <xliff:g id="path" example="Home › Emoji">%1$s</xliff:g></string>
 
     <!-- Full screen image viewer for add-on screenshots. -->
     <!-- Screen reader description of one screenshot. %1$d = its position, %2$d = how many there are.
@@ -52,6 +67,7 @@
 
     <!-- Debug log screen: the Crashes group. -->
     <string name="shell_debug_log_crashes_title">Crashes</string>
+    <string name="shell_debug_log_crashes_body">Hold the text to copy it. The version and device lines are copied with it. Keep those lines when you paste the crash somewhere: they say which build it came from, and without them the crash cannot be read back.</string>
     <string name="shell_debug_log_delete_crashes_action">Delete crashes</string>
 
     <!-- Debug log screen: the App log group. -->
@@ -72,6 +88,7 @@
     <string name="shell_debug_log_copied_info">The app copied the report.</string>
     <!-- Shown after the user presses and holds one line of the log. -->
     <string name="shell_debug_log_line_copied_info">The app copied that line.</string>
+    <string name="shell_debug_log_block_copied_info">The app copied the text, with the version and device lines in front.</string>
     <string name="shell_debug_log_write_error">The app cannot write the report.</string>
 
     <!-- ================================================================== -->

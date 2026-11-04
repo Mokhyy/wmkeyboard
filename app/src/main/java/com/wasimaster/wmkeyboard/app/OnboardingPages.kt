@@ -1,5 +1,6 @@
 package com.wasimaster.wmkeyboard.app
 
+import android.content.Intent
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
@@ -31,21 +32,22 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.BrightnessAuto
-import androidx.compose.material.icons.outlined.CalendarMonth
-import androidx.compose.material.icons.outlined.Contrast
-import androidx.compose.material.icons.outlined.DarkMode
-import androidx.compose.material.icons.outlined.EditCalendar
-import androidx.compose.material.icons.outlined.EventRepeat
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Keyboard
-import androidx.compose.material.icons.outlined.LightMode
-import androidx.compose.material.icons.outlined.Mosque
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.SelectAll
-import androidx.compose.material.icons.outlined.Thermostat
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Add
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.AutoAwesome
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.BrightnessAuto
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.CalendarMonth
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Contrast
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.DarkMode
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.EditCalendar
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.EventRepeat
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Info
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Keyboard
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.LightMode
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Mosque
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Restore
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Search
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.SelectAll
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Thermostat
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -87,17 +89,15 @@ import com.wasimaster.wmkeyboard.R
 import com.wasimaster.wmkeyboard.common.R as CommonR
 import com.wasimaster.wmkeyboard.core.feedback.HapticPlayer
 import com.wasimaster.wmkeyboard.core.feedback.KeySoundPlayer
-import com.wasimaster.wmkeyboard.core.fonts.FontStore
 import com.wasimaster.wmkeyboard.core.icons.IconSlots
 import com.wasimaster.wmkeyboard.core.layout.LayoutSpec
-import com.wasimaster.wmkeyboard.core.layout.language
 import com.wasimaster.wmkeyboard.core.layout.resolveLayout
+import com.wasimaster.wmkeyboard.core.layout.resolveLayoutLanguage
+import com.wasimaster.wmkeyboard.core.layout.resolveLayoutName
 import com.wasimaster.wmkeyboard.core.script.LanguageDef
 import com.wasimaster.wmkeyboard.core.script.LanguageRegistry
 import com.wasimaster.wmkeyboard.core.settings.DefaultToolOrder
-import com.wasimaster.wmkeyboard.core.settings.EmojiFontChoice
-import com.wasimaster.wmkeyboard.core.settings.EmojiSkinTone
-import com.wasimaster.wmkeyboard.core.settings.KeyboardSettings
+import com.wasimaster.wmkeyboard.core.settings.EverythingTools
 import com.wasimaster.wmkeyboard.core.settings.RecommendedTools
 import com.wasimaster.wmkeyboard.core.settings.SettingsRepository
 import com.wasimaster.wmkeyboard.core.settings.ThemeMode
@@ -109,6 +109,7 @@ import com.wasimaster.wmkeyboard.core.theme.DEFAULT_THEME_ID
 import com.wasimaster.wmkeyboard.core.theme.ThemeSpec
 import com.wasimaster.wmkeyboard.core.util.PlayServices
 import com.wasimaster.wmkeyboard.ime.ui.SlotIcon
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 // The wizard's fixed pages, one composable per [OnboardingPage] entry. The
@@ -117,7 +118,14 @@ import kotlinx.coroutines.launch
 // and try pages live in their own files.
 
 @Composable
-internal fun WelcomePage(onReady: () -> Unit, onSetupChanged: (Boolean) -> Unit) {
+internal fun WelcomePage(
+    repository: SettingsRepository,
+    canRestore: Boolean,
+    restored: Boolean,
+    onRestored: () -> Unit,
+    onReady: () -> Unit,
+    onSetupChanged: (Boolean) -> Unit,
+) {
     val context = LocalContext.current
     val setup = rememberKeyboardSetup(context, onReady)
     LaunchedEffect(setup.ready) { onSetupChanged(setup.ready) }
@@ -128,36 +136,128 @@ internal fun WelcomePage(onReady: () -> Unit, onSetupChanged: (Boolean) -> Unit)
     Box(modifier = Modifier.padding(horizontal = 16.dp)) {
         SetupCard(context, setup = setup, onEnableRequested = { awaitingEnable = true })
     }
-    if (!setup.ready) CaptionText(stringResource(R.string.onboarding_welcome_required))
+    when {
+        restored && !setup.ready -> CaptionText(stringResource(R.string.onboarding_restored_info))
+        !setup.ready -> CaptionText(stringResource(R.string.onboarding_welcome_required))
+    }
+    if (canRestore) RestoreBackupButton(repository, onRestored)
+}
+
+/**
+ * Restores a backup instead of answering the wizard: one of this app's, or a
+ * whole backup from another keyboard, through the same dialog an opened file
+ * gets. [onRestored] runs once the result has been read and closed, so the
+ * wizard does not move on under the dialog that says what came across.
+ *
+ * A restored list of languages is no use without its dictionaries, so the
+ * missing ones are fetched, the way a language added on the wizard's own
+ * page is.
+ */
+@Composable
+private fun RestoreBackupButton(repository: SettingsRepository, onRestored: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val notify = rememberDownloadNotifier()
+    var picked by remember { mutableStateOf<android.net.Uri?>(null) }
+    var imported by remember { mutableStateOf(false) }
+    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        // Held until the dialog closes: it reads the file a composition later,
+        // and the grant the picker hands back may not last that long (#1078).
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        }
+        picked = uri
+    }
+    fun letGo(uri: android.net.Uri) {
+        picked = null
+        runCatching {
+            context.contentResolver.releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 16.dp),
+    ) {
+        OutlinedButton(onClick = { launcher.launch(arrayOf("*/*")) }) {
+            Icon(Icons.Outlined.Restore, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(R.string.onboarding_restore_action))
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            stringResource(R.string.onboarding_restore_info),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+    }
+    picked?.let { uri ->
+        ImportFileDialog(
+            repository,
+            uri,
+            onImported = { imported = true },
+            onChooseAnother = {
+                letGo(uri)
+                launcher.launch(arrayOf("*/*"))
+            },
+            onClose = {
+                letGo(uri)
+                if (imported) {
+                    imported = false
+                    // The downloads start before the wizard moves on, since
+                    // moving on can close it and cancel this scope.
+                    scope.launch {
+                        val languages = repository.settings.first().enabledLanguages.map { it.id }
+                        startMissingLanguageData(context, languages, notify)
+                        onRestored()
+                    }
+                }
+            },
+        )
+    }
 }
 
 @Composable
-internal fun LanguagesPage(repository: SettingsRepository, settings: KeyboardSettings) {
+internal fun LanguagesPage(repository: SettingsRepository, settings: LiveSettings) {
     val scope = rememberCoroutineScope()
+    // What decides which rows the page holds; each switch reads its own value.
+    val enabledLanguages = settings.watch { it.enabledLanguages }
+    val enabledLayoutIds = settings.watch { it.enabledLayoutIds }
+    val customLayouts = settings.watch { it.customLayouts }
     // The enabled set, grouped by language (deduped, in switch order); toggling
     // a layout off is how you drop one during setup, and the search below adds
     // any of the rest.
-    for (language in settings.enabledLanguages) {
+    for (language in enabledLanguages) {
         Text(
             language.displayName,
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
         )
-        val layoutIds = settings.enabledLayoutIds.filter {
-            resolveLayout(settings.customLayouts, it).language().id == language.id
+        // From the layout index, never a parse: this runs for every enabled
+        // layout under every enabled language on each recomposition, and
+        // parsing them here was a main-thread ANR on low-end phones.
+        val layoutIds = enabledLayoutIds.filter {
+            resolveLayoutLanguage(customLayouts, it).id == language.id
         }
         for (layoutId in layoutIds) {
             ListItem(
-                headlineContent = { Text(resolveLayout(settings.customLayouts, layoutId).name) },
+                headlineContent = { Text(resolveLayoutName(customLayouts, layoutId)) },
                 trailingContent = {
                     Switch(
-                        checked = layoutId in settings.enabledLayoutIds,
+                        checked = layoutId in enabledLayoutIds,
                         onCheckedChange = { enable ->
+                            val current = settings.value.enabledLayoutIds
                             scope.launch {
                                 val next =
-                                    if (enable) settings.enabledLayoutIds + layoutId
-                                    else settings.enabledLayoutIds - layoutId
+                                    if (enable) current + layoutId
+                                    else current - layoutId
                                 if (next.isNotEmpty()) {
                                     repository.setEnabledLayoutIds(next.distinct())
                                 }
@@ -196,13 +296,13 @@ private const val ONBOARDING_SUGGESTION_LIMIT = 4
  * suggestion sources stay in Settings → Languages, which has room for them.
  */
 @Composable
-private fun AddLanguageSection(repository: SettingsRepository, settings: KeyboardSettings) {
+private fun AddLanguageSection(repository: SettingsRepository, settings: LiveSettings) {
     val scope = rememberCoroutineScope()
     var query by rememberSaveable { mutableStateOf("") }
     // The language whose layout-picker dialog is open, by id — the id rather
     // than the LanguageDef so the open dialog survives rotation.
     var layoutChoice by rememberSaveable { mutableStateOf<String?>(null) }
-    val enabledLangIds = settings.enabledLanguages.mapTo(HashSet()) { it.id }
+    val enabledLangIds = settings.watch { s -> s.enabledLanguages.mapTo(HashSet()) { it.id } }
     val q = query.trim().lowercase()
     val matches = searchLanguages(q).filter { it.id !in enabledLangIds }
     val suggested = rememberSuggestedLanguages(settings, limit = ONBOARDING_SUGGESTION_LIMIT)
@@ -211,15 +311,16 @@ private fun AddLanguageSection(repository: SettingsRepository, settings: Keyboar
     // every language was three taps per language and a wall of choices before
     // the user had typed anything; the notice under this list says what the
     // page does instead, and the data can be deleted later.
-    val filesDir = LocalContext.current.filesDir
+    val context = LocalContext.current
+    val notifyDownload = rememberDownloadNotifier()
     val fetchData: (LanguageDef) -> Unit = { language ->
-        startLanguageDataDownload(filesDir, languageData(language.id))
+        startLanguageDataDownload(context, languageData(language.id), notifyDownload)
     }
     val add: (LanguageDef) -> Unit = { language ->
         if (language.layoutIds.size > 1) {
             layoutChoice = language.id
         } else {
-            addLanguage(scope, repository, settings, language)
+            addLanguage(scope, repository, settings.value, language)
             fetchData(language)
             query = ""
         }
@@ -227,17 +328,19 @@ private fun AddLanguageSection(repository: SettingsRepository, settings: Keyboar
 
     layoutChoice?.let { langId ->
         val language = LanguageRegistry.byId(langId)
+        val customLayouts = settings.watch { it.customLayouts }
         LayoutPickerDialog(
             language = language,
-            layoutName = { resolveLayout(settings.customLayouts, it).name },
-            layoutSpec = { resolveLayout(settings.customLayouts, it) },
+            layoutName = { resolveLayoutName(customLayouts, it) },
+            layoutSpec = { resolveLayout(customLayouts, it) },
             onConfirm = { chosen ->
                 layoutChoice = null
                 query = ""
                 fetchData(language)
+                val enabled = settings.value.enabledLayoutIds
                 scope.launch {
                     repository.setEnabledLayoutIds(
-                        (settings.enabledLayoutIds + chosen).distinct(),
+                        (enabled + chosen).distinct(),
                     )
                 }
             },
@@ -440,9 +543,12 @@ private fun LayoutPickerDialog(
  * spent a screen asking anyway.
  */
 @Composable
-internal fun LookPage(repository: SettingsRepository, settings: KeyboardSettings) {
+internal fun LookPage(repository: SettingsRepository, settings: LiveSettings) {
     val scope = rememberCoroutineScope()
-    ThemeModeChoice(settings.themeMode) { mode ->
+    // Decides what the page holds below the mode row.
+    val themeMode = settings.watch { it.themeMode }
+    ThemeModeChoice(themeMode) { mode ->
+        val selectedId = settings.value.keyboardThemeId
         scope.launch {
             repository.setThemeMode(mode)
             // A fixed mode has one keyboard theme, so the light/dark pair has
@@ -453,8 +559,8 @@ internal fun LookPage(repository: SettingsRepository, settings: KeyboardSettings
             // Leaving a dark keyboard selected under "Light" would be a
             // choice the user can no longer see, so it goes back to the
             // default, which follows the mode.
-            val stillShown = settings.keyboardThemeId == DEFAULT_THEME_ID ||
-                themesForMode(mode).any { it.id == settings.keyboardThemeId }
+            val stillShown = selectedId == DEFAULT_THEME_ID ||
+                themesForMode(mode).any { it.id == selectedId }
             if (!stillShown) repository.setKeyboardThemeId(DEFAULT_THEME_ID)
         }
     }
@@ -464,17 +570,17 @@ internal fun LookPage(repository: SettingsRepository, settings: KeyboardSettings
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
     )
-    if (settings.themeMode == ThemeMode.SYSTEM) {
+    if (themeMode == ThemeMode.SYSTEM) {
         AutoThemeChooser(repository, settings)
         return
     }
     // Only the themes that match the choice above. Someone who has just asked
     // for a light keyboard has no use for eleven dark ones, and a shorter list
     // is a choice rather than a catalogue. The full set stays in Appearance.
-    val themes = remember(settings.themeMode) { themesForMode(settings.themeMode) }
+    val themes = remember(themeMode) { themesForMode(themeMode) }
     ThemeChoiceList(
         themes = themes,
-        selectedId = settings.keyboardThemeId,
+        selectedId = settings.watch { it.keyboardThemeId },
         onSelect = { id -> scope.launch { repository.setKeyboardThemeId(id) } },
     )
 }
@@ -494,16 +600,19 @@ internal fun LookPage(repository: SettingsRepository, settings: KeyboardSettings
  * selected is the theme on screen.
  */
 @Composable
-private fun AutoThemeChooser(repository: SettingsRepository, settings: KeyboardSettings) {
+private fun AutoThemeChooser(repository: SettingsRepository, settings: LiveSettings) {
     val scope = rememberCoroutineScope()
     val systemDark = isSystemInDarkTheme()
     var darkTab by rememberSaveable { mutableStateOf(systemDark) }
-    val auto = settings.autoTheme
     // Before the pair is on there is one selected theme, not two. Show it in
     // the half it belongs to and leave the other on the default, so turning
     // the pair on keeps what was already showing.
-    val lightId = if (auto.enabled) auto.lightThemeId else settings.keyboardThemeId.inHalf(false)
-    val darkId = if (auto.enabled) auto.darkThemeId else settings.keyboardThemeId.inHalf(true)
+    val lightId = settings.watch { s ->
+        if (s.autoTheme.enabled) s.autoTheme.lightThemeId else s.keyboardThemeId.inHalf(false)
+    }
+    val darkId = settings.watch { s ->
+        if (s.autoTheme.enabled) s.autoTheme.darkThemeId else s.keyboardThemeId.inHalf(true)
+    }
     TabRow(
         selectedTabIndex = if (darkTab) 1 else 0,
         modifier = Modifier.padding(horizontal = 16.dp),
@@ -770,153 +879,8 @@ private fun OnboardingThemeCard(
     }
 }
 
-/**
- * Skin tone for everyone, plus the emoji-font repair for the phones that need
- * it. [missing] is which catalog emoji this phone's font can't draw (empty on
- * a phone that draws them all), and [ownEmojiSet] is the other way onto the
- * font half — a maker that ships a complete set of its own.
- *
- * The skin tone is why this page is no longer conditional: it is a question
- * about the person, not about the device, and the one place a keyboard can ask
- * it before the first emoji is inserted is here.
- */
 @Composable
-internal fun EmojiPage(
-    repository: SettingsRepository,
-    settings: KeyboardSettings,
-    missing: List<String>,
-    ownEmojiSet: Boolean,
-) {
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-    val missingCount = missing.size
-    Text(
-        stringResource(R.string.onboarding_emoji_tone_title),
-        style = MaterialTheme.typography.titleSmall,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
-    )
-    // The tone is drawn on the raised hand, which is the emoji the settings
-    // screen uses for the same choice — one glyph, six versions of it, so the
-    // difference between the options is the only thing that varies.
-    ChoiceControl(
-        options = listOf(
-            EmojiSkinTone.NONE to "✋",
-            EmojiSkinTone.LIGHT to "✋🏻",
-            EmojiSkinTone.MEDIUM_LIGHT to "✋🏼",
-            EmojiSkinTone.MEDIUM to "✋🏽",
-            EmojiSkinTone.MEDIUM_DARK to "✋🏾",
-            EmojiSkinTone.DARK to "✋🏿",
-        ),
-        selected = settings.emoji.defaultSkinTone,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-    ) { tone -> scope.launch { repository.setEmojiDefaultSkinTone(tone) } }
-    Text(
-        stringResource(R.string.onboarding_emoji_tone_body),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
-    )
-    // Everything below is the font repair, which most phones never see.
-    if (missingCount == 0 && !ownEmojiSet) return
-    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-    Text(
-        stringResource(R.string.onboarding_emoji_font_section_title),
-        style = MaterialTheme.typography.titleSmall,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-    )
-    Text(
-        if (missingCount > 0) {
-            pluralStringResource(
-                R.plurals.onboarding_emoji_missing_count,
-                missingCount,
-                missingCount,
-            )
-        } else {
-            // The other way onto this page: everything draws, it just draws in
-            // the phone maker's own set.
-            stringResource(R.string.onboarding_emoji_own_set_body)
-        },
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-    )
-    // The count is an abstraction; the boxes are the argument. Showing the
-    // same faces twice — once in the device's font, once in Google's — is the
-    // whole case for changing the setting below, made in one glance.
-    if (missingCount > 0 && PlayServices.hasFontProvider(context)) {
-        MissingEmojiComparison(missing, modifier = Modifier.padding(horizontal = 16.dp))
-    }
-    // Installed faces are only worth offering when there is one to pick.
-    val installedFonts = remember { FontStore.get(context).emojiFonts() }
-    val fontOptions = buildList {
-        add(EmojiFontChoice.SYSTEM to stringResource(R.string.langemoji_emoji_font_system_label))
-        // Noto comes from the Play services font provider, so it is a real
-        // choice only where that provider answers. This page exists to fix
-        // missing emoji; offering a set that cannot be fetched would fix none.
-        if (PlayServices.hasFontProvider(context)) {
-            add(EmojiFontChoice.NOTO to stringResource(R.string.langemoji_emoji_font_noto_label))
-        }
-        if (installedFonts.isNotEmpty()) {
-            add(
-                EmojiFontChoice.INSTALLED to
-                    stringResource(R.string.langemoji_emoji_font_installed_label),
-            )
-        }
-    }
-    ChoiceControl(
-        options = fontOptions,
-        // A font imported and then deleted leaves the setting pointing at
-        // nothing; show that as the system set, which is what is drawn anyway.
-        selected = settings.emojiFont.takeIf { choice ->
-            fontOptions.any { it.first == choice }
-        } ?: EmojiFontChoice.SYSTEM,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-    ) { choice -> scope.launch { repository.setEmojiFont(choice) } }
-    EmojiFontPreviewRow(
-        choice = settings.emojiFont,
-        installedId = settings.emojiFontInstalled.installedId,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-    )
-    // The way out of the whole problem, on the one page where the problem has
-    // just been demonstrated: fetch a current emoji font and select it.
-    EmojiFontDownloadRow(
-        installedId = settings.emojiFontInstalled.installedId,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        onInstalled = { fontId -> scope.launch { repository.setInstalledEmojiFont(fontId) } },
-    )
-    if (missingCount > 0) {
-        ListItem(
-            headlineContent = { Text(stringResource(R.string.onboarding_emoji_hide_title)) },
-            supportingContent = {
-                Text(stringResource(R.string.onboarding_emoji_hide_subtitle))
-            },
-            trailingContent = {
-                Switch(
-                    checked = settings.emoji.hideUnrenderable,
-                    onCheckedChange = { scope.launch { repository.setHideUnrenderableEmoji(it) } },
-                )
-            },
-        )
-    }
-    Text(
-        stringResource(R.string.onboarding_emoji_font_info),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(16.dp),
-    )
-    // The wizard cannot open the add-on store — there is nowhere to come back
-    // to mid-setup — so this page says where the fonts are rather than
-    // offering to fetch one now.
-    Text(
-        stringResource(R.string.onboarding_emoji_font_download_info),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
-    )
-}
-
-@Composable
-internal fun FeedbackPage(repository: SettingsRepository, settings: KeyboardSettings) {
+internal fun FeedbackPage(repository: SettingsRepository, settings: LiveSettings) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     // The system haptic styles are played through a real view, so hand the
@@ -928,17 +892,18 @@ internal fun FeedbackPage(repository: SettingsRepository, settings: KeyboardSett
         supportingContent = { Text(stringResource(R.string.onboarding_haptics_subtitle)) },
         trailingContent = {
             Switch(
-                checked = settings.hapticFeedback,
+                checked = settings.watch { it.haptics.enabled },
                 onCheckedChange = { enable ->
                     scope.launch { repository.setHapticFeedback(enable) }
                     // Fired straight from the click rather than after the
                     // DataStore write lands, or the switch feels dead.
                     if (enable) {
+                        val haptics = settings.value.haptics
                         HapticPlayer.preview(
                             context,
-                            settings.hapticStyle,
-                            settings.hapticAmplitude,
-                            settings.hapticStrengthMs,
+                            haptics.style,
+                            haptics.amplitude,
+                            haptics.strengthMs,
                             view,
                         )
                     }
@@ -951,18 +916,19 @@ internal fun FeedbackPage(repository: SettingsRepository, settings: KeyboardSett
         supportingContent = { Text(stringResource(R.string.onboarding_key_sound_subtitle)) },
         trailingContent = {
             Switch(
-                checked = settings.keySound,
+                checked = settings.watch { it.sound.enabled },
                 onCheckedChange = { enable ->
                     scope.launch { repository.setKeySound(enable) }
                     // Same bargain as the haptics switch above: turning it on
                     // plays the sound it just turned on, so nobody has to leave
                     // setup and type somewhere to find out what they chose.
                     if (enable) {
+                        val sound = settings.value.sound
                         KeySoundPlayer.previewStroke(
                             context,
-                            settings.keySoundStyle,
-                            settings.keySoundVolume,
-                            settings.keySoundCustom.customId,
+                            sound.style,
+                            sound.volume,
+                            sound.customId,
                         )
                     }
                 },
@@ -974,7 +940,7 @@ internal fun FeedbackPage(repository: SettingsRepository, settings: KeyboardSett
         supportingContent = { Text(stringResource(R.string.onboarding_key_popup_subtitle)) },
         trailingContent = {
             Switch(
-                checked = settings.popup.enabled,
+                checked = settings.watch { it.popup.enabled },
                 onCheckedChange = { scope.launch { repository.setKeyPopup(it) } },
             )
         },
@@ -982,15 +948,13 @@ internal fun FeedbackPage(repository: SettingsRepository, settings: KeyboardSett
 }
 
 @Composable
-internal fun GesturesPage(repository: SettingsRepository, settings: KeyboardSettings) {
+internal fun GesturesPage(repository: SettingsRepository, settings: LiveSettings) {
     val scope = rememberCoroutineScope()
     // The badge follows the persona answer rather than being baked into one
     // row's title, so the recommendation is honest: it always marks a choice
     // that matches what the quiz actually set.
-    val recommended = recommendedSpacebarChoice(settings.onboarding)
+    val recommended = settings.watch { recommendedSpacebarChoice(it.onboarding) }
     for (choice in SpacebarChoice.entries) {
-        val selected = settings.spaceShortSwipe == choice.short &&
-            settings.spaceLongSwipe == choice.long
         ListItem(
             headlineContent = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1018,7 +982,12 @@ internal fun GesturesPage(repository: SettingsRepository, settings: KeyboardSett
                 }
             },
             supportingContent = { Text(stringResource(choice.subtitleRes)) },
-            leadingContent = { RadioButton(selected = selected, onClick = null) },
+            leadingContent = {
+                val selected = settings.watch {
+                    it.spaceShortSwipe == choice.short && it.spaceLongSwipe == choice.long
+                }
+                RadioButton(selected = selected, onClick = null)
+            },
             modifier = Modifier.clickable {
                 scope.launch {
                     repository.setSpaceShortSwipe(choice.short)
@@ -1034,24 +1003,24 @@ internal fun GesturesPage(repository: SettingsRepository, settings: KeyboardSett
     PreviewedSwitch(
         title = stringResource(R.string.onboarding_emoji_key_title),
         subtitle = stringResource(R.string.onboarding_emoji_key_subtitle),
-        checked = settings.globeAsEmoji,
+        checked = settings.watch { it.globeAsEmoji },
         onCheckedChange = { scope.launch { repository.setGlobeAsEmoji(it) } },
     ) {
         MiniKeyboardPreview(
-            numberRow = settings.numberRow,
-            globeAsEmoji = settings.globeAsEmoji,
+            numberRow = settings.watch { it.numberRow },
+            globeAsEmoji = settings.watch { it.globeAsEmoji },
             highlight = MiniKeyHighlight.GLOBE,
         )
     }
     PreviewedSwitch(
         title = stringResource(R.string.onboarding_number_row_title),
         subtitle = stringResource(R.string.onboarding_number_row_subtitle),
-        checked = settings.numberRow,
+        checked = settings.watch { it.numberRow },
         onCheckedChange = { scope.launch { repository.setNumberRow(it) } },
     ) {
         MiniKeyboardPreview(
-            numberRow = settings.numberRow,
-            globeAsEmoji = settings.globeAsEmoji,
+            numberRow = settings.watch { it.numberRow },
+            globeAsEmoji = settings.watch { it.globeAsEmoji },
             highlight = MiniKeyHighlight.NUMBER_ROW,
         )
     }
@@ -1082,9 +1051,13 @@ private fun PreviewedSwitch(
  * switched on; every option lives in the tool's settings too.
  */
 @Composable
-internal fun ToolSetupPage(repository: SettingsRepository, settings: KeyboardSettings) {
+internal fun ToolSetupPage(repository: SettingsRepository, settings: LiveSettings) {
     val scope = rememberCoroutineScope()
-    if (ToolbarTool.CALENDAR in settings.enabledTools) {
+    // Which sections the page holds; each row reads its own value.
+    val calendarOn = settings.watch { ToolbarTool.CALENDAR in it.enabledTools }
+    val weatherOn = settings.watch { ToolbarTool.WEATHER in it.enabledTools }
+    val compassOn = settings.watch { ToolbarTool.COMPASS in it.enabledTools }
+    if (calendarOn) {
         OnboardingSectionTitle(stringResource(toolTitle(ToolbarTool.CALENDAR)))
         // The two rows below are additions, not replacements, and reading them
         // as a calendar *picker* is the obvious mistake. So the Gregorian
@@ -1113,23 +1086,23 @@ internal fun ToolSetupPage(repository: SettingsRepository, settings: KeyboardSet
         AltCalendarSetting(
             title = stringResource(R.string.onboarding_calendar_first_title),
             subtitle = stringResource(R.string.onboarding_calendar_first_subtitle),
-            selected = settings.calendarAltOne,
+            selected = settings.watch { it.calendarTool.altOne },
             icon = Icons.Outlined.EditCalendar,
             onChange = { scope.launch { repository.setCalendarAltOne(it) } },
         )
         AltCalendarSetting(
             title = stringResource(R.string.onboarding_calendar_second_title),
             subtitle = stringResource(R.string.onboarding_calendar_second_subtitle),
-            selected = settings.calendarAltTwo,
+            selected = settings.watch { it.calendarTool.altTwo },
             icon = Icons.Outlined.EventRepeat,
             onChange = { scope.launch { repository.setCalendarAltTwo(it) } },
         )
         WeekendSetting(
-            selected = settings.calendarWeekend,
+            selected = settings.watch { it.calendarTool.weekend },
             onChange = { scope.launch { repository.setCalendarWeekend(it) } },
         )
     }
-    if (ToolbarTool.WEATHER in settings.enabledTools) {
+    if (weatherOn) {
         OnboardingSectionTitle(stringResource(toolTitle(ToolbarTool.WEATHER)))
         // The tool is dead without a place, so the same search-or-coordinates
         // editor the settings screen uses is right here rather than a pointer
@@ -1143,13 +1116,13 @@ internal fun ToolSetupPage(repository: SettingsRepository, settings: KeyboardSet
             },
             trailingContent = {
                 Switch(
-                    checked = settings.weatherFahrenheit,
+                    checked = settings.watch { it.weather.fahrenheit },
                     onCheckedChange = { scope.launch { repository.setWeatherFahrenheit(it) } },
                 )
             },
         )
     }
-    if (ToolbarTool.COMPASS in settings.enabledTools) {
+    if (compassOn) {
         OnboardingSectionTitle(stringResource(toolTitle(ToolbarTool.COMPASS)))
         ListItem(
             leadingContent = { OnboardingRowIcon(Icons.Outlined.Mosque) },
@@ -1159,17 +1132,18 @@ internal fun ToolSetupPage(repository: SettingsRepository, settings: KeyboardSet
             },
             trailingContent = {
                 Switch(
-                    checked = settings.compassShowQibla,
+                    checked = settings.watch { it.sensorTools.compassQibla },
                     onCheckedChange = { scope.launch { repository.setCompassShowQibla(it) } },
                 )
             },
         )
         // Grows out of the switch that asked for it — a location editor
         // appearing in one frame reads as the page having jumped.
+        val reduceMotion = settings.watch { it.reduceMotion }
         AnimatedVisibility(
-            visible = settings.compassShowQibla,
-            enter = onboardingRevealEnter(settings.reduceMotion),
-            exit = onboardingRevealExit(settings.reduceMotion),
+            visible = settings.watch { it.sensorTools.compassQibla },
+            enter = onboardingRevealEnter(reduceMotion),
+            exit = onboardingRevealExit(reduceMotion),
         ) {
             Column {
                 Text(
@@ -1180,7 +1154,7 @@ internal fun ToolSetupPage(repository: SettingsRepository, settings: KeyboardSet
                 )
                 // Same place, so only offer the editor here when the weather
                 // section above isn't already showing one.
-                if (ToolbarTool.WEATHER !in settings.enabledTools) {
+                if (!weatherOn) {
                     WeatherLocationSetting(repository, settings)
                 }
             }
@@ -1235,15 +1209,16 @@ private fun ToolPresetButton(
 @Composable
 internal fun ToolsPage(
     repository: SettingsRepository,
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     seeded: Boolean,
     onSeeded: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val playServices = remember { PlayServices.available }
     // The set this persona would have started with, whatever page landed it.
-    val starter = remember(settings.onboarding, playServices) {
-        starterTools(settings.onboarding, playServices, ::isSupportedTool).orEmpty()
+    val persona = settings.watch { it.onboarding }
+    val starter = remember(persona, playServices) {
+        starterTools(persona, playServices, ::isSupportedTool).orEmpty()
     }
     // First visit swaps the enable-everything default for the persona's
     // starter set — but only over an untouched default, so a user who
@@ -1253,7 +1228,7 @@ internal fun ToolsPage(
     LaunchedEffect(Unit) {
         if (!seeded) {
             onSeeded()
-            if (settings.enabledTools.toSet() == ToolbarTool.entries.toSet()) {
+            if (settings.value.enabledTools.toSet() == EverythingTools.toSet()) {
                 repository.setEnabledTools(starter.ifEmpty { RecommendedTools })
             }
         }
@@ -1276,7 +1251,7 @@ internal fun ToolsPage(
             icon = Icons.Outlined.SelectAll,
             label = stringResource(R.string.onboarding_tools_everything_action),
             modifier = Modifier.weight(1f),
-        ) { scope.launch { repository.setEnabledTools(ToolbarTool.entries) } }
+        ) { scope.launch { repository.setEnabledTools(EverythingTools) } }
     }
     // Most-used-by-most-people first — same order the toolbox itself opens with.
     for (tool in DefaultToolOrder.filter(::isSupportedTool)) {
@@ -1292,7 +1267,7 @@ internal fun ToolsPage(
             supportingContent = { Text(stringResource(toolDescription(tool))) },
             trailingContent = {
                 Switch(
-                    checked = tool in settings.enabledTools,
+                    checked = settings.watch { tool in it.enabledTools },
                     onCheckedChange = { scope.launch { repository.setToolEnabled(tool, it) } },
                 )
             },

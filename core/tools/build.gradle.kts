@@ -2,25 +2,30 @@ plugins {
     alias(libs.plugins.android.library)
     id("wmkeyboard.detekt")
     alias(libs.plugins.kotlin.compose)
+    id("wmkeyboard.compose-metrics")
     alias(libs.plugins.kotlin.serialization)
+    // Applied at the root with their versions; see build.gradle.kts there.
+    id("org.jetbrains.kotlinx.kover")
+    id("com.autonomousapps.dependency-analysis")
+}
+
+// Coverage for the root's merged report (`./gradlew koverHtmlReportUnit`):
+// this module's debug unit tests.
+kover {
+    currentProject {
+        createVariant("unit") { add("debug") }
+    }
 }
 
 android {
     namespace = "com.wasimaster.wmkeyboard.tools"
     compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
+        version = release(37)
     }
     defaultConfig {
         minSdk = 24
     }
 
-    flavorDimensions += "capabilities"
-    productFlavors {
-        create("full") { dimension = "capabilities" }
-        create("lite") { dimension = "capabilities" }
-    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -39,6 +44,9 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":core:send"))
+    // Speech out: the speaker buttons read with a downloaded MMS voice first.
+    implementation(project(":core:voice"))
     api(project(":core:common"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
@@ -52,4 +60,7 @@ dependencies {
     implementation(libs.zxing.core)
 
     testImplementation(libs.junit)
+    // Offline GIF packs are SQLite databases, and opening one is an Android
+    // API call, so OfflineGifPacksTest runs under Robolectric.
+    testImplementation(libs.robolectric)
 }

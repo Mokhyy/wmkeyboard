@@ -38,6 +38,9 @@
     <string name="common_back">Back</string>
     <string name="common_next">Next</string>
     <string name="common_skip">Skip</string>
+    <!-- Under the reason a greyed-out control gives on a long press: opens the
+         settings screen holding the switch that unblocks it. -->
+    <string name="common_disabled_open_setting">Open the setting</string>
     <string name="common_continue">Continue</string>
     <string name="common_search">Search</string>
     <string name="common_clear">Clear</string>
@@ -45,6 +48,7 @@
     <string name="common_enable">Turn on</string>
     <string name="common_disable">Turn off</string>
     <string name="common_download">Download</string>
+    <string name="common_more">More</string>
     <string name="common_install">Install</string>
     <string name="common_uninstall">Uninstall</string>
     <string name="common_update">Update</string>
@@ -56,6 +60,11 @@
     <!-- Content descriptions of the two buttons of a number stepper. %1$s is the setting's own name. -->
     <string name="common_decrease_setting_desc">Decrease %1$s</string>
     <string name="common_increase_setting_desc">Increase %1$s</string>
+    <!-- Click label of a slider's value, which opens a field to type the value in. %1$s is the setting's own name. -->
+    <string name="common_type_setting_value_desc">Type a value for %1$s</string>
+    <!-- Under the field that takes a slider's value. %1$s and %2$s are the slider's two ends as it shows them, for example "100 ms". -->
+    <string name="common_value_range">From %1$s to %2$s</string>
+    <string name="common_value_range_error">Type a number from %1$s to %2$s</string>
 
     <!-- ================================================================== -->
     <!-- States and values.                                                 -->
@@ -82,6 +91,9 @@
 
     <string name="common_error_generic">Something did not work. Try again.</string>
     <string name="common_error_network">No connection. Check your network and try again.</string>
+    <string name="common_error_no_internet_permission">This build of the keyboard cannot connect to the internet.</string>
     <string name="common_error_timeout">The request took too long. Try again.</string>
+    <!-- A download that stopped because data saving holds downloads on the connection it moved to. What arrived is kept. -->
+    <string name="common_error_download_held">Paused: data saving holds downloads on this connection. It continues where it stopped.</string>
 
 </resources>

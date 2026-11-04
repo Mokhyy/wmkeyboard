@@ -1,5 +1,8 @@
 package com.wasimaster.wmkeyboard.core.tools
 
+import com.wasimaster.wmkeyboard.core.endpoints.ServiceEndpoint
+import com.wasimaster.wmkeyboard.core.endpoints.ServiceEndpoints
+import com.wasimaster.wmkeyboard.core.netlog.NetSource
 import com.wasimaster.wmkeyboard.core.settings.GifContentFilter
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -31,11 +34,12 @@ object KlipyClient {
         val type = if (stickers) "stickers" else "gifs"
         val endpoint = if (query.isBlank()) "trending" else "search"
         val url = buildString {
-            append("https://api.klipy.com/api/v1/${ToolHttp.encode(apiKey)}/$type/$endpoint")
+            append("${ServiceEndpoints.base(ServiceEndpoint.KLIPY)}/api/v1/${ToolHttp.encode(apiKey)}/$type/$endpoint")
             append("?page=1&per_page=$limit&rating=${rating(filter)}")
             if (query.isNotBlank()) append("&q=${ToolHttp.encode(query.trim())}")
         }
-        return parse(ToolHttp.get(url))
+        // The key is a path segment on KLIPY, so the route names it rather than showing it.
+        return parse(ToolHttp.get(url, source = gifSource(stickers), route = "/api/v1/{key}/$type/$endpoint"))
     }
 
     /**
@@ -51,10 +55,12 @@ object KlipyClient {
     fun categories(apiKey: String, stickers: Boolean, limit: Int = MediaCategories.MAX_CATEGORIES):
         List<MediaCategory> {
         val type = if (stickers) "stickers" else "gifs"
-        val url = "https://api.klipy.com/api/v1/${ToolHttp.encode(apiKey)}/$type/categories" +
+        val url = "${ServiceEndpoints.base(ServiceEndpoint.KLIPY)}/api/v1/${ToolHttp.encode(apiKey)}/$type/categories" +
             "?page=1&per_page=$limit"
-        return parseCategories(ToolHttp.get(url))
+        return parseCategories(ToolHttp.get(url, source = gifSource(stickers), route = "/api/v1/{key}/$type/categories"))
     }
+
+    private fun gifSource(stickers: Boolean) = if (stickers) NetSource.STICKER else NetSource.GIF
 
     /**
      * Same `data` unwrap as [parse]. Each entry is either a bare string or an

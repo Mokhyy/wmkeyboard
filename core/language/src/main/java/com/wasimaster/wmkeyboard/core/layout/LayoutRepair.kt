@@ -99,6 +99,12 @@ data class LayoutFinding(
  */
 data class RepairedLayout(val spec: LayoutSpec, val repairNotes: List<LayoutMessage>)
 
+/**
+ * One layer after the repair pass. [spec] is null when repair had to drop the
+ * layer, which is the same answer the layout-wide pass gives an empty layer.
+ */
+data class RepairedLayer(val spec: LayerSpec?, val repairNotes: List<LayoutMessage>)
+
 // Public rather than private because they are the shape contract every grid has
 // to satisfy, not an implementation detail of the repair pass: the tablet
 // expansion mints keys and must stay inside them, and its corpus test asserts
@@ -156,7 +162,7 @@ fun validateLayout(spec: LayoutSpec): List<LayoutFinding> {
         // keyboard for typing prose: a macro pad has no business being told it
         // needs a space bar. The one thing worth saying is how to get out —
         // and only as a warning (issue #60 asked for exactly that wording),
-        // because the Custom layout tool and a fresh field both leave it too.
+        // because the Secondary layout tool and a fresh field both leave it too.
         val keys = letters.rows.flatten()
         if (keys.none { it.leavesSecondaryLayout() }) {
             findings += LayoutFinding(
@@ -397,10 +403,11 @@ fun validateLayout(spec: LayoutSpec): List<LayoutFinding> {
  * this one definition so the warning and the deletion can never disagree.
  *
  * Emptiness, not blankness — a key labelled with a space types a space, which is
- * a key doing its job.
+ * a key doing its job. And not a key with flick arms: one with no centre is
+ * a swipe-only key ([isSwipeOnly], #410), whose arms are what it types.
  */
 internal fun Key.typesNothing(): Boolean =
-    action == KeyAction.Text && label.isEmpty() && output.isNullOrEmpty()
+    action == KeyAction.Text && label.isEmpty() && output.isNullOrEmpty() && !hasFlicks()
 
 /** A popup entry that does something when tapped; see [Key.actionAlternates]. */
 internal fun KeyAlternate.isUsable(): Boolean = when (action) {
@@ -425,55 +432,99 @@ fun LayoutSpec.canBeEnabled(): Boolean =
  * and now I cannot type well enough to uninstall it" and "I imported a layout,
  * it told me it added a backspace key, fine."
  */
+/**
+ * Fixes what can be fixed about one layer's grid, or returns null when nothing
+ * usable is left of it.
+ *
+ * [key] is a [LayoutLayer.key] or a [PanelKind.layerKey], and it decides which
+ * rules apply as well as naming the layer in every note.
+ */
+private fun repairOneLayer(
+    key: String,
+    layerSpec: LayerSpec,
+    repairs: MutableList<LayoutMessage>,
+): LayerSpec? {
+    // A panel grid goes through the panel repair: the typing rules below would
+    // drop its component cells as keys that type nothing. An empty one is
+    // dropped rather than reset to the shipped panel, so the layout inherits
+    // the shared panel layout instead.
+    panelKindForLayerKey(key)?.let { kind ->
+        if (layerSpec.rows.all { it.isEmpty() }) {
+            repairs += LayoutMessage(R.string.core_lang_repair_layer_replaced, args = listOf(key))
+            return null
+        }
+        val fixed = PanelLayoutSpec(kind, layerSpec).repair()
+        repairs += fixed.repairNotes
+        return fixed.spec.grid
+    }
+
+    val keypad = LayoutLayer.entries.any { it.key == key && it != LayoutLayer.LETTERS && !it.isCycled }
+    var rows = layerSpec.rows
+        .map { row ->
+            row.mapNotNull { it.repairKey(key, repairs) }
+                .map { if (keypad) it.withPadSpaceLegend() else it }
+        }
+        .filter { it.isNotEmpty() }
+
+    if (rows.size > MaxRowsPerLayer) {
+        repairs += LayoutMessage(
+            pluralsRes = R.plurals.core_lang_repair_rows_trimmed,
+            quantity = rows.size,
+            args = listOf(key, rows.size, MaxRowsPerLayer),
+        )
+        rows = rows.take(MaxRowsPerLayer)
+    }
+    rows = rows.map { row -> row.repairRow(key, repairs) }
+
+    // An empty layer is dropped rather than kept: a layout inherits the shipped
+    // grid for anything it does not define, so dropping it restores a working
+    // layer instead of leaving a blank one.
+    if (rows.isEmpty()) {
+        repairs += LayoutMessage(R.string.core_lang_repair_layer_replaced, args = listOf(key))
+        return null
+    }
+    // Per-row heights are positional, so they are only still valid if repair
+    // left the row count untouched (it never reorders, only drops/adds). Drop
+    // them otherwise rather than let them land on the wrong rows.
+    val heights = layerSpec.rowHeights?.takeIf { rows.size == layerSpec.rows.size }
+    return layerSpec.copy(rows = rows, rowHeights = heights)
+}
+
+/**
+ * A keypad's space key with the blank label every shipped pad gave it before
+ * 0.5.13, which drew nothing at all (#459), wearing [PAD_SPACE_LABEL] instead.
+ * A layout edited or duplicated on an older build stored the blank one, and
+ * would otherwise keep it however the shipped pads change. Silent, like the
+ * relabel it is: there is nothing for the user to act on.
+ */
+private fun Key.withPadSpaceLegend(): Key =
+    if (action == KeyAction.Space && label.isEmpty()) copy(label = PAD_SPACE_LABEL) else this
+
+/**
+ * One layer through the repair pass, for a grid that arrives on its own: the
+ * layer the editor pastes off the clipboard (issue #105).
+ *
+ * The same rules a layer inside a layout gets, and deliberately no more. The
+ * three whole-layout guarantees — a delete, space and enter key on the letters,
+ * a way back off a cycled layer — are not applied here: a pasted layer lands in
+ * an editor, where `validateLayout` reports what is missing under Problems and
+ * blocks turning the layout on, and where the author is one key away from
+ * fixing it themselves. Minting keys into a grid somebody just pasted would
+ * undo the paste in front of them.
+ *
+ * A null [RepairedLayer.spec] means nothing usable was left, and the caller
+ * keeps what it had.
+ */
+fun LayerSpec.repairAsLayer(layerKey: String): RepairedLayer {
+    val repairs = mutableListOf<LayoutMessage>()
+    return RepairedLayer(repairOneLayer(layerKey, this, repairs), repairs)
+}
+
 fun LayoutSpec.repair(): RepairedLayout {
     val repairs = mutableListOf<LayoutMessage>()
 
     val layers = layers.mapNotNull { (key, layerSpec) ->
-        val layer = LayoutLayer.entries.firstOrNull { it.key == key }
-        val label = layer?.key ?: key
-
-        // A panel grid of the layout's own goes through the panel repair: the
-        // typing rules below would drop its component cells as keys that type
-        // nothing. An empty one is dropped rather than reset to the shipped
-        // panel, so the layout inherits the shared panel layout instead.
-        panelKindForLayerKey(key)?.let { kind ->
-            if (layerSpec.rows.all { it.isEmpty() }) {
-                repairs += LayoutMessage(R.string.core_lang_repair_layer_replaced, args = listOf(label))
-                return@mapNotNull null
-            }
-            val fixed = PanelLayoutSpec(kind, layerSpec).repair()
-            repairs += fixed.repairNotes
-            return@mapNotNull key to fixed.spec.grid
-        }
-
-        var rows = layerSpec.rows.map { row -> row.mapNotNull { it.repairKey(label, repairs) } }
-            .filter { it.isNotEmpty() }
-
-        if (rows.size > MaxRowsPerLayer) {
-            repairs += LayoutMessage(
-                pluralsRes = R.plurals.core_lang_repair_rows_trimmed,
-                quantity = rows.size,
-                args = listOf(label, rows.size, MaxRowsPerLayer),
-            )
-            rows = rows.take(MaxRowsPerLayer)
-        }
-        rows = rows.map { row -> row.repairRow(label, repairs) }
-
-        // An empty layer is dropped rather than kept: a layout inherits the
-        // shipped grid for anything it does not define, so dropping it restores
-        // a working layer instead of leaving a blank one.
-        if (rows.isEmpty()) {
-            repairs += LayoutMessage(
-                R.string.core_lang_repair_layer_replaced,
-                args = listOf(label),
-            )
-            return@mapNotNull null
-        }
-        // Per-row heights are positional, so they are only still valid if repair
-        // left the row count untouched (it never reorders, only drops/adds). Drop
-        // them otherwise rather than let them land on the wrong rows.
-        val heights = layerSpec.rowHeights?.takeIf { rows.size == layerSpec.rows.size }
-        key to layerSpec.copy(rows = rows, rowHeights = heights)
+        repairOneLayer(key, layerSpec, repairs)?.let { key to it }
     }.toMap().toMutableMap()
 
     val lettersKey = LayoutLayer.LETTERS.key
@@ -522,11 +573,14 @@ fun LayoutSpec.repair(): RepairedLayout {
 /**
  * Whether pressing this key can take the user off a secondary layout: back to
  * the letters, to the symbol page, or to another layout. A tool key counts too
- * — the Custom layout tool toggles the grid off, and a panel tool covers it.
+ * — the Secondary layout tool toggles the grid off, and a panel tool covers it.
  */
 private fun Key.leavesSecondaryLayout(): Boolean = when (action) {
     KeyAction.Letters, KeyAction.Symbols, KeyAction.LanguageSwitch -> true
-    is KeyAction.Layout, is KeyAction.Tool -> true
+    is KeyAction.Layout, is KeyAction.Tool, KeyAction.Toolbox -> true
+    // A page key leaves for one of the layout's own grids, which is off the
+    // secondary one either way.
+    is KeyAction.LayerSwitch -> true
     else -> false
 }
 
@@ -608,6 +662,31 @@ internal fun Key.repairKey(
     if (fixed.longPress.any { it.isEmpty() }) {
         fixed = fixed.copy(longPress = fixed.longPress.filter { it.isNotEmpty() })
     }
+    // A key that stands for several letters has to type the first of them: the
+    // decode reads the key sets alongside a composing buffer of one character
+    // per keystroke, and an anchor from outside the set makes the two disagree
+    // about what was typed. Loud, unlike the two quiet fixes below it, because
+    // the symptom otherwise is a board that types words nobody pressed the keys
+    // for, with nothing on screen to connect that to the file (discussion #103).
+    fixed.letters?.let { letters ->
+        val anchored = fixed.withLetters(letters)
+        if (anchored != fixed) {
+            repairs += if (anchored.letters == null) {
+                // Nothing in the field was a letter, so there is no set to
+                // anchor and the key goes back to being an ordinary one.
+                LayoutMessage(
+                    R.string.core_lang_repair_key_letters_dropped,
+                    args = listOf(label, letters),
+                )
+            } else {
+                LayoutMessage(
+                    R.string.core_lang_repair_key_letters_anchored,
+                    args = listOf(label, anchored.letters, anchored.output.orEmpty()),
+                )
+            }
+            fixed = anchored
+        }
+    }
     // Quietly, unlike the span above: a column count outside the range is not a
     // key that cannot draw, it is a popup that would lay itself out oddly. A
     // count below the range rounds up into it rather than falling back to the
@@ -629,6 +708,33 @@ internal fun Key.repairKey(
     // so a blank one commits nothing.
     if (fixed.actionAlternates.any { !it.isUsable() }) {
         fixed = fixed.copy(actionAlternates = fixed.actionAlternates.filter { it.isUsable() })
+    }
+    // The hold action is a popup entry with no popup, and a dead one is dead
+    // the same way. Kept on a key that cannot run it, as the alternates are
+    // kept under a repeat: the key sheet says why it does nothing, and the
+    // action comes back when whatever took the hold goes.
+    if (fixed.holdAction?.isUsable() == false) {
+        fixed = fixed.copy(holdAction = null)
+    }
+    // Quietly: a negative position is not one the editor can write, and the
+    // default (after the characters) is the only reading that changes nothing.
+    if ((fixed.actionAlternatesAt ?: 0) < 0) {
+        fixed = fixed.copy(actionAlternatesAt = null)
+    }
+    // A flick arm is a popup entry by another gesture (issue #549), and a dead
+    // one is dead in the same way. Typing text is what [Key.flick] is for, so
+    // an action arm that only types goes too rather than shadowing it.
+    if (fixed.flickActions.values.any { !it.isUsable() || it.action == KeyAction.Text }) {
+        fixed = fixed.copy(
+            flickActions = fixed.flickActions.filterValues { it.isUsable() && it.action != KeyAction.Text },
+        )
+    }
+    // Quietly again: a repeat on a key that cannot use one is not a broken
+    // layout, it is a flag nothing reads — the hold on a ?123 key would
+    // otherwise be spent flipping layers rather than opening the alternates the
+    // same key may well carry (issue #231).
+    if (fixed.repeatOnHold && !fixed.canRepeatOnHold()) {
+        fixed = fixed.copy(repeatOnHold = false)
     }
     return fixed
 }

@@ -44,6 +44,17 @@ interface TrieWalker {
      * keyboard themselves are the last ones to throw away.
      */
     fun frequencyAtRank(rank: Int): Int = 0
+
+    /**
+     * The inverse of [frequencyAtRank]: the 1-based place a word of
+     * [frequency] holds in this walker's most-frequent-first order, or 0
+     * when the walker does not rank a vocabulary (see above) or [frequency]
+     * is not positive. Read by the word card (#99), never by ranking.
+     */
+    fun rankOfFrequency(frequency: Int): Int = 0
+
+    /** How many words [rankOfFrequency] ranks among; 0 when it ranks none. */
+    fun vocabularySize(): Int = 0
 }
 
 /** Caller-owned growable parallel buffers for [TrieWalker.childrenInto]. */
@@ -59,5 +70,12 @@ class ChildBuffer(initial: Int = 32) {
         while (capacity < n) capacity *= 2
         labels = labels.copyOf(capacity)
         nodes = nodes.copyOf(capacity)
+    }
+
+    fun find(target: Char, count: Int): Int {
+        for (i in 0 until count) {
+            if (labels[i] == target) return nodes[i]
+        }
+        return -1
     }
 }

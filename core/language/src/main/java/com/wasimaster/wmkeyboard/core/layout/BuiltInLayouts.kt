@@ -7,7 +7,7 @@ import com.wasimaster.wmkeyboard.core.script.ComposerType
  *
  * Their ids stay stable so stored references survive: editing one stores a
  * custom layout under the *same* id that shadows the shipped version (see
- * [resolveLayouts]), so a 🌐 cycle pinned to "builtin_probhat" keeps working
+ * [findLayout]), so a 🌐 cycle pinned to "builtin_probhat" keeps working
  * and deleting the edit restores the original grid.
  *
  * Kotlin rather than JSON in assets, unlike the dictionaries: the letter grid
@@ -30,8 +30,12 @@ object BuiltInLayouts {
     const val WORKMAN_ID = "builtin_workman"
     const val HALMAK_ID = "builtin_halmak"
     const val AVRO_ID = "builtin_avro"
+    const val BORNO_ID = "builtin_borno"
+    const val KHIPRO_ID = "builtin_khipro"
+    const val KHIPRO_DARK_ID = "builtin_khipro_dark"
     const val PROBHAT_ID = "builtin_probhat"
     const val JATIYA_ID = "builtin_jatiya"
+    const val BSTI_ID = "builtin_bsti"
     const val FRENCH_ID = "builtin_french"
     const val GERMAN_ID = "builtin_qwertz"
     const val SPANISH_ID = "builtin_spanish"
@@ -41,6 +45,23 @@ object BuiltInLayouts {
     const val GREEK_ID = "builtin_greek"
     const val HEBREW_ID = "builtin_hebrew"
     const val HINDI_ID = "builtin_hindi"
+    const val HINDI_PHONETIC_ID = "builtin_hindi_phonetic"
+    const val URDU_PHONETIC_ID = "builtin_urdu_phonetic"
+    const val MARATHI_PHONETIC_ID = "builtin_marathi_phonetic"
+    const val GUJARATI_PHONETIC_ID = "builtin_gujarati_phonetic"
+    const val PUNJABI_PHONETIC_ID = "builtin_punjabi_phonetic"
+    const val ODIA_PHONETIC_ID = "builtin_odia_phonetic"
+    const val ASSAMESE_PHONETIC_ID = "builtin_assamese_phonetic"
+    const val TAMIL_PHONETIC_ID = "builtin_tamil_phonetic"
+    const val TELUGU_PHONETIC_ID = "builtin_telugu_phonetic"
+    const val KANNADA_PHONETIC_ID = "builtin_kannada_phonetic"
+    const val MALAYALAM_PHONETIC_ID = "builtin_malayalam_phonetic"
+    const val PERSIAN_PHONETIC_ID = "builtin_persian_phonetic"
+    const val ARABIC_PHONETIC_ID = "builtin_arabic_phonetic"
+    const val GREEK_PHONETIC_ID = "builtin_greek_phonetic"
+    const val TIBETAN_WYLIE_ID = "builtin_tibetan_wylie"
+    const val T9_ID = "builtin_t9"
+    const val COMPACT_ID = "builtin_compact"
 
     const val DEFAULT_ID = QWERTY_ID
 
@@ -70,8 +91,8 @@ object BuiltInLayouts {
      * AZERTY: the French/Belgian Latin layout. Letter positions follow the
      * standard AZERTY keymap (A/Q and Z/W swapped, M on the home row); the
      * apostrophe gets its own key where QWERTY's M sits. Long-press keeps the
-     * Samsung-style symbol-first alternates, with French accents (é è ç à …) on
-     * their base vowels.
+     * Samsung-style symbol-first alternates, with French accents (é è à …) on
+     * their base vowels, except that ç leads its c outright.
      */
     val AZERTY = LayoutSpec(
         id = AZERTY_ID,
@@ -141,6 +162,66 @@ object BuiltInLayouts {
     )
 
     /**
+     * Borno Phonetic wears QWERTY too, with the signs its map puts on long
+     * presses in front of each key's own: ৎ on t, ঃ on l, ঁ on a, the hasant on g.
+     */
+    val BORNO = LayoutSpec(
+        id = BORNO_ID,
+        name = "Borno phonetic",
+        langId = "bn",
+        composer = ComposerType.BORNO_PHONETIC,
+        layers = mapOf(
+            LayoutLayer.LETTERS.key to LayerSpec(
+                qwertyRows.map { row ->
+                    row.map { key ->
+                        val sign = bornoLongPress[key.label]
+                        if (sign == null) key else key.copy(longPress = listOf(sign) + key.longPress)
+                    }
+                },
+            ),
+        ),
+    )
+
+    /**
+     * Khipro (ক্ষিপ্র), Bengali composed from lowercase keys (issue #400).
+     * Named Khipro Classic, as the Khipro team has called it since Khipro
+     * Dark came out (#892).
+     *
+     * The grid follows the Khipro team's own guideline for touchscreens, which
+     * HeliBoard and Borno also follow: Khipro never needs shift, so the shift
+     * key becomes `/`, the slicer, which Khipro types constantly (ৎ, ঁ, and
+     * breaking a conjunct back apart). `;`, the separator, gets a key beside
+     * the spacebar. The full stop key stays, and is the danda as on every
+     * Bengali grid.
+     *
+     * No tablet expansion: that grid is built around a shift key this one does
+     * not have.
+     */
+    val KHIPRO = LayoutSpec(
+        id = KHIPRO_ID,
+        name = "Khipro Classic",
+        langId = "bn",
+        composer = ComposerType.KHIPRO,
+        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(khiproRows)),
+        tabletExpand = false,
+    )
+
+    /**
+     * Khipro Dark (issue #631): the same keys as [KHIPRO], read by Khipro's
+     * newer edition, which leaves consonants apart until `/` joins them
+     * (`lagbe` is লাগবে, `ntrz///` is ন্ত্র্য). Its own layout rather than a
+     * switch on Khipro's, so the globe key flips between the two.
+     */
+    val KHIPRO_DARK = LayoutSpec(
+        id = KHIPRO_DARK_ID,
+        name = "Khipro Dark",
+        langId = "bn",
+        composer = ComposerType.KHIPRO_DARK,
+        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(khiproRows)),
+        tabletExpand = false,
+    )
+
+    /**
      * Probhat: the fixed Bengali layout popular on Linux, following the standard
      * keymap (as shipped by Avro/OpenBangla). Letter keys q–m match the desktop
      * layout exactly; characters that live on desktop punctuation keys are
@@ -153,7 +234,7 @@ object BuiltInLayouts {
         id = PROBHAT_ID,
         name = "প্রভাত (Probhat)",
         langId = "bn",
-        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(probhatRows)),
+        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(DigitHints.fill(probhatRows))),
     )
 
     /**
@@ -167,15 +248,43 @@ object BuiltInLayouts {
         id = JATIYA_ID,
         name = "জাতীয় (National)",
         langId = "bn",
-        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(jatiyaRows)),
+        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(DigitHints.fill(jatiyaRows))),
     )
 
-    /** French shares AZERTY's key grid; the modes differ in language, not keys. */
+    /**
+     * BSTI: the revised national standard, BDS 1738:2018, in the touch
+     * arrangement of Ekushey's Bangla BSTI Mobile (CC BY 4.0). Close to
+     * [JATIYA] but its own grid: া and ব trade places on the home row, shift
+     * there gives the reph (র্), অ and ঁ, and the bottom row opens with র-ফলা
+     * (্য on shift). Typing is in logical Unicode order, consonant then kar,
+     * as both Ekushey layouts are.
+     *
+     * The standard has one layer of holds where a phone key has one popup, so
+     * each key's popup carries the base layer's hold first and then the shift
+     * layer's: the independent vowels on their kars, and the conjuncts
+     * (ঙ্ক, ক্ষ, জ্ঞ …) the mobile layout puts on its shift keys. The desktop
+     * hasant dead key (্ then a kar gives the vowel) is not copied: those
+     * vowels are on the holds, and a hasant here stays a hasant.
+     */
+    val BSTI = LayoutSpec(
+        id = BSTI_ID,
+        name = "বিএসটিআই (BSTI)",
+        langId = "bn",
+        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(DigitHints.fill(bstiRows))),
+    )
+
+    /**
+     * French shares AZERTY's key grid; the modes differ in language and in the
+     * currency the symbols page leads with.
+     */
     val FRENCH = LayoutSpec(
         id = FRENCH_ID,
         name = "AZERTY (French)",
         langId = "fr",
-        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(azertyRows)),
+        layers = mapOf(
+            LayoutLayer.LETTERS.key to LayerSpec(azertyRows),
+            LayoutLayer.SYMBOLS.key to LayerSpec(frenchSymbolRows),
+        ),
     )
 
     /**
@@ -216,7 +325,7 @@ object BuiltInLayouts {
         name = "한국어 (2-beolsik)",
         langId = "ko",
         composer = ComposerType.HANGUL,
-        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(koreanRows)),
+        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(DigitHints.fill(koreanRows))),
     )
 
     /** Russian ЙЦУКЕН: the standard Cyrillic phone layout; shift uppercases. */
@@ -236,7 +345,7 @@ object BuiltInLayouts {
         id = ARABIC_ID,
         name = "العربية",
         langId = "ar",
-        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(arabicRows)),
+        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(DigitHints.fill(arabicRows))),
     )
 
     /** Greek: the national layout; shift uppercases, tonos vowels on long-press. */
@@ -244,7 +353,7 @@ object BuiltInLayouts {
         id = GREEK_ID,
         name = "Ελληνικά",
         langId = "el",
-        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(greekRows)),
+        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(DigitHints.fill(greekRows))),
     )
 
     /**
@@ -256,7 +365,7 @@ object BuiltInLayouts {
         id = HEBREW_ID,
         name = "עברית",
         langId = "he",
-        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(hebrewRows)),
+        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(DigitHints.fill(hebrewRows))),
     )
 
     /**
@@ -268,18 +377,145 @@ object BuiltInLayouts {
         id = HINDI_ID,
         name = "हिन्दी",
         langId = "hi",
-        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(hindiRows)),
+        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(DigitHints.fill(hindiRows))),
+    )
+
+    /**
+     * Hindi typed the way it is written in a chat — "kaise ho" → कैसे हो — on
+     * the QWERTY grid unchanged, as Avro is for Bengali. The composer override
+     * is what makes it phonetic: the script's own default is the cluster
+     * shaping [HINDI] uses.
+     */
+    val HINDI_PHONETIC = LayoutSpec(
+        id = HINDI_PHONETIC_ID,
+        name = "Hindi phonetic",
+        langId = "hi",
+        composer = ComposerType.TRANSLITERATE,
+        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(qwertyRows)),
+    )
+
+    /**
+     * Urdu typed the way it is written in a chat — "aap kaise hain" → آپ کیسے
+     * ہیں — on the QWERTY grid unchanged, as Avro is for Bengali and
+     * [HINDI_PHONETIC] for Hindi (issue #496). The composer override is what
+     * makes it phonetic; the Arabic script's own default types its letters
+     * directly, which is what Urdu's other layouts do.
+     *
+     * The keys stay left-to-right while the text they write runs right to left,
+     * which is how every roman-key method for an RTL script works.
+     */
+    val URDU_PHONETIC = LayoutSpec(
+        id = URDU_PHONETIC_ID,
+        name = "Urdu phonetic",
+        langId = "ur",
+        composer = ComposerType.TRANSLITERATE,
+        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(qwertyRows)),
+    )
+
+    /**
+     * The rest of the phonetic layouts: roman letters on the QWERTY grid
+     * unchanged, the language's own script written, as [URDU_PHONETIC] and
+     * [HINDI_PHONETIC] do. The composer override is what makes each phonetic;
+     * which rules it reads is the layout's language (`PhoneticComposers`), since
+     * several of these share a script with another language's phonetic layout —
+     * Marathi with Hindi, Assamese with Bangla, Persian and Arabic with Urdu.
+     */
+    private fun phonetic(id: String, name: String, langId: String) = LayoutSpec(
+        id = id,
+        name = name,
+        langId = langId,
+        composer = ComposerType.TRANSLITERATE,
+        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(qwertyRows)),
+    )
+
+    val MARATHI_PHONETIC = phonetic(MARATHI_PHONETIC_ID, "Marathi phonetic", "mr")
+    val GUJARATI_PHONETIC = phonetic(GUJARATI_PHONETIC_ID, "Gujarati phonetic", "gu")
+    val PUNJABI_PHONETIC = phonetic(PUNJABI_PHONETIC_ID, "Punjabi phonetic", "pa")
+    val ODIA_PHONETIC = phonetic(ODIA_PHONETIC_ID, "Odia phonetic", "or")
+    val ASSAMESE_PHONETIC = phonetic(ASSAMESE_PHONETIC_ID, "Assamese phonetic", "as")
+    val TAMIL_PHONETIC = phonetic(TAMIL_PHONETIC_ID, "Tamil phonetic", "ta")
+    val TELUGU_PHONETIC = phonetic(TELUGU_PHONETIC_ID, "Telugu phonetic", "te")
+    val KANNADA_PHONETIC = phonetic(KANNADA_PHONETIC_ID, "Kannada phonetic", "kn")
+    val MALAYALAM_PHONETIC = phonetic(MALAYALAM_PHONETIC_ID, "Malayalam phonetic", "ml")
+    val PERSIAN_PHONETIC = phonetic(PERSIAN_PHONETIC_ID, "Persian phonetic", "fa")
+    val ARABIC_PHONETIC = phonetic(ARABIC_PHONETIC_ID, "Arabic phonetic", "ar")
+    val GREEK_PHONETIC = phonetic(GREEK_PHONETIC_ID, "Greeklish", "el")
+    val TIBETAN_WYLIE = phonetic(TIBETAN_WYLIE_ID, "Wylie", "bo")
+
+    /**
+     * T9: the phone keypad, three or four letters to a key, decoded by the
+     * language model rather than by multi-tap (discussion #103).
+     *
+     * The reason to want it is key size — eight letter keys across a board that
+     * usually carries twenty-six — and the reason it has not been possible on
+     * an AOSP-derived keyboard is that those decoders are 1:1: one keystroke,
+     * one letter. Ours is not, since [Key.letters]; what a tap commits is the
+     * key's anchor letter and what the word means is decided at the space.
+     *
+     * The grid is the keypad as phones drew it, digit hints and all: `1` is the
+     * punctuation key it always was, `2`–`9` carry the alphabet in the ITU
+     * E.161 grouping every phone since 1994 has used, and each key's digit is
+     * its first long-press alternate — so the corner hint reads like a keypad
+     * and holding a key types the digit. The letters follow it in the popup,
+     * which is how a name, a password or any word the dictionary has never seen
+     * gets spelled out one letter at a time: a letter picked from the popup is
+     * committed as itself and decodes as itself.
+     *
+     * Delete, shift and enter take a fourth column rather than a bottom row of
+     * their own, which is what keeps the letter keys at a quarter of the width
+     * of the board and the whole grid at four rows.
+     *
+     * Symbols are the shipped ten-column page, not a keypad-shaped one of its
+     * own. Deliberately: `?123` is where a user goes for a character that has
+     * to be exactly right, and that page being the same page on every layout is
+     * worth more than the grid keeping its width across a layer change.
+     */
+    val T9 = LayoutSpec(
+        id = T9_ID,
+        name = "T9",
+        langId = "en",
+        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(t9Rows)),
+        // Nothing about a four-column keypad wants Tab, caps lock and a
+        // mirrored shift bolted around it on a tablet.
+        tabletExpand = false,
+    )
+
+    /**
+     * Compact QWERTY: the same letters in the same order, two to a key, five
+     * keys to a row (discussion #103). Smart Keyboard Pro shipped this and
+     * little else has.
+     *
+     * QWERTY's own row breaks are kept — `qwertyuiop` / `asdfghjkl` / `zxcvbnm`
+     * — so a finger that knows where a letter lives still finds it; only the
+     * pairing is new. `l` and `m` end their rows alone, because nine and seven
+     * are odd numbers.
+     *
+     * Shift and delete are half-width, and on this grid that is not cramped: a
+     * column here is two QWERTY columns, so half of one is exactly a normal
+     * key. The bottom row is QWERTY's, every width halved, which puts the
+     * spacebar, enter and `?123` at the same fraction of the board they occupy
+     * on every other layout.
+     */
+    val COMPACT = LayoutSpec(
+        id = COMPACT_ID,
+        name = "Compact QWERTY",
+        langId = "en",
+        layers = mapOf(LayoutLayer.LETTERS.key to LayerSpec(compactRows)),
+        tabletExpand = false,
     )
 
     /**
      * Every compiled-in layout, in shipped order — even where two share a grid
      * (AZERTY and French are the same keys under different languages). This is
      * the boot-critical set drawn on the first frame; the JSON [AssetLayouts]
-     * add the language tail at runtime, and both feed `resolveLayouts`.
+     * add the language tail at runtime, and both feed `findLayout`.
      */
     val all: List<LayoutSpec> = listOf(
-        QWERTY, AZERTY, DVORAK, COLEMAK, WORKMAN, HALMAK, AVRO, PROBHAT, JATIYA, FRENCH,
-        GERMAN, SPANISH, KOREAN, RUSSIAN, ARABIC, GREEK, HEBREW, HINDI,
+        QWERTY, AZERTY, DVORAK, COLEMAK, WORKMAN, HALMAK, AVRO, BORNO, KHIPRO, KHIPRO_DARK, PROBHAT, JATIYA, BSTI,
+        FRENCH, GERMAN, SPANISH, KOREAN, RUSSIAN, ARABIC, GREEK, HEBREW, HINDI, HINDI_PHONETIC,
+        URDU_PHONETIC, MARATHI_PHONETIC, GUJARATI_PHONETIC, PUNJABI_PHONETIC, ODIA_PHONETIC,
+        ASSAMESE_PHONETIC, TAMIL_PHONETIC, TELUGU_PHONETIC, KANNADA_PHONETIC, MALAYALAM_PHONETIC,
+        PERSIAN_PHONETIC, ARABIC_PHONETIC, GREEK_PHONETIC, TIBETAN_WYLIE, T9, COMPACT,
     )
 
     fun byId(id: String): LayoutSpec? = all.firstOrNull { it.id == id }
@@ -320,6 +556,44 @@ object BuiltInLayouts {
     )
 
     /**
+     * Takes the place of the `?123` layer's own digit row when the number row
+     * is on and already supplies those digits one row above. Carries the
+     * symbols that layer has nowhere else to put. A layout overrides it with
+     * [LayerSpec.fillRow].
+     */
+    val SYMBOLS_FILL_ROW: List<Key> = listOf("=", "\\", "<", ">", "[", "]", "{", "}", "|", "~")
+        .map { Key(it) }
+
+    /**
+     * The number row while the symbols-2 (`=\<`) layer is showing. The digits
+     * are one tap away on the symbols-1 layer, so this slot carries an extra
+     * set of arrow and comparison symbols the symbol layers have no room for
+     * rather than a second copy of the numbers.
+     */
+    val SYMBOLS_2_NUMBER_ROW: List<Key> = listOf(
+        Key("←", longPress = listOf("⟵", "↔")),
+        Key("→", longPress = listOf("⟶", "↦")),
+        Key("↑", longPress = listOf("↕")),
+        Key("↓"),
+        Key("±", longPress = listOf("∓")),
+        Key("∞"),
+        Key("≈", longPress = listOf("≅", "≡")),
+        Key("≠"),
+        Key("≤", longPress = listOf("≪")),
+        Key("≥", longPress = listOf("≫")),
+    )
+
+    /**
+     * The number row [layer] shows when the layout has not authored one
+     * ([LayerSpec.numberRow]). The digits are borrowed from the symbol layer
+     * so they carry its fraction and superscript long-presses.
+     */
+    fun defaultNumberRow(layer: LayoutLayer): List<Key> = when (layer) {
+        LayoutLayer.SYMBOLS_SHIFTED -> SYMBOLS_2_NUMBER_ROW
+        else -> default.compile(LayoutLayer.SYMBOLS).rows.first()
+    }
+
+    /**
      * What a fresh install starts with before onboarding or the language screen
      * has said otherwise: one layout per language, English and Bengali.
      *
@@ -339,18 +613,65 @@ object BuiltInLayouts {
 // exposes each one.
 // ---------------------------------------------------------------------------
 
-private fun bottomRow(symbols: Boolean = false) = listOf(
+/**
+ * The row every layout ends with: mode, comma, globe, space, full stop, enter.
+ *
+ * [scale] multiplies every width, for a grid narrower than the usual ten
+ * columns — a five-column compact board takes 0.5 and gets a bottom row that
+ * occupies exactly the fractions of the board this one does at full size, which
+ * is what keeps the spacebar and the enter key where the hand expects them
+ * whatever the grid above is doing.
+ */
+private fun bottomRow(
+    symbols: Boolean = false,
+    scale: Float = 1f,
+    /** Appended to the full stop's hold, after the shared punctuation. */
+    periodExtras: List<String> = emptyList(),
+) = listOf(
     Key(
         if (symbols) "ABC" else "?123",
         action = if (symbols) KeyAction.Letters else KeyAction.Symbols,
-        width = 1.5f,
+        width = 1.5f * scale,
     ),
-    Key(",", role = KeyRole.Comma, longPress = listOf("!", "?")),
-    Key("🌐", action = KeyAction.LanguageSwitch),
-    Key(" ", action = KeyAction.Space, width = 4f),
-    Key(".", role = KeyRole.Period, longPress = listOf("…", ",", "?", "!", ":", ";", "।")),
-    Key("⏎", action = KeyAction.Enter, width = 1.5f),
+    Key(",", role = KeyRole.Comma, longPress = listOf("!", "?"), width = scale),
+    Key("🌐", action = KeyAction.LanguageSwitch, width = scale),
+    Key(" ", action = KeyAction.Space, width = 4f * scale),
+    Key(
+        ".",
+        role = KeyRole.Period,
+        longPress = listOf("…", ",", "?", "!", ":", ";", "।") + periodExtras,
+        width = scale,
+    ),
+    Key("⏎", action = KeyAction.Enter, width = 1.5f * scale),
 )
+
+/**
+ * One key of an ambiguous grid: [group] is every letter it stands for, and the
+ * first of them is the anchor it actually commits.
+ *
+ * The label is the group in capitals, which is both how every keypad and
+ * compact board has ever drawn it and the only honest thing to draw — the key
+ * is a set, not a character, so there is no case for shift to track. (The
+ * renderer leaves a multi-character label alone for exactly that reason.)
+ *
+ * [hint] rides at the front of the long-press popup, so the corner shows a
+ * keypad's digit where there is one; the letters follow it, and picking one
+ * spells it outright — the escape hatch for every word the dictionary does not
+ * know. [longPress] takes anything the key should carry after those.
+ */
+private fun ambiguousKey(
+    group: String,
+    hint: String? = null,
+    longPress: List<String> = emptyList(),
+) = Key(
+    label = group.uppercase(),
+    output = group.take(1),
+    letters = group,
+    longPress = listOfNotNull(hint) + group.map { it.toString() } + longPress,
+)
+
+/** Borno Phonetic's long-press signs, by the letter key that holds each. */
+private val bornoLongPress = mapOf("t" to "ৎ", "l" to "ঃ", "a" to "ঁ", "g" to "্")
 
 private val qwertyRows = listOf(
     listOf(
@@ -383,34 +704,141 @@ private val qwertyRows = listOf(
     bottomRow(),
 )
 
+/** The digit or symbol that leads each QWERTY letter's hold, keyed by the letter. */
+private val qwertyLeadingHolds: Map<String, String> = qwertyRows.flatten()
+    .filter { it.action == KeyAction.Text && it.label.length == 1 && it.label[0].isLetter() && it.longPress.isNotEmpty() }
+    .associate { it.label to it.longPress.first() }
+
+/**
+ * This grid with QWERTY's digits and symbols leading its letters' holds, when
+ * it is QWERTY-shaped (its top row opens q w e r t y) and holds no digit on any
+ * key. Hundreds of the shipped Latin layouts came over with their accents and
+ * nothing else, so their corners showed no hint and a hold on q gave no 1,
+ * where QWERTY's own keys do (Indonesian, reported in the Telegram group). A
+ * key's own alternates follow the borrowed one, and the keys in [keep] (a
+ * popup the user wrote) are left as they are.
+ */
+fun KeyboardLayout.withQwertyHolds(keep: Set<Key> = emptySet()): KeyboardLayout {
+    val top = rows.firstOrNull()?.filter { it.action == KeyAction.Text }?.map { it.output ?: it.label }
+        ?: return this
+    if (top.take(QWERTY_SHAPE.size) != QWERTY_SHAPE) return this
+    val hasDigitHolds = rows.any { row -> row.any { key -> key.longPress.any { it.length == 1 && it[0].isDigit() } } }
+    if (hasDigitHolds) return this
+    return copy(
+        rows = rows.map { row ->
+            row.map { key ->
+                val lead = qwertyLeadingHolds[key.output ?: key.label]
+                if (key.action != KeyAction.Text || key in keep || lead == null || lead in key.longPress) {
+                    key
+                } else {
+                    key.copy(longPress = listOf(lead) + key.longPress)
+                }
+            }
+        },
+    )
+}
+
+private val QWERTY_SHAPE = listOf("q", "w", "e", "r", "t", "y")
+
+/**
+ * QWERTY's letters with its digit and symbol alternates but none of its Latin
+ * accents: Khipro reads every letter key as a Khipro key, so an é picked from
+ * a popup would only land in the word as a stray Latin letter.
+ */
+private val khiproRows = listOf(
+    listOf(
+        Key("q", longPress = listOf("1")), Key("w", longPress = listOf("2")),
+        Key("e", longPress = listOf("3")), Key("r", longPress = listOf("4")),
+        Key("t", longPress = listOf("5")), Key("y", longPress = listOf("6")),
+        Key("u", longPress = listOf("7")), Key("i", longPress = listOf("8")),
+        Key("o", longPress = listOf("9")), Key("p", longPress = listOf("0")),
+    ),
+    listOf(
+        Key("a", longPress = listOf("@")), Key("s", longPress = listOf("#")),
+        Key("d", longPress = listOf("৳", "$")), Key("f", longPress = listOf("_")),
+        Key("g", longPress = listOf("&")), Key("h", longPress = listOf("-")),
+        Key("j", longPress = listOf("+")), Key("k", longPress = listOf("(")),
+        Key("l", longPress = listOf(")")),
+    ),
+    listOf(
+        // The slicer where shift would be; the blinder, Khipro's other
+        // modifier, on its long-press.
+        Key("/", longPress = listOf("\\", "|"), width = 1.5f),
+        Key("z", longPress = listOf("*")), Key("x", longPress = listOf("\"")),
+        Key("c", longPress = listOf("'")), Key("v", longPress = listOf(":")),
+        Key("b", longPress = listOf(";")), Key("n", longPress = listOf("!")),
+        Key("m", longPress = listOf("?")),
+        Key("⌫", action = KeyAction.Delete, width = 1.5f),
+    ),
+    listOf(
+        Key("?123", action = KeyAction.Symbols, width = 1.5f),
+        Key(",", role = KeyRole.Comma, longPress = listOf("!", "?")),
+        Key("🌐", action = KeyAction.LanguageSwitch),
+        Key(" ", action = KeyAction.Space, width = 3f),
+        // Not a full stop: no role, so the danda rewrite leaves it alone.
+        Key(";", longPress = listOf(":", "?")),
+        // The danda once the script's full stop is applied; ॥ is what
+        // Khipro's desktop spec spells as `.f`. ZWJ and ZWNJ next, which the
+        // desktop spec types from `` ` `` and the touch one has no key for
+        // (issue #489).
+        Key(
+            ".",
+            role = KeyRole.Period,
+            longPress = listOf("॥", "\u200D", "\u200C", "…", ",", "?", "!", ":"),
+        ),
+        Key("⏎", action = KeyAction.Enter, width = 1.5f),
+    ),
+)
+
+// The holds are Choukajohn's, sent in as a layout (wmkeyboard-community-addons#2):
+// ç leads the c, € leads the d, and each symbol sits on one key rather than ?
+// twice. ä, ć, ñ and the curly quotes, which that layout dropped, stay at the end
+// of their keys for Belgian and borrowed words.
 private val azertyRows = listOf(
     listOf(
-        Key("a", longPress = listOf("1", "à", "â", "æ", "á", "ä")),
-        Key("z", longPress = listOf("2")),
-        Key("e", longPress = listOf("3", "é", "è", "ê", "ë", "€")),
-        Key("r", longPress = listOf("4")), Key("t", longPress = listOf("5")),
-        Key("y", longPress = listOf("6", "ÿ")),
-        Key("u", longPress = listOf("7", "ù", "û", "ü", "ú")),
-        Key("i", longPress = listOf("8", "î", "ï", "í", "ì")),
-        Key("o", longPress = listOf("9", "ô", "ö", "œ", "ó", "ò")),
+        Key("a", longPress = listOf("1", "à", "â", "æ", "á", "~", "%", "‰", "ä")),
+        Key("z", longPress = listOf("2", "\\", "`")),
+        Key("e", longPress = listOf("3", "é", "è", "ê", "ë", "ē", "|")),
+        Key("r", longPress = listOf("4", "=")),
+        Key("t", longPress = listOf("5", "√", "[")),
+        Key("y", longPress = listOf("6", "ÿ", "]", "π")),
+        Key("u", longPress = listOf("7", "ù", "ú", "û", "ü", "<", "÷")),
+        Key("i", longPress = listOf("8", "ì", "í", "î", "ï", ">", "×")),
+        Key("o", longPress = listOf("9", "ô", "ö", "œ", "ò", "ó", "ø", "§")),
         Key("p", longPress = listOf("0")),
     ),
     listOf(
-        Key("q", longPress = listOf("@")), Key("s", longPress = listOf("#", "ß")),
-        Key("d", longPress = listOf("$")), Key("f", longPress = listOf("_")),
-        Key("g", longPress = listOf("&")), Key("h", longPress = listOf("-")),
-        Key("j", longPress = listOf("+")), Key("k", longPress = listOf("(")),
-        Key("l", longPress = listOf(")")), Key("m", longPress = listOf("?")),
+        Key("q", longPress = listOf("@", "£")), Key("s", longPress = listOf("#", "¥", "ß")),
+        Key("d", longPress = listOf("€", "$")), Key("f", longPress = listOf("_", "%", "‰")),
+        Key("g", longPress = listOf("&", "^")), Key("h", longPress = listOf("-", "°")),
+        Key("j", longPress = listOf("+", "±", "=", "≈", "≠", "∞")),
+        Key("k", longPress = listOf("(", "<", "{", "[")),
+        Key("l", longPress = listOf(")", ">", "}", "]")), Key("m", longPress = listOf("/")),
     ),
     listOf(
         Key("⇧", action = KeyAction.Shift, width = 1.5f),
-        Key("w", longPress = listOf("*")), Key("x", longPress = listOf("\"")),
-        Key("c", longPress = listOf(";", "ç", "ć")), Key("v", longPress = listOf(":")),
-        Key("b", longPress = listOf("!")), Key("n", longPress = listOf("?", "ñ")),
-        Key("'", shiftLabel = "\"", longPress = listOf("‘", "’", "„")),
+        Key("w", longPress = listOf("*", "\\")), Key("x", longPress = listOf("\"", "©")),
+        Key("c", longPress = listOf("ç", "ć")), Key("v", longPress = listOf(":", "™")),
+        Key("b", longPress = listOf(";", "%", "℅")), Key("n", longPress = listOf("!", "[", "ñ")),
+        Key("'", longPress = listOf("?", "]", "‘", "’", "„")),
         Key("⌫", action = KeyAction.Delete, width = 1.5f),
     ),
-    bottomRow(),
+    listOf(
+        Key("?123", action = KeyAction.Symbols, width = 1.5f),
+        Key(",", role = KeyRole.Comma, actionAlternates = listOf(KeyAlternate(KeyAction.Emoji))),
+        Key("🌐", action = KeyAction.LanguageSwitch),
+        Key(" ", action = KeyAction.Space, width = 4f),
+        Key(
+            ".",
+            role = KeyRole.Period,
+            longPress = listOf(
+                "@", "'", ":", "-", "\"", "+", "%", "&",
+                "?", ",", "!", "#", ")", "(", "/", ";", "…",
+            ),
+            alternateColumns = 8,
+        ),
+        Key("⏎", action = KeyAction.Enter, width = 1.5f),
+    ),
 )
 
 private val qwertzRows = listOf(
@@ -464,7 +892,7 @@ private val spanishRows = listOf(
         Key("⇧", action = KeyAction.Shift, width = 1.5f),
         Key("z", longPress = listOf("*", "ż", "ź")), Key("x", longPress = listOf("\"")),
         Key("c", longPress = listOf("'", "ç", "ć")), Key("v", longPress = listOf(":")),
-        Key("b", longPress = listOf(";")), Key("n", longPress = listOf("!", "¡")),
+        Key("b", longPress = listOf(";")), Key("n", longPress = listOf("!", "¡", "ñ")),
         Key("m", longPress = listOf("?", "¿")),
         Key("⌫", action = KeyAction.Delete, width = 1.5f),
     ),
@@ -596,6 +1024,15 @@ private val halmakRows = listOf(
     bottomRow(),
 )
 
+/**
+ * ZWNJ then ZWJ, on the hold of hasant and of the full stop on every fixed
+ * Bengali layout (issue #668). ZWNJ after hasant keeps two consonants from
+ * forming a conjunct; ZWJ asks for a half form, as in the র-ফলা of র‍্যাব.
+ * Desktop Jatiya and Probhat put them on AltGr and shift layers a phone
+ * does not have. The popup draws both by name, since neither has a glyph.
+ */
+private val BengaliJoiners = listOf("\u200C", "\u200D")
+
 private val probhatRows = listOf(
     listOf(
         Key("দ", shiftLabel = "ধ"), Key("ূ", shiftLabel = "ঊ"), Key("ী", shiftLabel = "ঈ"),
@@ -605,21 +1042,23 @@ private val probhatRows = listOf(
         Key("প", shiftLabel = "ফ"),
     ),
     listOf(
-        Key("া", shiftLabel = "অ"), Key("স", shiftLabel = "ষ"),
+        // আ and এ on the holds too (#900): after a vowel the taps give
+        // the য়-glide, and the hold is how to get the bare vowel there.
+        Key("া", shiftLabel = "অ", longPress = listOf("আ")), Key("স", shiftLabel = "ষ"),
         Key("ড", shiftLabel = "ঢ"), Key("ত", shiftLabel = "থ", longPress = listOf("ৎ")),
         Key("গ", shiftLabel = "ঘ"), Key("হ", shiftLabel = "ঃ", longPress = listOf("ঽ")),
         Key("জ", shiftLabel = "ঝ", longPress = listOf("ঞ")), Key("ক", shiftLabel = "খ"),
-        Key("ল", shiftLabel = "ং"), Key("ে", shiftLabel = "ো", longPress = listOf("ৈ", "ৌ")),
+        Key("ল", shiftLabel = "ং"), Key("ে", shiftLabel = "ো", longPress = listOf("ৈ", "ৌ", "এ")),
     ),
     listOf(
         Key("⇧", action = KeyAction.Shift, width = 1.2f),
         Key("য়", shiftLabel = "য"), Key("শ", shiftLabel = "ঢ়"), Key("চ", shiftLabel = "ছ"),
         Key("আ", shiftLabel = "ঋ", longPress = listOf("ৃ")), Key("ব", shiftLabel = "ভ"),
         Key("ন", shiftLabel = "ণ"), Key("ম", shiftLabel = "ঙ"),
-        Key("্", shiftLabel = "।", longPress = listOf("ঁ", "়", "॥")),
+        Key("্", shiftLabel = "।", longPress = listOf("ঁ", "়", "॥") + BengaliJoiners),
         Key("⌫", action = KeyAction.Delete, width = 1.3f),
     ),
-    bottomRow(),
+    bottomRow(periodExtras = BengaliJoiners),
 )
 
 private val jatiyaRows = listOf(
@@ -634,7 +1073,7 @@ private val jatiyaRows = listOf(
         Key("ু", shiftLabel = "ূ", longPress = listOf("উ", "ঊ")),
         Key("ি", shiftLabel = "ী", longPress = listOf("ই", "ঈ")),
         Key("ব", shiftLabel = "ভ"),
-        Key("্", shiftLabel = "।", longPress = listOf("॥", "ৎ")),
+        Key("্", shiftLabel = "।", longPress = listOf("॥", "ৎ") + BengaliJoiners),
         Key("া", shiftLabel = "অ", longPress = listOf("আ")),
         Key("ক", shiftLabel = "খ"), Key("ত", shiftLabel = "থ"),
         Key("দ", shiftLabel = "ধ"),
@@ -648,17 +1087,54 @@ private val jatiyaRows = listOf(
         Key("স", shiftLabel = "ষ"), Key("ম", shiftLabel = "শ"),
         Key("⌫", action = KeyAction.Delete, width = 1.3f),
     ),
-    bottomRow(),
+    bottomRow(periodExtras = BengaliJoiners),
+)
+
+// BSTI: each popup is the base layer's hold, then the shift layer's.
+private val bstiRows = listOf(
+    listOf(
+        Key("ঙ", shiftLabel = "ং", longPress = listOf("ঙ্ক")),
+        Key("য", shiftLabel = "য়", longPress = listOf("ঞ্ঝ")),
+        Key("ড", shiftLabel = "ঢ"), Key("প", shiftLabel = "ফ"), Key("ট", shiftLabel = "ঠ"),
+        Key("চ", shiftLabel = "ছ", longPress = listOf("ঞ্ছ")),
+        Key("জ", shiftLabel = "ঝ", longPress = listOf("জ্ঞ")),
+        Key("হ", shiftLabel = "ঞ", longPress = listOf("ঞ্জ", "ঽ")),
+        Key("গ", shiftLabel = "ঘ", longPress = listOf("ঙ্গ")),
+        Key("ড়", shiftLabel = "ঢ়"),
+    ),
+    listOf(
+        Key("ৃ", shiftLabel = "র্", longPress = listOf("ঋ")),
+        Key("ু", shiftLabel = "ূ", longPress = listOf("উ", "ঊ")),
+        Key("ি", shiftLabel = "ী", longPress = listOf("ই", "ঈ")),
+        Key("া", shiftLabel = "অ", longPress = listOf("আ")),
+        Key("্", shiftLabel = "ঁ", longPress = listOf("॥") + BengaliJoiners),
+        Key("ব", shiftLabel = "ভ"),
+        Key("ক", shiftLabel = "খ", longPress = listOf("ক্ষ")),
+        Key("ত", shiftLabel = "থ", longPress = listOf("ৎ")),
+        Key("দ", shiftLabel = "ধ"),
+    ),
+    listOf(
+        Key("⇧", action = KeyAction.Shift, width = 1.2f),
+        Key("্র", shiftLabel = "্য"),
+        Key("ো", shiftLabel = "ৌ", longPress = listOf("ও", "ঔ")),
+        Key("ে", shiftLabel = "ৈ", longPress = listOf("এ", "ঐ")),
+        Key("র", shiftLabel = "ল", longPress = listOf("ব়্য")),
+        Key("ন", shiftLabel = "ণ", longPress = listOf("ঞ্চ")),
+        Key("স", shiftLabel = "ষ", longPress = listOf("ষ্ণ")),
+        Key("ম", shiftLabel = "শ", longPress = listOf("ঃ", "হ্ম")),
+        Key("⌫", action = KeyAction.Delete, width = 1.3f),
+    ),
+    bottomRow(periodExtras = BengaliJoiners),
 )
 
 // Korean 2-beolsik: compatibility jamo in the standard phone arrangement, tense
 // consonants and ㅒ/ㅖ on shift. HangulComposer assembles them into syllables.
 private val koreanRows = listOf(
     listOf(
-        Key("ㅂ", shiftLabel = "ㅃ"), Key("ㅈ", shiftLabel = "ㅉ"),
-        Key("ㄷ", shiftLabel = "ㄸ"), Key("ㄱ", shiftLabel = "ㄲ"),
-        Key("ㅅ", shiftLabel = "ㅆ"), Key("ㅛ"), Key("ㅕ"), Key("ㅑ"),
-        Key("ㅐ", shiftLabel = "ㅒ"), Key("ㅔ", shiftLabel = "ㅖ"),
+        Key("ㅂ", shiftLabel = "ㅃ", longPress = listOf("ㅃ")), Key("ㅈ", shiftLabel = "ㅉ", longPress = listOf("ㅉ")),
+        Key("ㄷ", shiftLabel = "ㄸ", longPress = listOf("ㄸ")), Key("ㄱ", shiftLabel = "ㄲ", longPress = listOf("ㄲ")),
+        Key("ㅅ", shiftLabel = "ㅆ", longPress = listOf("ㅆ")), Key("ㅛ"), Key("ㅕ"), Key("ㅑ"),
+        Key("ㅐ", shiftLabel = "ㅒ", longPress = listOf("ㅒ")), Key("ㅔ", shiftLabel = "ㅖ", longPress = listOf("ㅖ")),
     ),
     listOf(
         Key("ㅁ"), Key("ㄴ"), Key("ㅇ"), Key("ㄹ"), Key("ㅎ"),
@@ -673,20 +1149,33 @@ private val koreanRows = listOf(
 )
 
 // Russian ЙЦУКЕН. Cyrillic has case, so shift uppercases the labels (no
-// per-key shiftLabel needed); ё and ъ ride long-press.
+// per-key shiftLabel needed). Digits ride the top row and symbols the other
+// two, as QWERTY's do, so the corner hints match it; ё and ъ follow the
+// symbol on their keys' long-press, as QWERTY's accents do.
 private val russianRows = listOf(
     listOf(
-        Key("й"), Key("ц"), Key("у"), Key("к"), Key("е", longPress = listOf("ё")),
-        Key("н"), Key("г"), Key("ш"), Key("щ"), Key("з"), Key("х"),
+        Key("й", longPress = listOf("1")), Key("ц", longPress = listOf("2")),
+        Key("у", longPress = listOf("3")), Key("к", longPress = listOf("4")),
+        Key("е", longPress = listOf("5", "ё")), Key("н", longPress = listOf("6")),
+        Key("г", longPress = listOf("7")), Key("ш", longPress = listOf("8")),
+        Key("щ", longPress = listOf("9")), Key("з", longPress = listOf("0")),
+        Key("х", longPress = listOf("ъ")),
     ),
     listOf(
-        Key("ф"), Key("ы"), Key("в"), Key("а"), Key("п"), Key("р"),
-        Key("о"), Key("л"), Key("д"), Key("ж"), Key("э"),
+        Key("ф", longPress = listOf("@")), Key("ы", longPress = listOf("#")),
+        Key("в", longPress = listOf("$", "₽")), Key("а", longPress = listOf("_")),
+        Key("п", longPress = listOf("&")), Key("р", longPress = listOf("-")),
+        Key("о", longPress = listOf("+")), Key("л", longPress = listOf("(")),
+        Key("д", longPress = listOf(")")), Key("ж", longPress = listOf("/")),
+        Key("э", longPress = listOf("=")),
     ),
     listOf(
         Key("⇧", action = KeyAction.Shift, width = 1.5f),
-        Key("я"), Key("ч"), Key("с"), Key("м"), Key("и"), Key("т"),
-        Key("ь", longPress = listOf("ъ")), Key("б"), Key("ю"),
+        Key("я", longPress = listOf("*")), Key("ч", longPress = listOf("\"")),
+        Key("с", longPress = listOf("'")), Key("м", longPress = listOf(":")),
+        Key("и", longPress = listOf(";")), Key("т", longPress = listOf("!")),
+        Key("ь", longPress = listOf("?", "ъ")), Key("б", longPress = listOf("«", "»")),
+        Key("ю", longPress = listOf("»", "«")),
         Key("⌫", action = KeyAction.Delete, width = 1.5f),
     ),
     bottomRow(),
@@ -867,6 +1356,13 @@ private val symbolRows = listOf(
     bottomRow(symbols = true),
 )
 
+/** The symbols page with € on the currency key and $ first on its hold. */
+private val frenchSymbolRows = symbolRows.map { row ->
+    row.map { key ->
+        if (key.label == "$") Key("€", longPress = listOf("$", "৳", "£", "¥", "₹", "₿")) else key
+    }
+}
+
 private val symbolsShiftedRows = listOf(
     listOf(
         Key("~"), Key("`"), Key("|"), Key("•", longPress = listOf("◦", "‣")), Key("√"),
@@ -904,25 +1400,38 @@ private val symbolsShiftedRows = listOf(
 
 /**
  * 4-column keypad grid shared by the numeric field kinds: digits on the left 3
- * columns (0 under 8, phone-pad style), delete/enter anchoring the right column,
- * and the field-specific characters filling the rest.
+ * columns (0 under 8, phone-pad style), delete over enter anchoring the right
+ * column, and the field-specific characters filling the rest.
+ *
+ * The keys every pad has stay put across all five (issue #594): the digits,
+ * delete in the low-right slot under the thumb, enter below it, and space,
+ * on the pads that carry one, at the top of the right column. Someone who
+ * moves delete on one pad then finds it where they expect on the others, and
+ * the field-specific keys are the only ones that differ.
  */
 private fun numpad(
+    rightTop: Key,
     rightMid: Key,
-    rightLow: Key,
     bottomLeft: Key,
     bottomRight: Key,
     zero: Key = Key("0"),
-    rightTop: Key = Key("⌫", action = KeyAction.Delete),
 ) = listOf(
     listOf(Key("1"), Key("2"), Key("3"), rightTop),
     listOf(Key("4"), Key("5"), Key("6"), rightMid),
-    listOf(Key("7"), Key("8"), Key("9"), rightLow),
+    listOf(Key("7"), Key("8"), Key("9"), Key("⌫", action = KeyAction.Delete)),
     listOf(bottomLeft, zero, bottomRight, Key("⏎", action = KeyAction.Enter)),
 )
 
-/** A keypad space key: blank label so no language name is drawn on it. */
-private fun padSpace() = Key("", action = KeyAction.Space)
+/**
+ * The legend a keypad's space key wears (issue #459): the open box keycaps use
+ * for a visible space. A spacebar with a label draws the language name, which a
+ * key a quarter of the pad wide has no room for, and a blank one drew nothing
+ * at all, so the renderer draws this one as the key's glyph instead.
+ */
+const val PAD_SPACE_LABEL = "\u2423"
+
+/** A keypad space key, labelled [PAD_SPACE_LABEL] rather than the language name. */
+private fun padSpace() = Key(PAD_SPACE_LABEL, action = KeyAction.Space)
 
 /**
  * TYPE_CLASS_NUMBER. The minus and decimal keys are always present — fields that
@@ -930,47 +1439,46 @@ private fun padSpace() = Key("", action = KeyAction.Space)
  * keeps the pad stable across the many apps that forget to set the flags.
  */
 private val numberRows = numpad(
-    // Space and backspace trade places relative to the other keypads:
-    // deleting is the frequent correction while typing a number, so it sits
-    // on the low-right slot under the thumb, and space takes the top.
     rightTop = padSpace(),
     rightMid = Key("-", longPress = listOf("+", "%", "*", "/")),
-    rightLow = Key("⌫", action = KeyAction.Delete),
     bottomLeft = Key(".", longPress = listOf(":")),
     bottomRight = Key(","),
 )
 
 /** TYPE_CLASS_PHONE: dial pad with pause (,) and wait (;) on long press. */
 private val phoneRows = numpad(
+    rightTop = padSpace(),
     rightMid = Key("-", longPress = listOf("(", ")", "/", ".")),
-    rightLow = padSpace(),
     bottomLeft = Key("*", longPress = listOf(",")),
     bottomRight = Key("#", longPress = listOf(";")),
     zero = Key("0", longPress = listOf("+")),
 )
 
-/** TYPE_DATETIME_VARIATION_DATE: separators for 20/07/2026, 2026-07-20, 20.7.26. */
+/**
+ * TYPE_DATETIME_VARIATION_DATE: separators for 20/07/2026, 2026-07-20, 20.7.26.
+ * No space here, so the slot space holds on the other pads takes the slash.
+ */
 private val dateRows = numpad(
-    rightMid = Key("/", longPress = listOf(":")),
-    rightLow = Key("-"),
+    rightTop = Key("/", longPress = listOf(":")),
+    rightMid = Key("-"),
     bottomLeft = Key("."),
     bottomRight = Key(","),
 )
 
 /** TYPE_DATETIME_VARIATION_TIME: colon-led (17:45), space for AM/PM-ish suffixes. */
 private val timeRows = numpad(
+    rightTop = padSpace(),
     rightMid = Key(":", longPress = listOf(".")),
-    rightLow = padSpace(),
     bottomLeft = Key("."),
     bottomRight = Key("-"),
 )
 
 /** TYPE_DATETIME_VARIATION_NORMAL: date and time separators together. */
 private val dateTimeRows = numpad(
+    rightTop = padSpace(),
     rightMid = Key("/", longPress = listOf(".")),
-    rightLow = Key(":"),
     bottomLeft = Key("-"),
-    bottomRight = padSpace(),
+    bottomRight = Key(":"),
 )
 
 /**
@@ -979,3 +1487,82 @@ private val dateTimeRows = numpad(
  * pure data, and the unit tests read it without a device.
  */
 private fun fnKey(label: String, code: Int) = Key(label, action = KeyAction.SendKey(code))
+
+/**
+ * The T9 keypad. Four columns: the ITU E.161 letter groups in the left three,
+ * the keys that are not letters in the fourth.
+ *
+ * `1` is the punctuation key, as it was on the phones this grid comes from —
+ * it commits a full stop and carries the rest behind a hold, which is where a
+ * comma, a question mark and the apostrophe every contraction needs live. It
+ * is a plain 1:1 key: there is nothing for a language model to disambiguate
+ * about punctuation, and a key set of one decodes as the character it is.
+ *
+ * Every row totals four, so the grid draws at one width throughout.
+ */
+private val t9Rows = listOf(
+    listOf(
+        Key(
+            ".,?",
+            output = ".",
+            role = KeyRole.Period,
+            longPress = listOf("1", ",", "?", "!", "'", "-", ":", ";"),
+        ),
+        ambiguousKey("abc", hint = "2"),
+        ambiguousKey("def", hint = "3"),
+        Key("⌫", action = KeyAction.Delete),
+    ),
+    listOf(
+        ambiguousKey("ghi", hint = "4"),
+        ambiguousKey("jkl", hint = "5"),
+        ambiguousKey("mno", hint = "6"),
+        Key("⇧", action = KeyAction.Shift),
+    ),
+    listOf(
+        ambiguousKey("pqrs", hint = "7"),
+        ambiguousKey("tuv", hint = "8"),
+        ambiguousKey("wxyz", hint = "9"),
+        Key("⏎", action = KeyAction.Enter),
+    ),
+    listOf(
+        Key("?123", action = KeyAction.Symbols),
+        Key("🌐", action = KeyAction.LanguageSwitch),
+        Key(" ", action = KeyAction.Space, width = 2f),
+    ),
+)
+
+/**
+ * Compact QWERTY: QWERTY's three letter rows folded two letters to a key.
+ *
+ * The digits keep the positions they hold on the full board — `1` under the
+ * key that starts with `q`, `0` under the one that ends with `p` — so the
+ * long-press digits still read left to right across the top row, even though
+ * there are now five keys carrying ten of them.
+ *
+ * Every row totals five.
+ */
+private val compactRows = listOf(
+    listOf(
+        ambiguousKey("qw", hint = "1", longPress = listOf("2")),
+        ambiguousKey("er", hint = "3", longPress = listOf("4", "è", "é", "ê", "ë")),
+        ambiguousKey("ty", hint = "5", longPress = listOf("6")),
+        ambiguousKey("ui", hint = "7", longPress = listOf("8", "ù", "ú", "û", "ü", "î", "ï")),
+        ambiguousKey("op", hint = "9", longPress = listOf("0", "ò", "ó", "ô", "ö")),
+    ),
+    listOf(
+        ambiguousKey("as", longPress = listOf("@", "#", "à", "á", "â", "ä", "å", "ß")),
+        ambiguousKey("df", longPress = listOf("$", "_")),
+        ambiguousKey("gh", longPress = listOf("&", "-")),
+        ambiguousKey("jk", longPress = listOf("+", "(")),
+        Key("L", output = "l", longPress = listOf(")")),
+    ),
+    listOf(
+        Key("⇧", action = KeyAction.Shift, width = 0.5f),
+        ambiguousKey("zx", longPress = listOf("*", "\"", "ż", "ź")),
+        ambiguousKey("cv", longPress = listOf("'", ":", "ç", "ć")),
+        ambiguousKey("bn", longPress = listOf(";", "!", "ñ", "ń")),
+        Key("M", output = "m", longPress = listOf("?")),
+        Key("⌫", action = KeyAction.Delete, width = 0.5f),
+    ),
+    bottomRow(scale = 0.5f),
+)

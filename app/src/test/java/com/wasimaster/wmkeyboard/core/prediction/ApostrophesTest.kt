@@ -27,6 +27,22 @@ class ApostrophesTest {
         assertNull(Apostrophes.fix("I"))
     }
 
+    /**
+     * The word lists are lowercase throughout, so a correctly typed "i'm" is a
+     * known word that arrives without its capital and has nowhere else to get
+     * one — the lone "i" above has exactly the same problem.
+     */
+    @Test
+    fun capitalizesITypedWithItsApostrophe() {
+        assertEquals("I'm", Apostrophes.fix("i'm"))
+        assertEquals("I've", Apostrophes.fix("i've"))
+        assertEquals("I'll", Apostrophes.fix("i'll"))
+        assertEquals("I'd", Apostrophes.fix("i'd"))
+        // Already correct, in either casing convention.
+        assertNull(Apostrophes.fix("I'm"))
+        assertNull(Apostrophes.fix("I'D"))
+    }
+
     @Test
     fun preservesTypedCase() {
         assertEquals("Don't", Apostrophes.fix("Dont"))
@@ -38,12 +54,20 @@ class ApostrophesTest {
     @Test
     fun leavesRealWordsAlone() {
         // Apostrophe-less forms that are real words must never be touched.
-        for (word in listOf("its", "were", "well", "ill", "id", "hell",
+        for (word in listOf("its", "were", "well", "id", "hell",
                 "shell", "wed", "shed", "lets", "sons", "whore", "hers")) {
             assertNull(word, Apostrophes.fix(word))
         }
         assertNull(Apostrophes.fix("hello"))
         assertNull(Apostrophes.fix(""))
+    }
+
+    @Test
+    fun illIsRepairedDespiteBeingAWord() {
+        // Typed for I'll far more often than for ill; backspace undoes it (#482).
+        assertEquals("I'll", Apostrophes.fix("ill"))
+        assertEquals("I'll", Apostrophes.fix("Ill"))
+        assertNull(Apostrophes.offer("ill"))
     }
 
     /**

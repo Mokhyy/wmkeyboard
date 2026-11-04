@@ -1,9 +1,11 @@
 package com.wasimaster.wmkeyboard.core.layout
 
+import com.wasimaster.wmkeyboard.core.util.JsonPretty
 import com.wasimaster.wmkeyboard.core.util.firstJsonDocument
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonArray
 
 /**
@@ -15,17 +17,26 @@ import kotlinx.serialization.json.jsonArray
  * lowercase name so a stored list reads `"panel":"emoji"`.
  *
  * [shipped] is whether the panel's tool exists in this build. Every panel's
- * does now; the flag stays so the next panel can define its layout ahead of
- * its tool, as the trackpad's was (issue #39), with the gallery hiding it.
+ * does today: handwriting, the last one that could be missing, has zinnia
+ * where ML Kit is not in the build. The flag lets the next panel define its
+ * layout ahead of its tool, as the trackpad's was (issue #39).
  */
 @Serializable
 enum class PanelKind(val shipped: Boolean = true) {
     @SerialName("emoji") EMOJI,
+    /** The GIF panel (#538): its browser plus the keys the user puts around it. */
+    @SerialName("gif") GIF,
+    /** The sticker panel, laid out like the GIF panel. */
+    @SerialName("sticker") STICKER,
     @SerialName("clipboard") CLIPBOARD,
     @SerialName("text_edit") TEXT_EDIT,
     @SerialName("trackpad") TRACKPAD,
     /** The Numpad tool's pad: keys only, like the text-editing pad. */
     @SerialName("numpad") NUMPAD,
+    /** The handwriting panel (#568): the writing canvas plus the keys around it. */
+    @SerialName("handwriting") HANDWRITING,
+    /** The emoji mixes panel: two emoji put together, laid out like the GIF panel. */
+    @SerialName("emoji_mix") EMOJI_MIX,
     ;
 
     /**
@@ -43,8 +54,12 @@ enum class PanelKind(val shipped: Boolean = true) {
     val requiredField: PanelFieldKind?
         get() = when (this) {
             EMOJI -> PanelFieldKind.EMOJI_GRID
+            GIF -> PanelFieldKind.GIF_BROWSER
+            STICKER -> PanelFieldKind.STICKER_BROWSER
             CLIPBOARD -> PanelFieldKind.CLIPBOARD_LIST
             TRACKPAD -> PanelFieldKind.TRACKPAD
+            HANDWRITING -> PanelFieldKind.HANDWRITING_CANVAS
+            EMOJI_MIX -> PanelFieldKind.EMOJI_MIX_BROWSER
             TEXT_EDIT, NUMPAD -> null
         }
 }
@@ -105,7 +120,8 @@ object PanelLayoutCodec {
     fun encode(layout: PanelLayoutSpec): String = layoutJson.encodeToString(layout)
 
     /** [encode], without the fields that hold their default value; for the raw-JSON editor. */
-    fun encodeForEditing(layout: PanelLayoutSpec): String = layoutEditorJson.encodeToString(layout)
+    fun encodeForEditing(layout: PanelLayoutSpec): String =
+        JsonPretty.print(layoutEditorJson.encodeToJsonElement(layout))
 
     fun decode(json: String): PanelLayoutSpec? {
         if (json.isBlank()) return null

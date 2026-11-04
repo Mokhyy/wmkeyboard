@@ -1,6 +1,7 @@
 package com.wasimaster.wmkeyboard.app
 
 import android.content.Intent
+import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,11 +12,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Bookmark
-import androidx.compose.material.icons.outlined.Crop
-import androidx.compose.material.icons.outlined.Palette
-import androidx.compose.material.icons.automirrored.outlined.Undo
-import androidx.compose.material.icons.outlined.Wallpaper
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Bookmark
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Crop
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Palette
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.Undo
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Wallpaper
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -39,7 +40,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import coil3.compose.AsyncImage
 import com.wasimaster.wmkeyboard.R
-import com.wasimaster.wmkeyboard.core.settings.KeyboardSettings
 import com.wasimaster.wmkeyboard.core.settings.SettingsRepository
 import com.wasimaster.wmkeyboard.core.settings.softenedForPhoto
 import com.wasimaster.wmkeyboard.core.theme.Readability
@@ -60,8 +60,8 @@ import com.wasimaster.wmkeyboard.core.tools.toAttribution
 import com.wasimaster.wmkeyboard.ime.ui.rememberMediaImageLoader
 import kotlinx.coroutines.launch
 import com.wasimaster.wmkeyboard.common.R as CommonR
-import androidx.compose.material.icons.outlined.StayCurrentLandscape
-import androidx.compose.material.icons.outlined.StayCurrentPortrait
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.StayCurrentLandscape
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.StayCurrentPortrait
 
 /**
  * One photo, previewed behind real keys, with everything that can be done
@@ -73,8 +73,9 @@ import androidx.compose.material.icons.outlined.StayCurrentPortrait
  */
 @Composable
 fun PhotoDetailScreen(
+    anim: AnimatedVisibilityScope? = null,
     repository: SettingsRepository,
-    settings: KeyboardSettings,
+    settings: LiveSettings,
     photo: PhotoItem,
     themeId: String,
     slot: BackgroundSlot,
@@ -87,7 +88,7 @@ fun PhotoDetailScreen(
 
     // The id can name a variant. The member spec drives the preview; writes
     // and the undo snapshot go through the family entry that stores it.
-    val themeFamily = settings.customThemes.findThemeFamily(themeId)
+    val themeFamily = settings.watch { it.customThemes.findThemeFamily(themeId) }
     val theme = themeFamily?.selfAndVariants()?.find { it.id == themeId }
     var chosenSlot by remember { mutableStateOf(slot) }
     var applied by remember { mutableStateOf(false) }
@@ -102,24 +103,29 @@ fun PhotoDetailScreen(
     // Applying a photo makes the board see-through so the photo shows. The
     // preview has to do the same, or a theme with an opaque board previews as
     // a flat colour and the photo appears to do nothing.
+    val keyOpacity = settings.watch { it.photoBackground.keyOpacity }
     val previewTheme = remember(theme, applied) {
         if (theme == null || applied) {
             theme
         } else {
             theme.copy(
                 boardBackground = theme.boardBackground.withAlphaFraction(0f),
-                keyBackground = theme.keyBackground.softenedForPhoto(settings.photoBackground.keyOpacity),
+                keyBackground = theme.keyBackground.softenedForPhoto(keyOpacity),
             )
         }
     }
 
     WmScreen(
+        anim = anim,
         title = stringResource(R.string.photo_detail_title),
         onBack = onBack,
+        route = PHOTO_DETAIL_ROUTE,
         subtitle = theme?.name,
         subtitleInBar = true,
     ) {
-        // The photo as the service serves it, hotlinked.
+        // The photo as the service serves it, hotlinked. The grid tile that
+        // opened this page grows into it: the same image at the same crop, so
+        // the flight is one picture moving rather than two pictures swapping.
         Box(
             modifier = Modifier
                 .padding(horizontal = 16.dp)
@@ -131,7 +137,9 @@ fun PhotoDetailScreen(
                 model = photo.thumbUrl,
                 contentDescription = photo.altText.ifBlank { null },
                 imageLoader = rememberMediaImageLoader(),
-                modifier = Modifier.matchParentSize(),
+                modifier = Modifier
+                    .matchParentSize()
+                    .wmSharedElement(landingKey("photo")),
                 contentScale = ContentScale.Crop,
             )
         }
@@ -206,8 +214,8 @@ fun PhotoDetailScreen(
                 onClick = {
                     scope.launch {
                         undoSpec = themeFamily
-                        val key = ToolApiKeys.unsplash(settings)
-                        val pexels = ToolApiKeys.pexels(settings)
+                        val key = ToolApiKeys.unsplash(settings.value)
+                        val pexels = ToolApiKeys.pexels(settings.value)
                         val apiKey = if (photo.source.name == "UNSPLASH") key else pexels
                         val slots = when (chosenSlot) {
                             BackgroundSlot.PORTRAIT -> listOf(false)
@@ -272,7 +280,7 @@ fun PhotoDetailScreen(
                     icon = Icons.Outlined.Palette,
                     onClick = {
                         scope.launch {
-                            val current = settings.customThemes.findThemeFamily(themeId)
+                            val current = settings.value.customThemes.findThemeFamily(themeId)
                             if (current != null) {
                                 // Kept so the whole-theme rewrite below stays
                                 // undoable: reseeding replaces every colour.
@@ -296,7 +304,7 @@ fun PhotoDetailScreen(
             enabled = !saved && !busy,
             onClick = {
                 scope.launch {
-                    val apiKey = ToolApiKeys.unsplash(settings)
+                    val apiKey = ToolApiKeys.unsplash(settings.value)
                     saved = PhotoBackgroundManager.saveToLibrary(context, photo, apiKey)
                 }
             },
@@ -319,12 +327,8 @@ fun PhotoDetailScreen(
 
 @Composable
 private fun SlotChoice(slot: BackgroundSlot, onSlot: (BackgroundSlot) -> Unit) {
-    Text(
-        stringResource(R.string.photo_use_slot_title),
-        style = MaterialTheme.typography.bodyLarge,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-    )
     ChoiceControl(
+        label = stringResource(R.string.photo_use_slot_title),
         options = BackgroundSlot.entries.map { entry ->
             entry to stringResource(
                 when (entry) {

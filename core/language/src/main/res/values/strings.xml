@@ -35,7 +35,7 @@
         <item quantity="other">The <xliff:g id="layer" example="symbols">%1$s</xliff:g> layer has %2$d rows. Only %3$d rows fit.</item>
     </plurals>
 
-    <string name="core_lang_layout_secondary_no_way_out_warning">This layout has no key that leaves it. Make sure you have a way to exit this layout: an ABC key, a symbols key, or the Custom layout tool on the toolbar.</string>
+    <string name="core_lang_layout_secondary_no_way_out_warning">This layout has no key that leaves it. Make sure you have a way to exit this layout: an ABC key, a symbols key, or the Secondary layout tool on the toolbar.</string>
     <!-- %1$s is the layer name. -->
     <string name="core_lang_layout_persistent_warning">The <xliff:g id="layer" example="symbols">%1$s</xliff:g> layer stays open when the keyboard closes. Make sure you have a way to exit this layout.</string>
 
@@ -141,6 +141,15 @@
 
     <string name="core_lang_repair_braille_dot_clamped">A key in the <xliff:g id="layer" example="letters">%1$s</xliff:g> layer used braille dot <xliff:g id="dot" example="9">%2$d</xliff:g>. The app made it dot <xliff:g id="fixed" example="6">%3$d</xliff:g>.</string>
 
+    <!-- A key can stand for more than one letter, such as a T9 key that stands
+         for a, b and c. Such a key must type the first letter of the set.
+         %1$s is the layer name. %2$s is the set of letters. %3$s is the letter
+         the app made the key type. -->
+    <string name="core_lang_repair_key_letters_anchored">A key in the <xliff:g id="layer" example="letters">%1$s</xliff:g> layer stands for <xliff:g id="letters" example="abc">%2$s</xliff:g>. The app made it type <xliff:g id="anchor" example="a">%3$s</xliff:g>.</string>
+    <!-- %1$s is the layer name. %2$s is what the key listed, which held no
+         letters. -->
+    <string name="core_lang_repair_key_letters_dropped">A key in the <xliff:g id="layer" example="letters">%1$s</xliff:g> layer listed <xliff:g id="letters" example="123">%2$s</xliff:g> as the letters it stands for. Those are not letters, so the app made it an ordinary key.</string>
+
     <!-- %1$s is the layer name. %2$d is the number of keys the row had, and
          picks the wording. %3$d is the number of keys the app kept. -->
     <plurals name="core_lang_repair_row_keys_trimmed">
@@ -162,6 +171,21 @@
     <plurals name="core_lang_foreign_keys_dropped">
         <item quantity="one">The app removed %1$d key. This keyboard has no key that does the same thing (code <xliff:g id="codes" example="-233">%2$s</xliff:g>).</item>
         <item quantity="other">The app removed %1$d keys. This keyboard has no keys that do the same thing (codes <xliff:g id="codes" example="-233, -301">%2$s</xliff:g>).</item>
+    </plurals>
+
+    <!-- %1$d is the number of keys, and picks the wording. %2$s is the list of
+         names the file used for them, such as "dpad". -->
+    <plurals name="core_lang_foreign_labels_dropped">
+        <item quantity="one">The app removed %1$d key. This keyboard has no key called <xliff:g id="names" example="dpad">%2$s</xliff:g>.</item>
+        <item quantity="other">The app removed %1$d keys. This keyboard has no keys called <xliff:g id="names" example="dpad, undo">%2$s</xliff:g>.</item>
+    </plurals>
+
+    <!-- A key in the file that changes with the shift state, the field or the
+         writing direction. This keyboard draws one key per place, so it keeps
+         the resting one. %1$d is the number of keys, and picks the wording. -->
+    <plurals name="core_lang_foreign_selectors_flattened">
+        <item quantity="one">%1$d key changes with the shift state or the field in the other keyboard. The app kept the way it looks at rest.</item>
+        <item quantity="other">%1$d keys change with the shift state or the field in the other keyboard. The app kept the way they look at rest.</item>
     </plurals>
 
     <!-- %1$d is the number of keys, and picks the wording. -->
@@ -192,6 +216,64 @@
     </plurals>
 
     <string name="core_lang_foreign_widths_scaled">The other keyboard measures key widths differently. The app changed the widths to fit this grid.</string>
+
+    <!-- A FUTO layout may draw its own row of numbers. This app adds one from a
+         setting instead, so keeping the file's would give the layout two. -->
+    <string name="core_lang_foreign_number_row_dropped">The app removed the row of numbers. Turn the number row on in Layout and size to get one.</string>
+
+    <!-- A Keys Cafe layout carries its own row of numbers, which becomes this
+         layout's number row. Layout and size is the name of a settings screen. -->
+    <string name="core_lang_foreign_number_row_kept">The file\'s row of numbers is this layout\'s number row. It shows while the number row is on in Layout and size.</string>
+
+    <!-- The file gives a key different press-and-hold letters while shift is
+         down. This keyboard has one list per key, so the unshifted one is kept.
+         %1$d is the number of keys, and picks the wording. -->
+    <plurals name="core_lang_foreign_shifted_popups_dropped">
+        <item quantity="one">%1$d key has different press-and-hold letters while shift is down in the other keyboard. The app kept the unshifted ones.</item>
+        <item quantity="other">%1$d keys have different press-and-hold letters while shift is down in the other keyboard. The app kept the unshifted ones.</item>
+    </plurals>
+    <!-- A Multiling O key can do one thing on a tap and others on a swipe.
+         Here a delete key and a space bar use their swipes for other jobs. -->
+    <plurals name="core_lang_foreign_gestures_dropped">
+        <item quantity="one">%1$d swipe on a key has no place here, because this keyboard uses that swipe for another job. The app removed it.</item>
+        <item quantity="other">%1$d swipes on keys have no place here, because this keyboard uses those swipes for other jobs. The app removed them.</item>
+    </plurals>
+    <plurals name="core_lang_foreign_shifted_pages_dropped">
+        <item quantity="one">%1$d shifted page in the file has its keys in other places than the page it shifts. The app uses capital letters there instead.</item>
+        <item quantity="other">%1$d shifted pages in the file have their keys in other places than the pages they shift. The app uses capital letters there instead.</item>
+    </plurals>
+    <string name="core_lang_foreign_pages_kept">The file\'s extra pages, such as AltGr, are pages of this layout. Swipe from the key that opened them in the other keyboard to open them here.</string>
+
+    <!-- A layout made for a computer keyboard (Windows .klc, macOS .keylayout,
+         Linux XKB). AltGr is the key right of the space bar that types a third
+         character on each key. -->
+    <string name="core_lang_foreign_desktop_altgr_on_hold">The characters that the AltGr key types on a computer are on press and hold of the same keys.</string>
+    <!-- A dead key types nothing on a computer. It puts an accent on the next
+         letter. %1$d is the number of dead keys, and picks the wording. -->
+    <plurals name="core_lang_foreign_desktop_dead_keys">
+        <item quantity="one">%1$d dead key puts an accent on the next letter on a computer. Here, the letters with that accent are on press and hold of each letter.</item>
+        <item quantity="other">%1$d dead keys put accents on the next letter on a computer. Here, the letters with those accents are on press and hold of each letter.</item>
+    </plurals>
+    <!-- Keys with punctuation only are not on a phone grid. Characters from
+         them that the symbol pages do not have go on the full stop key.
+         %1$d is the number of characters, and picks the wording. -->
+    <plurals name="core_lang_foreign_desktop_symbols_on_period">
+        <item quantity="one">%1$d character from a key with no letters on it is on press and hold of the full stop.</item>
+        <item quantity="other">%1$d characters from keys with no letters on them are on press and hold of the full stop.</item>
+    </plurals>
+    <!-- A Linux layout names each character, such as "Cyrillic_a". %1$d is the
+         number of names, and picks the wording. %2$s is the list of names. -->
+    <plurals name="core_lang_foreign_desktop_unknown_symbols">
+        <item quantity="one">The app does not know %1$d character name in the file, so it left it out: <xliff:g id="names" example="mystery_sym">%2$s</xliff:g>.</item>
+        <item quantity="other">The app does not know %1$d character names in the file, so it left them out: <xliff:g id="names" example="mystery_sym, other_sym">%2$s</xliff:g>.</item>
+    </plurals>
+    <!-- A Linux layout can start from a layout in another file, such as
+         "in(eng)". Only the one file was opened. %1$d is the number of files,
+         and picks the wording. %2$s is the list of them. -->
+    <plurals name="core_lang_foreign_desktop_includes_missing">
+        <item quantity="one">The file builds on %1$d other file (<xliff:g id="files" example="in(eng)">%2$s</xliff:g>) that you did not open. Keys that only that file sets are missing.</item>
+        <item quantity="other">The file builds on %1$d other files (<xliff:g id="files" example="in(eng), latin">%2$s</xliff:g>) that you did not open. Keys that only those files set are missing.</item>
+    </plurals>
 
     <!-- ================================================================== -->
     <!-- Numerals. Settings > Languages > a language > Numerals picks which  -->

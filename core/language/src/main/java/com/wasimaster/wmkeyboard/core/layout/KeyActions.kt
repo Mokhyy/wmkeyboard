@@ -92,6 +92,21 @@ sealed interface KeyAction {
      */
     @Serializable @SerialName("newline") data object Newline : KeyAction
 
+    /**
+     * Fires the field's own action — Send, Search, Go, Done — whatever the shift
+     * key says: the mirror of [Newline].
+     *
+     * The enter key's hold offers it while a shift the user put up has turned
+     * the key into a line break (`LayoutBehaviorSettings.shiftEnterNewline`).
+     * The key's corner already shows the action it traded away, and a hold
+     * that typed yet another line break left no way to send short of dropping
+     * the shift first. Not [Enter]: that one reads the shift, which is the
+     * whole reason it breaks the line.
+     *
+     * In a field that declares no action it does what an unshifted Enter does.
+     */
+    @Serializable @SerialName("editor_action") data object EditorAction : KeyAction
+
     /** Steps LETTERS → SYMBOLS → SYMBOLS_SHIFTED → SYMBOLS. */
     @Serializable @SerialName("symbols") data object Symbols : KeyAction
 
@@ -117,13 +132,40 @@ sealed interface KeyAction {
      */
     @Serializable @SerialName("input_method_picker") data object InputMethodPicker : KeyAction
 
+    /**
+     * Hands the field straight to one named keyboard app, with no list in
+     * between — the one-tap version of [InputMethodPicker] for someone who
+     * always goes back and forth between the same two keyboards (issue #354).
+     *
+     * [id] is the other keyboard's input-method id, the
+     * `package/.ServiceClass` string the platform files it under. Carrying the
+     * id rather than a position in the enabled list is what keeps the key
+     * pointing at the same app when another keyboard is installed or turned
+     * off. A blank [id] is the editor's placeholder while its picker is open,
+     * and what a file with the field missing coerces to; a key naming a
+     * keyboard that is no longer enabled falls back to the system picker
+     * rather than doing nothing, so the user is never stranded on a dead key.
+     */
+    @Serializable @SerialName("switch_input_method") data class SwitchInputMethod(
+        val id: String = "",
+    ) : KeyAction
+
     @Serializable @SerialName("emoji") data object Emoji : KeyAction
 
     /**
-     * Opens the numeric keypad panel over the current field. Produced only at
-     * runtime by a long-press on the ?123 / symbols key (opt-in via
-     * `LayoutBehaviorSettings.symbolsLongPressNumpad`) — no built-in or custom
-     * layout binds it, so it is never written to a serialized layout.
+     * Opens the toolbox, as the launcher at the head of the toolbar does
+     * (#970): the whole grid of tools one key away, for a layout that keeps
+     * the toolbar out of sight or wants it in reach of the thumb.
+     */
+    @Serializable @SerialName("toolbox") data object Toolbox : KeyAction
+
+    /**
+     * Opens the numeric keypad panel over the current field. Produced at
+     * runtime by a long-press on the ?123 / symbols key or the popup entry it
+     * adds to one with alternates
+     * (`LayoutBehaviorSettings.symbolsLongPressNumpad`), and by the symbols
+     * pages' 1234 key (`LayoutBehaviorSettings.symbolsNumpadKey`, issue #423).
+     * Imported FlorisBoard and FUTO layouts also bind it to their own keys.
      */
     @Serializable @SerialName("numpad") data object Numpad : KeyAction
 
@@ -139,7 +181,7 @@ sealed interface KeyAction {
      *
      * The tool is fired whether or not it is one of the tools shown on the
      * toolbar — a key bound by hand is its own reason for the tool to run — but
-     * a tool this build does not ship (a full-flavour scanner on lite) or one
+     * a tool this build does not ship (an ML Kit scanner on F-Droid) or one
      * that is not usable yet (a search tool with no key configured) does
      * nothing, the same as it would on the toolbar.
      *
@@ -170,6 +212,52 @@ sealed interface KeyAction {
      * is what a file from a newer build with a missing field coerces to.
      */
     @Serializable @SerialName("layout") data class Layout(val id: String = "") : KeyAction
+
+    /**
+     * Shows one of this layout's *own* further grids, named by its key in
+     * [LayoutSpec.layers] — the page key of a paginated keyboard.
+     *
+     * The shipped layers are a fixed set ([LayoutLayer]) because the keyboard
+     * reaches them for its own reasons: ?123 cycles the symbol pages, a numeric
+     * field picks a keypad. A grid that is simply "page 3 of this alphabet" has
+     * no such reason and no slot, and a Devanagari keyboard needs four of them:
+     * the script has more letters, matras and conjunct ligatures than fit on
+     * fifty keys, and the native layout answers that the way Gboard does, with a
+     * `1/4` key in the corner (issue #498).
+     *
+     * [layer] is the layer's key, which is any string that is not one of
+     * [LayoutLayer]'s — the same place a converted Keyman layout's extra pages
+     * live, and drawn by the same `LayoutMode.NAMED` path. Naming the letters
+     * layer, or a layer this layout does not define, goes back to the letters
+     * rather than leaving the user on a page with no way off; a blank [layer]
+     * — the editor's placeholder, and what a file from a newer build with the
+     * field missing coerces to — does the same.
+     *
+     * Not a toggle, unlike [Layout]: the key that says `2/4` means "go to page
+     * three", and a second press of it on page three would have to mean
+     * something else. A page goes back the way it came, by naming the layer it
+     * wants.
+     */
+    @Serializable @SerialName("layer") data class LayerSwitch(val layer: String = "") : KeyAction
+
+    /**
+     * Switches the keyboard into one of the user's keyboard modes, the same as
+     * picking it on the Modes panel, and a second press goes back to automatic.
+     *
+     * The point is a mode that is one press away rather than two: a "peck" mode
+     * with glide and two-thumb typing off, for a URL or a password, reached from
+     * a key or a flick instead of the panel.
+     *
+     * [id] is the mode's id. A key naming a mode that has since been deleted
+     * does nothing, the dead-key outcome a [Layout] naming a deleted layout
+     * gets. A blank [id] is the editor's placeholder while the picker is open.
+     *
+     * The press is a toggle against the mode that is on (#834): its own mode
+     * on, however it got there, goes back to automatic; anything else picks it.
+     * A mode that is on because a rule chose it for this app or field has no
+     * "off" to go to, so the key leaves it on, and pins nothing by hand.
+     */
+    @Serializable @SerialName("mode") data class Mode(val id: String = "") : KeyAction
 
     /**
      * Latches a modifier for the next key, the way [Shift] latches case: tap to
@@ -219,6 +307,44 @@ sealed interface KeyAction {
     @Serializable @SerialName("kana_variant") data object KanaVariant : KeyAction
 
     /**
+     * 획추가: one more stroke on the last jamo in the composing buffer, cycling
+     * back to the plain letter (ㄱ→ㅋ, ㄴ→ㄷ→ㅌ, ㅏ→ㅑ). With [DoubleConsonant],
+     * the key that makes the 나랏글 (Naratgeul) pad's twelve keys enough for
+     * every jamo (issue #599). A syllable already built changes with it: 롬 →
+     * 롭 → 롶. A no-op when nothing is composing or the letter takes no stroke.
+     */
+    @Serializable @SerialName("add_stroke") data object AddStroke : KeyAction
+
+    /**
+     * 쌍자음: the last consonant in the composing buffer to its tense twin and
+     * back (ㄱ↔ㄲ, ㄷ↔ㄸ, ㅂ↔ㅃ, ㅅ↔ㅆ, ㅈ↔ㅉ), so 각 becomes 갂 and 밥 becomes
+     * 바ㅃ. The 나랏글 pad's other letter key; see [AddStroke].
+     */
+    @Serializable @SerialName("double_consonant") data object DoubleConsonant : KeyAction
+
+    /**
+     * A column of choices in place of a key face, the way a 九宫格 pinyin pad's
+     * left column works (issue #635). While a conversion reading is composing it
+     * lists what the next undecided syllable could be (`Composer.readings`), and
+     * a tap settles it; the rest of the time it lists the key's own
+     * [Key.longPress] entries — punctuation, on the shipped pad — and a tap types
+     * one. Usually given a [Key.rowSpan] so the list has room to scroll.
+     *
+     * The keyboard dispatches a pick as this action with the reading in
+     * [Key.output]; a key of it never fires as a whole.
+     */
+    @Serializable @SerialName("reading_column") data object ReadingColumn : KeyAction
+
+    /**
+     * Flips Chinese candidates between Simplified and Traditional characters,
+     * the same setting as the Chinese screen's Traditional characters row
+     * (#962). The shipped Pinyin layout puts it on the hold of its '词 key,
+     * where the Chinese keyboards its users come from keep the switch; any
+     * layout can bind it. A word being typed takes the new script at once.
+     */
+    @Serializable @SerialName("han_script") data object HanScript : KeyAction
+
+    /**
      * Fires an Android broadcast with [action] as its intent action, so a key
      * can trigger an automation app (Tasker et al.) or any app with a matching
      * receiver — the keyboard equivalent of a physical macro key. Types no text
@@ -262,20 +388,38 @@ sealed interface KeyAction {
 
     /** A deliberate gap in the grid: drawn as empty space, swallows its taps. */
     /**
-     * A key of a converted Keyman layout. The key names a virtual key and the
+     * A key of a converted Keyman layout. The key names a Keyman key and the
      * keyboard's rule engine decides what it types.
      *
      * [Key.label] and [Key.output] are the cap and the fallback, not the answer:
      * the character a rule matches on comes from Keyman's own US virtual-key
      * table, so a Khmer key cap does not make the matched character Khmer. When
      * no engine is loaded — an exported layout on a device without the rules,
-     * or a keyboard whose rules failed to parse — the key types its label, and
-     * the grid stays an ordinary usable keyboard.
+     * or a keyboard whose rules failed to parse — the key types its output or
+     * its label, and the grid stays an ordinary usable keyboard.
      *
-     * [modifiers] is the touch key's `layer` attribute folded into a Keyman
-     * modifier mask: "match rules as though this combination were held", which
-     * is a different thing from [nextLayer], the layer to *show* afterwards. A
-     * touch key's `nextlayer` wins over a rule's own `layer()` statement.
+     * The key is identified the way Keyman identifies it: a US virtual key in
+     * [vkey] for a `K_` key, or the author's own name in [id] for a `T_` or `U_`
+     * key, which the engine resolves against the keyboard's virtual-key
+     * dictionary (and a `U_` key not in it types its code points). [modifiers]
+     * is the Keyman modifier mask the rules match as held: the key's `layer`
+     * attribute, else the layer it sits on, read the way KeymanWeb reads a layer
+     * name — so a key on `rightalt-shift` matches `[RALT SHIFT K_x]`.
+     *
+     * [nextLayer] is the layer to show afterwards, as a key of
+     * [LayoutSpec.layers]. A rule's own `layer()` wins over it, as it does in
+     * KeymanWeb, where the rule's store write lands after the key's switch.
+     *
+     * [longPress] and [flick] are the Keyman keys behind the key's gestures,
+     * parallel to [Key.longPress] and [Key.flick]: a Keyman gesture is a key in
+     * its own right, with its own id and layer, and has to reach the rules as
+     * one rather than as the text on its cap. Each carries its own fallback in
+     * [text].
+     *
+     * [multitap] is the same for the key's repeated-tap cycle, parallel to
+     * [Key.multitap]: each later tap is a Keyman key of its own, which the
+     * service runs through the rules after taking the previous tap's output
+     * back, the way KeymanWeb rewinds to the text before the first tap.
      *
      * Carried on the action rather than as a field on [Key] because [Key] is
      * serialised with `encodeDefaults`, so a new field there writes into every
@@ -288,7 +432,15 @@ sealed interface KeyAction {
         val vkey: Int,
         val modifiers: Int = 0,
         val nextLayer: String? = null,
-    ) : KeyAction
+        val id: String? = null,
+        val text: String? = null,
+        val longPress: List<KeymanTarget> = emptyList(),
+        val flick: Map<FlickDirection, KeymanTarget> = emptyMap(),
+        val multitap: List<KeymanTarget> = emptyList(),
+    ) : KeyAction {
+        /** A key that only switches layers: no virtual key and no name to type. */
+        val isLayerSwitch: Boolean get() = vkey == 0 && id == null && nextLayer != null
+    }
 
     @Serializable @SerialName("none") data object None : KeyAction
 
@@ -333,6 +485,13 @@ sealed interface KeyAction {
     @Serializable @SerialName("edit") data class Edit(val op: TextEditAction) : KeyAction
 
     /**
+     * Several text-editing operations run in turn by one press, flick or hold
+     * (#985): start of the line then page up, or up then right for a move no
+     * single arrow makes. Each runs as its own [Edit] would.
+     */
+    @Serializable @SerialName("edit_sequence") data class EditSequence(val ops: List<TextEditAction>) : KeyAction
+
+    /**
      * An action written by a build newer than this one. Decoding keeps the tag
      * so the failure is reportable ("2 keys use an action this version does
      * not know"), and [LayoutSpec.repair] drops the key so the row re-flows
@@ -346,6 +505,23 @@ sealed interface KeyAction {
      */
     @Serializable @SerialName("unknown") data class Unknown(val tag: String) : KeyAction
 }
+
+/**
+ * Whether a shift or caps-lock key draws its [label] instead of the arrow
+ * (issue #559).
+ *
+ * Those keys draw from an icon slot, and every label used to be thrown away
+ * for it: a key the author worded "A" or "ABC", or a syllabics board's
+ * "ᐃ ᐊ", still came out as the arrow. A blank label and the arrow glyphs the
+ * shipped layouts and importers write ("⇧", "⇪") keep the slot, so an icon
+ * pack still redresses them; anything else is the author's own face for the
+ * key, the same rule a tool key follows.
+ */
+fun shiftLabelReplacesIcon(label: String): Boolean =
+    label.isNotBlank() && label.trim() !in ShiftArrowGlyphs
+
+/** The labels that only spell a shift key's arrow; see [shiftLabelReplacesIcon]. */
+private val ShiftArrowGlyphs = setOf("⇧", "⇪", "⬆", "⇑", "↑", "⇮", "⇯")
 
 /**
  * What to draw on a key of this action that carries no label of its own.
@@ -375,12 +551,20 @@ fun KeyAction.fallbackLabel(): String = when (this) {
     KeyAction.Numpad -> "123"
     KeyAction.Fn -> "Fn"
     KeyAction.KanaVariant -> "小"
+    KeyAction.AddStroke -> "획추가"
+    KeyAction.DoubleConsonant -> "쌍자음"
+    // The board draws its list, never a label; this is what the editor's
+    // preview shows for one left unlabelled.
+    KeyAction.ReadingColumn -> "≡"
+    KeyAction.HanScript -> "简/繁"
     KeyAction.MorseDot -> "·"
     KeyAction.MorseDash -> "–"
     // Drawn from the enter icon slot on the board, so the key itself never
     // reaches here. The alternates popup does: the entry the enter key offers
     // carries the icon, but one an author wrote by hand may not.
     KeyAction.Newline -> "⏎"
+    // Drawn from the field's action slot when the enter key offers it.
+    KeyAction.EditorAction -> "↵"
     KeyAction.None -> ""
     is KeyAction.Mod -> when (key) {
         ModifierKey.CTRL -> "Ctrl"
@@ -413,6 +597,14 @@ fun KeyAction.fallbackLabel(): String = when (this) {
     // The editor writes the layout's name onto the key when it is picked; this
     // is the grid glyph a hand-written layout that left the label blank gets.
     is KeyAction.Layout -> "▦"
+    // A page key is normally labelled by hand ("1/4"); this is what an
+    // unlabelled one falls back to, and it is deliberately not the layer's key,
+    // which is an identifier and can be any length.
+    is KeyAction.LayerSwitch -> "▤"
+    // The board draws the mode's current name over this (#821, see
+    // modeBindingLabel); the glyph is for a face drawn without the modes to hand.
+    is KeyAction.Mode -> "◐"
+    is KeyAction.SwitchInputMethod -> "⌨"
     // A field is not a key: the cell draws its component, and the editor draws
     // the component's name from a string resource.
     is KeyAction.Field -> ""
@@ -420,6 +612,7 @@ fun KeyAction.fallbackLabel(): String = when (this) {
     // (see the ime layer's text-edit key faces); the glyph here is what a
     // hand-written alternate or an unlabelled JSON key falls back to.
     is KeyAction.Edit -> op.fallbackGlyph()
+    is KeyAction.EditSequence -> ops.firstOrNull()?.fallbackGlyph() ?: "?"
     // Reached only by a layout that repair has not been through yet.
     is KeyAction.Unknown -> "?"
     // Text keys have nothing to fall back to: a blank one is a blank key, which
@@ -427,7 +620,7 @@ fun KeyAction.fallbackLabel(): String = when (this) {
     // this stays exhaustive and a new action cannot be added without deciding.
     KeyAction.Text, KeyAction.Shift, KeyAction.CapsLock, KeyAction.Delete,
     KeyAction.ForwardDelete, KeyAction.Enter, KeyAction.LanguageSwitch,
-    KeyAction.InputMethodPicker, KeyAction.Emoji,
+    KeyAction.InputMethodPicker, KeyAction.Emoji, KeyAction.Toolbox,
     -> ""
 }
 
@@ -457,6 +650,26 @@ private const val KEYCODE_DPAD_RIGHT = 22
  * the same lookup [Key.icon] goes through.
  */
 @Immutable
+
+
+/**
+ * The Keyman key behind one of a [KeyAction.KeymanKey]'s gestures: the same
+ * identity as a key of its own, flat so a gesture cannot carry gestures.
+ * [text] is what it types with no rules loaded, since a popup entry has no
+ * [Key.output] of its own.
+ */
+@Serializable
+data class KeymanTarget(
+    val vkey: Int = 0,
+    val modifiers: Int = 0,
+    val nextLayer: String? = null,
+    val id: String? = null,
+    val text: String? = null,
+) {
+    /** This target as a key press. */
+    fun toAction(): KeyAction.KeymanKey =
+        KeyAction.KeymanKey(vkey = vkey, modifiers = modifiers, nextLayer = nextLayer, id = id, text = text)
+}
 @Serializable
 data class KeyAlternate(
     val action: KeyAction,
@@ -466,6 +679,24 @@ data class KeyAlternate(
 
 /** What a popup draws for this alternate when it has no icon; see [KeyAlternate]. */
 fun KeyAlternate.drawnLabel(): String = label.ifBlank { action.fallbackLabel() }
+
+/**
+ * Whether this key deletes behind the cursor: the backspace key, and the
+ * text-editing pad's own backspace, which is the same key wearing a different
+ * action (issue #226).
+ *
+ * The pad's `Edit` keys grew up beside the delete key rather than out of it, so
+ * for a while a ⌫ placed on a panel could only tap and repeat: the swipe, the
+ * word-clearing hold and the "stop at the start of the text" test all asked for
+ * [KeyAction.Delete] by name and a pad key is not that. Asking this instead is
+ * what makes a delete key a delete key wherever the author put it.
+ */
+fun KeyAction.deletesBackward(): Boolean =
+    this == KeyAction.Delete || (this as? KeyAction.Edit)?.op == TextEditAction.BACKSPACE
+
+/** The mirror of [deletesBackward]: ⌦, on the typing grid or on a pad. */
+fun KeyAction.deletesForward(): Boolean =
+    this == KeyAction.ForwardDelete || (this as? KeyAction.Edit)?.op == TextEditAction.FORWARD_DELETE
 
 /**
  * Whether a press and hold on this key is already spoken for by something other
@@ -487,6 +718,10 @@ fun KeyAlternate.drawnLabel(): String = label.ifBlank { action.fallbackLabel() }
  * that opens the popup, the key that draws (or does not draw) a corner hint, and
  * the layout editor, which must not offer an author a field that will silently
  * do nothing.
+ *
+ * Ask [com.wasimaster.wmkeyboard.core.layout.holdIsSpokenFor] rather than this
+ * wherever a whole key is in hand: a key can also have been *told* to repeat,
+ * and only the key knows that.
  */
 fun KeyAction.holdIsSpokenFor(): Boolean = when (this) {
     KeyAction.Delete, KeyAction.ForwardDelete -> true
@@ -498,6 +733,44 @@ fun KeyAction.holdIsSpokenFor(): Boolean = when (this) {
     // hold is free for an alternate (the shipped grid puts Page Up on Home).
     is KeyAction.Edit -> op.repeats
     else -> false
+}
+
+/**
+ * Whether `Key.repeatOnHold` is worth offering for a key running this action
+ * (issue #231).
+ *
+ * The rule is one question: does a second press do something the first did not?
+ * Typing, a raw key event, a text-editing operation, a broadcast and a Keyman
+ * key all say yes — the arrow cluster somebody builds a row of is a
+ * `SendKey(DPAD_LEFT)`, and holding it should walk the caret. A layer switch, a
+ * modifier latch, the language cycle, the system keyboard picker, a tool and the
+ * emoji panel all say no: the second press either undoes the first or reopens
+ * something that is already open, twenty times a second.
+ *
+ * The keys that already repeat or chord are left out through
+ * [holdIsSpokenFor] — a backspace has nothing to turn on — and so is the
+ * spacebar, whose hold is a repeat by default and whose one way of giving that
+ * up is the alternates (issue #57).
+ *
+ * The editor asks this before drawing the switch, and the repair pass asks it of
+ * a stored value, so a hand-written layout cannot hang a repeat somewhere the
+ * editor would never have put one.
+ */
+fun KeyAction.canRepeatOnHold(): Boolean = when (this) {
+    KeyAction.Space, KeyAction.None -> false
+    KeyAction.MorseDot, KeyAction.MorseDash -> false
+    KeyAction.Shift, KeyAction.CapsLock, KeyAction.Fn -> false
+    KeyAction.Symbols, KeyAction.Letters, KeyAction.Numpad, KeyAction.Emoji, KeyAction.Toolbox -> false
+    KeyAction.LanguageSwitch, KeyAction.InputMethodPicker -> false
+    is KeyAction.SwitchInputMethod -> false
+    is KeyAction.Mod, is KeyAction.Layout, is KeyAction.Tool -> false
+    is KeyAction.LayerSwitch, is KeyAction.Mode -> false
+    is KeyAction.Unknown -> false
+    // A list, not a key: nothing presses it as a whole.
+    KeyAction.ReadingColumn -> false
+    // A switch: every second repeat would undo the one before.
+    KeyAction.HanScript -> false
+    else -> !holdIsSpokenFor()
 }
 
 /**
@@ -521,6 +794,12 @@ fun KeyAction.commitsNoText(): Boolean = when (this) {
     KeyAction.Shift, KeyAction.CapsLock, KeyAction.LanguageSwitch, KeyAction.None,
     -> true
     is KeyAction.Layout -> true
+    is KeyAction.LayerSwitch -> true
+    // Switching into a URL or email mode to reach `:` or `@` is the same
+    // trip the ?123 key makes, and must leave the typed space as spendable.
+    is KeyAction.Mode -> true
+    // Flips the script the next candidates come out in; the text stays put.
+    KeyAction.HanScript -> true
     else -> false
 }
 
@@ -549,9 +828,15 @@ private fun TextEditAction.fallbackGlyph(): String = when (this) {
     TextEditAction.COPY -> "⎘"
     TextEditAction.PASTE -> "⎗"
     TextEditAction.BACKSPACE -> "⌫"
+    TextEditAction.FORWARD_DELETE -> "⌦"
     TextEditAction.DOC_START -> "⇱"
     TextEditAction.DOC_END -> "⇲"
     TextEditAction.CUT -> "✂"
+    TextEditAction.RETYPE_WORD -> "↺"
+    TextEditAction.NO_SPACE -> "⁀"
+    TextEditAction.NO_SPACE_NEXT -> "⁀›"
+    TextEditAction.DELETE_WORD -> "^⌫"
+    TextEditAction.DELETE_WORD_FORWARD -> "^⌦"
 }
 
 /**
@@ -571,12 +856,44 @@ enum class PanelFieldKind(val panel: PanelKind) {
     @SerialName("emoji_tabs") EMOJI_TABS(PanelKind.EMOJI),
     @SerialName("emoji_search") EMOJI_SEARCH(PanelKind.EMOJI),
     @SerialName("emoji_grid") EMOJI_GRID(PanelKind.EMOJI),
+    /**
+     * The emoji / GIF / sticker switch (issue #366). Filed under the emoji
+     * panel, but each of the three may carry it ([isOn]): the GIF and sticker
+     * panels borrow the emoji panel's row it sits in until the user lays them
+     * out (#538), so the switch is in the same place in all three.
+     */
+    @SerialName("media_tabs") MEDIA_TABS(PanelKind.EMOJI),
     @SerialName("clipboard_search") CLIPBOARD_SEARCH(PanelKind.CLIPBOARD),
     @SerialName("clipboard_entities") CLIPBOARD_ENTITIES(PanelKind.CLIPBOARD),
     @SerialName("clipboard_list") CLIPBOARD_LIST(PanelKind.CLIPBOARD),
+    /** The grid / list switch for the clipboard history. */
+    @SerialName("clipboard_view") CLIPBOARD_VIEW(PanelKind.CLIPBOARD),
     @SerialName("trackpad") TRACKPAD(PanelKind.TRACKPAD),
+    /**
+     * The GIF panel's body (#538): its search box, source and category chips
+     * and the results, as one cell. The panel lays out the keys around it.
+     */
+    @SerialName("gif_browser") GIF_BROWSER(PanelKind.GIF),
+    /** The sticker panel's body, as [GIF_BROWSER] is the GIF panel's. */
+    @SerialName("sticker_browser") STICKER_BROWSER(PanelKind.STICKER),
+    /**
+     * The handwriting panel's writing area (#568), with what sits on the ink:
+     * the language chip, undo and the full-screen button, and the download
+     * offer while the model is missing.
+     */
+    @SerialName("handwriting_canvas") HANDWRITING_CANVAS(PanelKind.HANDWRITING),
+    /** The emoji mixes panel's body: the two emoji, their mix, every mix of the first, and the emoji to pick from. */
+    @SerialName("emoji_mix_browser") EMOJI_MIX_BROWSER(PanelKind.EMOJI_MIX),
     @SerialName("unknown") UNKNOWN(PanelKind.EMOJI),
     ;
+
+    /**
+     * Whether a layout of [kind] may carry this component: its own panel's,
+     * plus the emoji / GIF / sticker switch on any of those three panels.
+     */
+    fun isOn(kind: PanelKind): Boolean =
+        panel == kind ||
+            (this == MEDIA_TABS && (kind == PanelKind.GIF || kind == PanelKind.STICKER || kind == PanelKind.EMOJI_MIX))
 
     /** Whether the editor may offer this kind; [UNKNOWN] is a decode artefact. */
     val isReal: Boolean get() = this != UNKNOWN
@@ -587,7 +904,9 @@ enum class PanelFieldKind(val panel: PanelKind) {
      * (tabs, search, the fragment chips) are a row tall, like a row of keys.
      */
     val fills: Boolean
-        get() = this == EMOJI_GRID || this == CLIPBOARD_LIST || this == TRACKPAD
+        get() = this == EMOJI_GRID || this == CLIPBOARD_LIST || this == TRACKPAD ||
+            this == GIF_BROWSER || this == STICKER_BROWSER || this == HANDWRITING_CANVAS ||
+            this == EMOJI_MIX_BROWSER
 }
 
 /**
@@ -641,6 +960,20 @@ enum class KeyRole {
 
     /** The secondary-punctuation slot; becomes @ in EMAIL, / in URI, or the emoji key. */
     Comma,
+
+    /**
+     * Neither slot, and no rewrite of any kind: this key types exactly what its
+     * author put on it (issue #529).
+     *
+     * A null [Key.role] cannot say this, because null is also what every layout
+     * written before roles existed carries, and the fallback below reads a
+     * bottom-row `.` or `,` as a slot so those layouts keep their field
+     * adaptation. That inference is right far more often than not, but it has no
+     * off switch: on a script whose sentence mark is not `.` — Japanese `。`,
+     * Devanagari `।` — a `.` key put somewhere deliberately was swapped to the
+     * mark and there was no way to say "I meant the full stop". This is that way.
+     */
+    Plain,
 }
 
 /**

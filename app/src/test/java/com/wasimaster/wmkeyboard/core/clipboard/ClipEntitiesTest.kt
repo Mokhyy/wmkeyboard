@@ -105,6 +105,17 @@ class ClipEntitiesTest {
         )
     }
 
+    @Test fun findsAddressesWithoutAScheme() {
+        // #612.
+        assertEquals(
+            listOf("x.com", "m.youtube.com/watch?v=Z7pkvfRl5S8"),
+            values("try x.com or m.youtube.com/watch?v=Z7pkvfRl5S8.", ClipEntityKind.URL),
+        )
+        assertEquals(emptyList<String>(), values("mail someone@example.com about notes.txt, e.g. today", ClipEntityKind.URL))
+        // Inside an address with a scheme, the host is not found a second time.
+        assertEquals(listOf("https://example.com/a"), values("see https://example.com/a", ClipEntityKind.URL))
+    }
+
     @Test fun digitsInsideALinkAreNotAPhoneNumber() {
         val found = ClipEntities.extract("open https://example.com/id/5551234567 now")
         assertEquals(listOf(ClipEntityKind.URL), found.map { it.kind })
@@ -150,6 +161,25 @@ class ClipEntitiesTest {
         store.add("code 445566 expires soon", now = now)
         store.add("your code 445566 again", now = now)
         assertEquals(listOf("445566"), ClipEntities.entitiesIn(store.items(now)).map { it.value })
+    }
+
+    @Test fun eachClipKeepsItsOwnParts() {
+        // #472: the cards count what is in them, so a part two clips share is
+        // on both, and one clip lists every part it holds.
+        val store = ClipboardStore(null)
+        val now = System.currentTimeMillis()
+        store.add("code 445566 expires soon", now = now)
+        store.add("your code 445566, see https://a.example/x and https://b.example/y", now = now)
+        store.add("https://only.example/link", now = now)
+        val byClip = ClipEntities.byClip(store.items(now))
+        val items = store.items(now)
+        assertEquals(
+            listOf(ClipEntityKind.OTP, ClipEntityKind.URL, ClipEntityKind.URL),
+            byClip[items.first { it.text.startsWith("your") }.id]!!.map { it.kind },
+        )
+        assertEquals(listOf("445566"), byClip[items.first { it.text.startsWith("code") }.id]!!.map { it.value })
+        // A clip that is only its fragment has nothing to extract.
+        assertTrue(items.first { it.text.startsWith("https://only") }.id !in byClip)
     }
 
     @Test fun imageAndFileClipsAreNotScanned() {

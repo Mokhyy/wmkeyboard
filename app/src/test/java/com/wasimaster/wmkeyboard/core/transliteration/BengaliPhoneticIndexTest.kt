@@ -1,5 +1,7 @@
 package com.wasimaster.wmkeyboard.core.transliteration
 
+import java.io.File
+import java.security.MessageDigest
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -88,7 +90,79 @@ class BengaliPhoneticIndexTest {
         assertEquals("ভারত", top("bharot"))
     }
 
+    @Test fun qReadsAsK() {
+        assertEquals(BengaliPhoneticIndex.foldRoman("kobor"), BengaliPhoneticIndex.foldRoman("qobor"))
+        assertEquals("কবর", top("qobor"))
+        // "qq" is ঁ, which folds away rather than doubling a ক.
+        assertEquals(BengaliPhoneticIndex.foldRoman("cad"), BengaliPhoneticIndex.foldRoman("caqqd"))
+    }
+
+    @Test fun aFlatListTakesTheBundledRanking() {
+        // The downloaded Bangla list says 1 for every word, in trie order, so
+        // a rare sibling came ahead of the far commoner সরাসরি on the shared key.
+        val downloaded = listOf("\u099B\u09A1\u09BC\u09BE\u099B\u09A1\u09BC\u09BF" to 1, "সরাসরি" to 1, "স্বরলিপি" to 1)
+        val bundled = listOf("সরাসরি" to 1252, "\u099B\u09DC\u09BE\u099B\u09DC\u09BF" to 40)
+        val merged = BengaliPhoneticIndex.withBundledRanking(downloaded) { bundled }
+        assertEquals("সরাসরি", BengaliPhoneticIndex(merged).lookup("sorasori").first())
+        // The download keeps its own words, and one spelled with a decomposed
+        // nukta is still recognised as the bundled word, not listed twice.
+        assertEquals(setOf("সরাসরি", "\u099B\u09DC\u09BE\u099B\u09DC\u09BF", "স্বরলিপি"), merged.map { it.first.replace("\u09A1\u09BC", "\u09DC") }.toSet())
+        assertEquals(3, merged.size)
+    }
+
+    @Test fun aRankedListLeadsWithItsCountsAndTheBundledListLiftsChatWords() {
+        // The bundled list has থেকেও above থেকে; the corpus's 594,781 against
+        // 7,135 decides that. A chat word the corpus never saw (2) is lifted by
+        // its bundled frequency, ×4, above the list's other unseen words.
+        val ranked = listOf("থেকে" to 594_781, "থেকেও" to 7_135, "বানাইছি" to 2, "বানাইসি" to 2)
+        val bundled = listOf("থেকেও" to 1311, "থেকে" to 400, "বানাইছি" to 900, "করছি" to 700)
+        val merged = BengaliPhoneticIndex.withBundledRanking(ranked) { bundled }.toMap()
+        assertEquals(
+            mapOf("থেকেও" to 12_379, "থেকে" to 596_381, "বানাইছি" to 3_602, "করছি" to 2_802, "বানাইসি" to 2),
+            merged,
+        )
+        assertEquals("থেকে", BengaliPhoneticIndex(merged.toList()).lookup("theke").first())
+    }
+
+    @Test fun aRankedListKeepsTheBundledSpelling() {
+        // bn_full spells the nukta decomposed, the bundled list and Avro
+        // precomposed: one word, in the bundled spelling, at the summed count.
+        val ranked = listOf("\u099B\u09A1\u09BC\u09BE\u099B\u09A1\u09BC\u09BF" to 500, "সরাসরি" to 9_000)
+        val bundled = listOf("\u099B\u09DC\u09BE\u099B\u09DC\u09BF" to 40)
+        val merged = BengaliPhoneticIndex.withBundledRanking(ranked) { bundled }
+        assertEquals(listOf("\u099B\u09DC\u09BE\u099B\u09DC\u09BF" to 660, "সরাসরি" to 9_000), merged)
+    }
+
+    /**
+     * The published Bangla table (#716) has the bundled list's ranking baked
+     * in, so editing `dictionaries-src/bn.txt` leaves every installed table
+     * ranking by the old list. Bump [BengaliPhoneticIndex.REVISION], rerun the
+     * data repo's `scripts/build_phonetic_indexes.sh` for bn, and update the
+     * digest below together.
+     */
+    @Test fun theBundledListIsTheOneThePublishedTableRanksBy() {
+        val list = listOf(File("dictionaries-src/bn.txt"), File("app/dictionaries-src/bn.txt")).first { it.isFile }
+        val digest = MessageDigest.getInstance("SHA-256").digest(list.readBytes()).joinToString("") { "%02x".format(it) }
+        assertEquals(2, BengaliPhoneticIndex.REVISION)
+        assertEquals("145c1f751f8244ed9f87b41a3be815c4a3a188ca3fe5ba6f78742690b31d6df9", digest)
+    }
+
     @Test fun unknownInputHasNoSiblings() {
         assertEquals(null, top("zzzq"))
+    }
+
+    /**
+     * Issue #516: "vodor" is ভোঁদড় on desktop Avro's list. A typed o between
+     * consonants folds as the inherent vowel, so the strip's lookup cannot see
+     * a written ো there; the loose lookup reads it both ways, plain fold first.
+     */
+    @Test fun looseLookupReadsAMedialOAsOKar() {
+        val words = BengaliPhoneticIndex(
+            listOf("বদর" to 50, "ভোঁদড়" to 1, "দোকান" to 30, "ভোট" to 40, "বট" to 60),
+        )
+        assertEquals(false, "ভোঁদড়" in words.lookup("vodor"))
+        assertEquals(listOf("বদর", "ভোঁদড়"), words.lookupLoose("vodor"))
+        assertEquals(listOf("দোকান"), words.lookupLoose("dokan"))
+        assertEquals(listOf("বট", "ভোট"), words.lookupLoose("vot"))
     }
 }

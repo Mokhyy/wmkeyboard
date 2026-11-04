@@ -2,38 +2,66 @@
 title: "Troubleshooting"
 description: "When something misbehaves: fixes for the usual suspects."
 sidebar:
-  order: 7
+  order: 8
 ---
 
 import PhoneFrame from '@components/PhoneFrame.astro';
 import SettingsPath from '@components/SettingsPath.astro';
 import KeyCap from '@components/KeyCap.astro';
+import Shot from '@components/Shot.astro';
 
 Most keyboard problems trace back to one of a handful of causes: a permission Android never granted, a dictionary that never downloaded, or a tool panel doing exactly what it's supposed to. This page walks through the usual suspects and where to go next when the fix isn't here.
 
 ## The keyboard doesn't appear, or won't stay selected
 
-The setup card on the app's Home screen covers this fully. It polls Android's own input-method state and tells you which of three situations you're in: not enabled, enabled but not selected, or active. See [Enable the keyboard](/start/setup/) for the exact steps. Only two buttons are involved, **Turn on keyboard** and **Switch keyboard**, and the card comes back whenever you need it rather than only on first run. Once WM Keyboard *is* the active keyboard the card shrinks to a one-line "WM Keyboard is your active keyboard" with no buttons at all, since there is nothing left to press.
+The setup card on the app's Home screen covers this fully. It polls Android's own input-method state and tells you which of three situations you're in: not enabled, enabled but not selected, or active. See [Enable the keyboard](/start/setup/) for the exact steps. Only two buttons are involved, **Turn on keyboard** and **Switch keyboard**, and the card comes back whenever you need it rather than only on first run. Once WM Keyboard is the active keyboard the card shrinks to a one-line "WM Keyboard is your active keyboard" with no buttons at all, since there is nothing left to press.
 
-If WM Keyboard *was* selected and something knocked you back to a different keyboard on its own, look for a crash rather than a setting. Android quietly swaps in another input method when an IME's process dies, with no visible error. Open [the Diagnostics screen](#the-diagnostics-screen) below and check the Crashes section.
+If WM Keyboard was selected and something knocked you back to a different keyboard on its own, look for a crash rather than a setting. Android quietly swaps in another input method when an IME's process dies, with no visible error. Open [the Diagnostics screen](#the-diagnostics-screen) below and check the Crashes section.
 
 ## A language's suggestions look empty
+
+<PhoneFrame side caption="A language with no built-in or downloaded dictionary yet. Suggestions come only from what you've typed.">
+  <Shot id="reference/troubleshooting-empty-dictionary-state" alt="A language with no built-in or downloaded dictionary yet. Suggestions come only from what you've typed." />
+</PhoneFrame>
 
 This is almost always dictionary state. A language hasn't gone missing, because WM Keyboard can't drop your last enabled layout entirely from the [language settings](/languages/overview/). If suggestions vanish, look at the dictionary first.
 
 Only English and Bangla ship a built-in dictionary. Every other language starts with nothing but what you've typed yourself, until you download a wordlist or import your own. See [Downloadable dictionaries](/languages/dictionaries/) for the four states a language's Dictionary section can be in, the three size tiers, and why a failed download shows **Retry** instead of leaving you guessing.
 
-<PhoneFrame caption="A language with no built-in or downloaded dictionary yet. Suggestions come only from what you've typed.">
-  {/* shot: reference/troubleshooting-empty-dictionary-state */}
-</PhoneFrame>
-
 One setting can also hide suggestions everywhere at once, which is worth ruling out before you suspect a single language:
 
 <SettingsPath path="Typing / Suggestions" />
 
-- **Suggestions**, on by default. This is the master switch for the whole strip. Turning it off stops completions, correction candidates and next-word prediction. On an ordinary Latin layout it takes [autocorrect](/smart/autocorrect/) with it, because the keyboard then stops composing the word you're typing and there is nothing left for autocorrect to inspect when you press space. Autocorrect keeps its own toggle, but leave Suggestions on if you want it to fire. A phonetic layout such as Avro still transliterates either way, since its composing buffer is how it types at all. See [Suggestions & prediction](/smart/suggestions/) for the rest of that screen.
+- **Suggestions**, on by default. This is the master switch for the whole strip. Turning it off stops completions, correction candidates and next-word prediction. [Autocorrect](/smart/autocorrect/) has its own toggle and keeps correcting with the strip off, so turning off Suggestions alone doesn't stop words being replaced. Turn off Autocorrect too for letters that go into the field exactly as typed. A phonetic layout such as Avro still transliterates either way, since its composing buffer is how it types at all. See [Suggestions & prediction](/smart/suggestions/) for the rest of that screen.
 
 Password fields and structured keypads (number, phone, and similar) never show suggestions, regardless of this setting.
+
+## Typing feels slow, or keystrokes arrive late
+
+Every letter you type kicks off one suggestion pass: a fuzzy walk over your dictionaries, the next-word context, emoji prediction, and a precomputed answer for what the space bar would commit. The keyboard measures how long that takes on your device and runs at most one pass at a time, so a fast burst of typing no longer leaves half a dozen of them running at once. It also waits a little longer for a burst to settle on a device where a pass is expensive, which is why the strip can fill in a beat after you stop on an older phone while staying instant on a newer one.
+
+If letters themselves are landing late rather than the strip just being slow to fill, the pass is costing more than your device can spare. Three things make it expensive, in roughly this order:
+
+- **A big dictionary.** The tier you picked is the main lever. Bangla's full list is over 450,000 words, and **Everything** keeps all of them. Dropping to Medium or Small is one press on a downloaded row, with no delete and re-download involved. See [Changing the size of a list you already have](/languages/dictionaries/#changing-the-size-of-a-list-you-already-have).
+- **Extras layered on top of the strip.** [Words on the keys](/typing/words-on-the-keys/) asks for a much deeper candidate list than the strip itself shows, and emoji prediction, [glide typing](/typing/glide-typing/) and an installed n-gram pack each add work per keystroke. Turning off the ones you don't use is cheaper than turning off suggestions entirely.
+- **Everything else the app is holding.** [Power saving mode](/typing/power-saving/) trims background work in one switch. The feature libraries are not in the APK at all until a feature asks for one, so leaving a heavy tool unused costs nothing on a phone that struggles with the Full build.
+
+To confirm it is the suggestion pass before you start changing things, turn **Suggestions** off under <SettingsPath path="Typing / Suggestions" /> and type a line. If the lag goes away, it's the pass, and one of the levers above will help. If it doesn't, it's something else and worth [filing](#filing-a-useful-bug-report) with a diagnostics report attached.
+
+## The settings app is slow to open screens
+
+On a slower phone, turn off <SettingsPath path="Accessibility / Settings app / Screen transitions" />. Screens then open with a plain slide instead of moving the setting's icon and name into the new screen's heading, and each one skips a second layout pass. The keyboard isn't affected. See [Faster settings screens](/accessibility/overview/#faster-settings-screens).
+
+## The keyboard uses a lot of memory
+
+The keyboard and the settings app run in one process, so the number Android shows you covers both, and it's higher while the settings app is open. With only the keyboard running, this is what it keeps in memory for as long as it's up:
+
+- **The layouts you have switched on.** Over 1,500 layouts ship with the app, but only the ones you use, and the ones a settings screen is showing, are ever loaded.
+- **Your word lists, mostly not.** Dictionaries are read straight from storage and cost next to nothing. The exception is a phonetic language like Bangla: the part that turns "valo" into ভালো keeps an index over the whole downloaded list, so the tier you pick matters. The largest Bangla tier (over 450,000 words) needs about 25 MB for it, and Small only a few. See [Changing the size of a list you already have](/languages/dictionaries/#changing-the-size-of-a-list-you-already-have).
+- **Vocabulary packs**, a little, if you've downloaded any. The nudges only need a small index of which words to watch for. The cards themselves (definitions, examples, translations) are read from the pack when you open one and let go once the keyboard is closed.
+- **On-device models**: the AI tool, Whisper and on-device translation. They load when you use them and are let go as soon as Android asks for memory back.
+
+[Power saving mode](/typing/power-saving/) turns off more of it in one switch. If the number still looks far too high for what you use, [file a bug](#filing-a-useful-bug-report) with a diagnostics report attached.
 
 ## A permission prompt stopped appearing
 
@@ -57,10 +85,10 @@ None of the Camera, Voice typing, Calendar, or Media controls grants above are k
 
 ## A tool panel isn't responding to key presses
 
-This one is by design. Most tools that need typed input (search boxes, the AI prompt, the typing-test scorer, a plugin's own field) open a panel that **captures the keyboard**: what you type goes into the panel's own box, not into the app behind it. Backspace works the same way, deliberately, so it can't word-delete text in the field behind a panel you can't currently see.
+This one is by design. Most tools that need typed input (search boxes, the AI prompt, the typing-test scorer, a plugin's own field) open a panel that captures the keyboard: what you type goes into the panel's own box, not into the app behind it. Backspace works the same way, deliberately, so it can't word-delete text in the field behind a panel you can't currently see.
 
-<PhoneFrame caption="An open tool panel capturing input. The toolbox button has become a back arrow.">
-  {/* shot: reference/troubleshooting-panel-captures-input */}
+<PhoneFrame side caption="An open tool panel capturing input. The toolbox button has become a back arrow.">
+  <Shot id="reference/troubleshooting-panel-captures-input" alt="An open tool panel capturing input. The toolbox button has become a back arrow." />
 </PhoneFrame>
 
 Sensor and generator tools don't capture keys at all: Compass, Level, Moon phase, Weather, Calendar, Password generator, Media controls, Camera and the scanners replace the key rows entirely, so there's no letter row to intercept in the first place.
@@ -79,17 +107,17 @@ See [The toolbar](/tools/overview/#panels-and-captured-keys) for the full explan
 
 <SettingsPath path="About / Diagnostics" />
 
-Diagnostics is what the keyboard has recorded about itself, kept specifically because a keyboard's failures are usually invisible: a crash swaps in a different IME with no on-screen error, a panel comes up empty, a model silently fails to load. Nothing you actually type is ever recorded here. Every entry is what happened, not what you wrote.
+Diagnostics is what the keyboard has recorded about itself, kept because a keyboard's failures are usually invisible: a crash swaps in a different IME with no on-screen error, a panel comes up empty, a model silently fails to load. Nothing you type is ever recorded here. Every entry is what happened, not what you wrote.
 
-<PhoneFrame caption="The Diagnostics screen: report actions at the top, the filterable app log below.">
-  {/* shot: reference/troubleshooting-diagnostics-screen */}
+<PhoneFrame side caption="The Diagnostics screen: report actions at the top, the filterable app log below.">
+  <Shot id="reference/troubleshooting-diagnostics-screen" alt="The Diagnostics screen: report actions at the top, the filterable app log below." />
 </PhoneFrame>
 
 The screen has four parts:
 
 - **Report.** **Share diagnostics** hands the full report to Android's share sheet as a file rather than inline text. A report can run to tens of kilobytes, and many receiving apps silently drop a share intent that size. **Copy to clipboard** puts the same report on the clipboard as plain text instead. **Include the system log** (off by default) adds this process's own Android log, meaning everything printed by every library in the app, not only what the keyboard itself chose to record. That's the most useful attachment for a hard-to-reproduce bug, but read it before you send it anywhere, since the keyboard doesn't control what a dependency logs.
-- **Crashes.** Shown only when at least one exists. It keeps the last 10 crash records, each with its time, thread, build info, full stack trace, and the 40 log entries leading up to it. The records go to disk rather than memory, specifically so a crash survives the process that produced it. They're readable even before you've unlocked the device once after a restart. This section has its own **Delete crashes** button.
-- **App log.** A filter text field (it matches message or tag) plus a filter chip per severity level (Debug, Info, Warn, Error) that acts as a minimum floor. It defaults to Debug, so nothing is hidden until you narrow it. A **Refresh** button re-reads the log on demand. Entries show newest first, color-coded by severity.
+- **Crashes.** Shown only when at least one exists. It keeps the last 10 crash records, each with its time, thread, build info, full stack trace, and the 40 log entries leading up to it. The records go to disk rather than memory, so a crash survives the process that produced it. They're readable even before you've unlocked the device once after a restart. This section has its own **Delete crashes** button.
+- **App log.** A filter text field (it matches message or tag) plus a filter chip per severity level (Debug, Info, Warn, Error) that sets the lowest level shown. It defaults to Debug, so nothing is hidden until you narrow it. A **Refresh** button re-reads the log on demand. Entries show newest first, color-coded by severity.
 - **System log.** Appears only while "Include the system log" is on. It's the same content that gets attached to a shared or copied report, shown here so you can read it first.
 
 A **Delete the app log** button at the bottom empties the in-memory log (separate from **Delete crashes**, which only touches the crash file). The ring holds the last 500 entries and drops the oldest as new ones land.
@@ -100,7 +128,7 @@ The report itself always opens with the build version, edition, Android release 
 
 The **Feedback** group on the [About screen](/reference/settings/about/#reporting-a-bug) has both routes: **Report a bug** opens the GitHub issue tracker, and **Email the developer** opens a pre-filled draft to `arianmollik323@gmail.com` for anything you'd rather not post publicly. Export a report from Diagnostics first and take it along. See [the FAQ](/start/faq/#how-do-i-report-a-bug-or-request-a-feature) for the short version.
 
-A couple of things worth knowing beyond that quick answer:
+Beyond that short answer:
 
 - The report already includes version, edition, Android, and device info in its header. You don't need to hand-type any of that alongside it.
 - If a model wrote something wrong or offensive, don't file that as a bug. Use the **Report** button on the AI panel instead, described in [Reporting a result](/tools/ai/#reporting-a-result). It quotes the generation itself, which an issue about the keyboard wouldn't.
@@ -110,7 +138,7 @@ A couple of things worth knowing beyond that quick answer:
 ## Details & edge cases
 
 - There's no whole-app "reset everything" action anywhere in settings: every reset button (icons, pinned tools, layouts, symbol sets, custom colors, and so on) is scoped to one feature. The closest thing to a full reset is Android's own **Settings → Apps → WM Keyboard → Storage → Clear storage**, which is standard OS behavior, not something WM Keyboard controls.
-- Diagnostics behaves identically on Full and Lite editions: nothing about the report builder, crash list, or logs is edition-gated.
+- Diagnostics behaves identically in every build: nothing about the report builder, crash list, or logs is build-gated.
 - The app log and crash file are two different stores for a reason: the in-memory log is cheap enough to always be on (no switch to remember to flip before reproducing a bug), while the crash file is the one thing written to disk, because the in-memory log dies along with the process that crashed.
 
 :::danger[Clearing app storage is destructive]

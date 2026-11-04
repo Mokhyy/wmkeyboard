@@ -146,6 +146,20 @@ class GiphyClientTest {
         assertEquals(2f, item.aspectRatio)
         assertEquals(GifSource.GIPHY, item.source)
         assertEquals("Funny Cat GIF", item.title)
+        assertEquals("", item.creator)
+    }
+
+    @Test
+    fun `the creator comes from the user object, then the bare username`() {
+        val body = """
+            {"data":[
+                {"id":"a","username":"bare","user":{"username":"channel"},
+                 "images":{"original":{"url":"https://g/a.gif"}}},
+                {"id":"b","username":"uploader","user":null,"images":{"original":{"url":"https://g/b.gif"}}},
+                {"id":"c","username":"","images":{"original":{"url":"https://g/c.gif"}}}
+            ]}
+        """.trimIndent()
+        assertEquals(listOf("channel", "uploader", ""), GiphyClient.parse(body).map { it.creator })
     }
 
     @Test
@@ -293,6 +307,20 @@ class GifSourcesTest {
         val items = (1..7).map { ratioItem("i$it", 1f) }
         val rows = GifSources.rows(items)
         assertEquals(listOf(3, 3, 1), rows.map { it.size })
+    }
+
+    @Test
+    fun `squarish items pack as many to a row as asked`() {
+        val items = (1..7).map { ratioItem("i$it", 1f) }
+        assertEquals(listOf(5, 2), GifSources.rows(items, perRow = 5).map { it.size })
+        assertEquals(List(7) { 1 }, GifSources.rows(items, perRow = 1).map { it.size })
+    }
+
+    @Test
+    fun `wide items still close a roomier row early`() {
+        // Five to a row targets 5.2; three wide ones already carry 5.4.
+        val items = (1..6).map { ratioItem("w$it", 1.8f) }
+        assertEquals(listOf(3, 3), GifSources.rows(items, perRow = 5).map { it.size })
     }
 
     @Test

@@ -2,11 +2,14 @@ package com.wasimaster.wmkeyboard.core.feedback
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.SoundPool
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import com.wasimaster.wmkeyboard.core.settings.KeySoundOutput
 import com.wasimaster.wmkeyboard.core.settings.KeySoundStyle
 import java.io.File
 import kotlin.math.PI
@@ -23,7 +26,8 @@ import kotlin.random.Random
  * made the three styles indistinguishable. Custom is a file the user installed,
  * from an addon repository or their own storage, played through the same pool.
  * Pack is a [SoundPackStore] pack: many recordings, one picked per keystroke,
- * optionally a different set per [KeySoundRole] and per [KeySoundPhase].
+ * optionally a different set per [KeySoundRole], per individual key and per
+ * [KeySoundPhase].
  * Lives outside the IME service so the settings app and the sound & haptics
  * tool can preview the sound being adjusted.
  */
@@ -61,6 +65,56 @@ object KeySoundPlayer {
     @Volatile
     private var audio: AudioManager? = null
 
+    /**
+     * Whether headphones or a Bluetooth speaker are connected, kept current by
+     * a device callback for the same reason as [audio]: a press asks, and
+     * asking the system every time would be a binder call per keystroke. Null
+     * until the first press that has to know.
+     */
+    @Volatile
+    private var headphonesConnected: Boolean? = null
+
+    /** Whether a key sound may play right now under [output] (#1021). */
+    fun outputAllows(context: Context, output: KeySoundOutput): Boolean = when (output) {
+        KeySoundOutput.ANYWHERE -> true
+        KeySoundOutput.HEADPHONES -> headphonesConnected(context)
+        KeySoundOutput.SPEAKER -> !headphonesConnected(context)
+    }
+
+    private fun headphonesConnected(context: Context): Boolean = headphonesConnected ?: synchronized(this) {
+        headphonesConnected ?: run {
+            val manager = context.applicationContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            manager.registerAudioDeviceCallback(
+                object : AudioDeviceCallback() {
+                    override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>) {
+                        headphonesConnected = readHeadphones(manager)
+                    }
+
+                    override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) {
+                        headphonesConnected = readHeadphones(manager)
+                    }
+                },
+                Handler(Looper.getMainLooper()),
+            )
+            readHeadphones(manager).also { headphonesConnected = it }
+        }
+    }
+
+    // Not Bluetooth SCO: that is the phone-call route, listed for a paired
+    // headset whether or not it is what media plays on.
+    private fun readHeadphones(manager: AudioManager): Boolean =
+        manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { it.type in PRIVATE_OUTPUTS }
+
+    private val PRIVATE_OUTPUTS = setOf(
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+        AudioDeviceInfo.TYPE_BLE_HEADSET,
+        AudioDeviceInfo.TYPE_BLE_SPEAKER,
+        AudioDeviceInfo.TYPE_HEARING_AID,
+        AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+        AudioDeviceInfo.TYPE_WIRED_HEADSET,
+        AudioDeviceInfo.TYPE_USB_HEADSET,
+    )
+
     private val soundIds = mutableMapOf<KeySoundStyle, Int>()
     private val loadedIds = mutableSetOf<Int>()
 
@@ -75,17 +129,17 @@ object KeySoundPlayer {
     /**
      * The one sound pack currently decoded into the pool.
      *
-     * One, not a map: a pack is up to sixty-four samples, and keeping the
-     * previous selection resident so a user who switched away might switch back
-     * is memory spent on a guess. Switching packs unloads the old one.
+     * One, not a map: a pack is many samples, and keeping the previous
+     * selection resident so a user who switched away might switch back is
+     * memory spent on a guess. Switching packs unloads the old one.
      */
     private var loadedPack: LoadedPack? = null
 
     private class LoadedPack(
         val packId: String,
+        val manifest: SoundPackManifest,
         /** Sample name -> pool id. */
         val samples: Map<String, Int>,
-        val manifest: SoundPackManifest,
         /**
          * Last variant played per role and phase, so no role ever repeats
          * itself. Press and release keep separate cursors: they are separate
@@ -95,7 +149,26 @@ object KeySoundPlayer {
         val lastIndex: Array<IntArray> = Array(KeySoundPhase.entries.size) {
             IntArray(KeySoundRole.entries.size) { -1 }
         },
-    )
+    ) {
+        /**
+         * The same cursor per key that names its own samples, keyed by phase.
+         *
+         * A map rather than more slots in [lastIndex] because the set of keys
+         * is the pack's, not this build's, and because the role cursors are
+         * read for every keystroke on the board while these are read only on
+         * the keys a pack actually named. Created lazily for the same reason:
+         * most packs name none.
+         */
+        private var keyIndex: HashMap<String, IntArray>? = null
+
+        fun lastKeyIndex(key: String, phase: KeySoundPhase): Int =
+            keyIndex?.get(key)?.get(phase.ordinal) ?: -1
+
+        fun rememberKeyIndex(key: String, phase: KeySoundPhase, index: Int) {
+            val map = keyIndex ?: HashMap<String, IntArray>().also { keyIndex = it }
+            map.getOrPut(key) { IntArray(KeySoundPhase.entries.size) { -1 } }[phase.ordinal] = index
+        }
+    }
 
     /** Builds the pool and starts decoding so the first key press isn't late. */
     fun warmUp(context: Context) {
@@ -127,12 +200,12 @@ object KeySoundPlayer {
         style: KeySoundStyle,
         volume: Float,
         customId: String = "",
-        role: KeySoundRole = KeySoundRole.DEFAULT,
+        target: KeySoundTarget = KeySoundTarget.DEFAULT,
     ) {
         val now = SystemClock.uptimeMillis()
         if (now - lastPreviewAt < PREVIEW_GAP_MS) return
         lastPreviewAt = now
-        play(context, style, volume, customId, role)
+        play(context, style, volume, customId, target)
     }
 
     /**
@@ -150,14 +223,14 @@ object KeySoundPlayer {
         style: KeySoundStyle,
         volume: Float,
         customId: String = "",
-        role: KeySoundRole = KeySoundRole.DEFAULT,
+        target: KeySoundTarget = KeySoundTarget.DEFAULT,
     ) {
         val now = SystemClock.uptimeMillis()
         if (now - lastPreviewAt < PREVIEW_GAP_MS) return
         lastPreviewAt = now
-        play(context, style, volume, customId, role, KeySoundPhase.PRESS)
+        play(context, style, volume, customId, target, KeySoundPhase.PRESS)
         strokeHandler.postDelayed(
-            { play(context, style, volume, customId, role, KeySoundPhase.RELEASE) },
+            { play(context, style, volume, customId, target, KeySoundPhase.RELEASE) },
             PREVIEW_STROKE_MS,
         )
     }
@@ -186,8 +259,9 @@ object KeySoundPlayer {
      * deleted, or is still decoding, falls back to a system effect rather than
      * to silence — a keystroke that makes no sound reads as a missed keystroke.
      *
-     * [role] only means anything for [KeySoundStyle.PACK], and only for a pack
-     * that filled that role; everything else plays one sound for every key.
+     * [target] only means anything for [KeySoundStyle.PACK], and only for a
+     * pack that filled that role or named that key; everything else plays one
+     * sound for every key.
      *
      * [phase] likewise. [KeySoundPhase.RELEASE] is the one call that may end in
      * silence on purpose: only a pack can have recorded a key coming back up,
@@ -200,13 +274,13 @@ object KeySoundPlayer {
         style: KeySoundStyle,
         volume: Float,
         customId: String = "",
-        role: KeySoundRole = KeySoundRole.DEFAULT,
+        target: KeySoundTarget = KeySoundTarget.DEFAULT,
         phase: KeySoundPhase = KeySoundPhase.PRESS,
     ) {
         val vol = volume.coerceIn(0.05f, 1f)
         if (phase == KeySoundPhase.RELEASE) {
             if (style != KeySoundStyle.PACK) return
-            val shot = synchronized(this) { packShot(context, customId, role, phase) } ?: return
+            val shot = synchronized(this) { packShot(context, customId, target, phase) } ?: return
             val packVol = vol * shot.second
             pool?.play(shot.first, packVol, packVol, 1, 0, 1f)
             return
@@ -219,7 +293,7 @@ object KeySoundPlayer {
                 // and writes the pack's per-role cursor, so two fingers landing
                 // together must not both read the same "last played" value and
                 // both avoid it.
-                val shot = synchronized(this) { packShot(context, customId, role, phase) }
+                val shot = synchronized(this) { packShot(context, customId, target, phase) }
                 if (shot != null) {
                     val packVol = vol * shot.second
                     pool?.play(shot.first, packVol, packVol, 1, 0, 1f)
@@ -252,18 +326,47 @@ object KeySoundPlayer {
     }
 
     /**
-     * The pool's sample id for an installed sound, loading it on first use.
-     * Null while it is still decoding, and on the press that triggers the load.
+     * Whether [style] with [id] has a sound behind it at all.
+     *
+     * Asked of the *store*, not of the pool: a sample still decoding is
+     * playable and will be audible a keystroke or two from now, while one that
+     * was never installed — or has been deleted — never will be. The caller
+     * uses this to decide whether a theme's sound stands or whether the user's
+     * own pick takes over ([com.wasimaster.wmkeyboard.core.settings.keySound]),
+     * and that answer must not flip mid-burst because the decoder is behind.
+     *
+     * True for every style that renders itself or borrows a system effect;
+     * only Custom and Pack can name something that is not there.
+     */
+    fun canPlay(context: Context, style: KeySoundStyle, id: String): Boolean =
+        canPlay(SoundStore.get(context), SoundPackStore.get(context), style, id)
+
+    /** [canPlay] against stores handed in, so it can be answered without a context. */
+    fun canPlay(
+        sounds: SoundStore,
+        packs: SoundPackStore,
+        style: KeySoundStyle,
+        id: String,
+    ): Boolean = when (style) {
+        KeySoundStyle.CUSTOM -> resolveCustom(sounds, id) != null
+        KeySoundStyle.PACK -> packs.resolve(id)?.let { packs.existingDirFor(it) } != null
+        else -> true
+    }
+
+    /**
+     * An installed sound's store id and file, or null when [soundId] names
+     * nothing this device has.
      *
      * [soundId] resolves by the store id first, then by the sound's display
      * name. The id is minted per device at install time, so a *distributed*
      * theme has no way to know it — but an addon-installed sound keeps its
      * catalogue name on every device, which is what a theme's `soundCustomId`
      * can carry ("Typewriter") next to a `requires` on that sound's addon.
+     *
+     * Takes no lock and caches nothing, so [canPlay] can ask it from anywhere.
      */
-    private fun customSampleId(context: Context, soundId: String): Int? {
+    private fun resolveCustom(store: SoundStore, soundId: String): Pair<String, File>? {
         if (soundId.isBlank()) return null
-        val store = SoundStore.get(context)
         // Resolved to the store id before anything is cached, so forgetCustom
         // (which speaks store ids) still evicts a name-resolved sample.
         val resolvedId = if (store.existingFileFor(soundId) != null) {
@@ -272,6 +375,15 @@ object KeySoundPlayer {
             store.sounds().firstOrNull { it.name.equals(soundId, ignoreCase = true) }?.id
         } ?: return null
         val file = store.existingFileFor(resolvedId) ?: return null
+        return resolvedId to file
+    }
+
+    /**
+     * The pool's sample id for an installed sound, loading it on first use.
+     * Null while it is still decoding, and on the press that triggers the load.
+     */
+    private fun customSampleId(context: Context, soundId: String): Int? {
+        val (resolvedId, file) = resolveCustom(SoundStore.get(context), soundId) ?: return null
         val key = "$resolvedId:${file.lastModified()}"
         customIds[key]?.let { return it.takeIf { id -> id in loadedIds } }
         val p = ensurePool(context)
@@ -290,21 +402,31 @@ object KeySoundPlayer {
     private fun packShot(
         context: Context,
         packId: String,
-        role: KeySoundRole,
+        target: KeySoundTarget,
         phase: KeySoundPhase,
     ): Pair<Int, Float>? {
         val pack = residentPack(context, packId) ?: return null
-        val names = pack.manifest.samplesFor(role, phase)
+        // Asked in two steps rather than one so the cursor can follow the list
+        // that won: a key the pack named keeps its own "not that one again"
+        // memory, and a key it did not shares its role's.
+        val perKey = pack.manifest.keySamplesFor(target, phase)
+        val names = perKey.ifEmpty { pack.manifest.samplesFor(target.role, phase) }
         if (names.isEmpty()) return null
 
-        val cursor = pack.lastIndex[phase.ordinal]
-        val slot = role.ordinal
-        val index = nextVariant(names.size, cursor[slot])
-        cursor[slot] = index
+        val index: Int
+        if (perKey.isEmpty()) {
+            val cursor = pack.lastIndex[phase.ordinal]
+            val slot = target.role.ordinal
+            index = nextVariant(names.size, cursor[slot])
+            cursor[slot] = index
+        } else {
+            index = nextVariant(names.size, pack.lastKeyIndex(target.key, phase))
+            pack.rememberKeyIndex(target.key, phase, index)
+        }
 
         val sampleId = pack.samples[names[index]] ?: return null
         if (sampleId !in loadedIds) return null
-        return sampleId to pack.manifest.gainFor(role)
+        return sampleId to pack.manifest.gainFor(target)
     }
 
     /**
@@ -345,19 +467,16 @@ object KeySoundPlayer {
         unloadPack()
 
         val samples = HashMap<String, Int>()
-        val wanted = buildSet {
-            addAll(manifest.press)
-            addAll(manifest.release)
-            KeySoundRole.entries.forEach { role ->
-                KeySoundPhase.entries.forEach { phase -> addAll(manifest.samplesFor(role, phase)) }
-            }
-        }
-        for (name in wanted) {
+        // Every sample the pack has, per-key sets included. What bounds this is
+        // the pack's own size: the importer counts bytes as it extracts and
+        // refuses a pack past [SoundPackFile.MAX_TOTAL_BYTES], so a pack that
+        // installed at all is one this can decode whole.
+        for (name in manifest.allSamples()) {
             val file = store.sampleFile(resolved, name) ?: continue
             samples[name] = p.load(file.path, 1)
         }
         if (samples.isEmpty()) return null
-        return LoadedPack(resolved, samples, manifest).also { loadedPack = it }
+        return LoadedPack(resolved, manifest, samples).also { loadedPack = it }
     }
 
     /** Releases the resident pack's samples. Caller holds the monitor. */

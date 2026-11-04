@@ -64,6 +64,7 @@ internal enum class MatchField(val percent: Int, val correctsSpelling: Boolean) 
 internal class SearchText(val field: MatchField, raw: String) {
     val text: String = normalizeForSearch(raw)
     val words: List<String> = text.split(' ').filter { it.isNotEmpty() }
+    val stemmedWords: List<String> = words.map { stem(it) }
 
     /**
      * The words run together. It is what lets "2d" find "2-D cursor touchpad"
@@ -276,12 +277,14 @@ private fun SearchText.tier(token: String, spellCorrect: Boolean = true): Int {
     if (text == token) return TIER_FIELD_EXACT
     if (text.startsWith(token)) return TIER_FIELD_PREFIX
     var best = 0
-    for (word in words) {
+    val tokenStemmed = stem(token)
+    for (i in words.indices) {
+        val word = words[i]
         if (word == token) return TIER_WORD_EXACT
         // Both rules run: "themes" starts with "theme" and is its plural, and
         // the plural is the better reason.
         if (word.startsWith(token)) best = max(best, TIER_WORD_PREFIX)
-        if (stem(word) == stem(token)) best = max(best, TIER_WORD_STEM)
+        if (stemmedWords[i] == tokenStemmed) best = max(best, TIER_WORD_STEM)
     }
     if (best > 0) return best
     if (token.length >= CONTAINS_MIN_LENGTH && text.contains(token)) return TIER_CONTAINS
@@ -292,7 +295,7 @@ private fun SearchText.tier(token: String, spellCorrect: Boolean = true): Int {
 }
 
 /** Where one query word landed on an entry, and what that is worth. */
-private class Hit(val points: Int, val where: MatchField?, val direct: Boolean) {
+private class Hit(val points: Int, val where: MatchField?, val direct: Boolean, val fuzzy: Boolean = false) {
     /** A hit on what the row is called, or on the words it is searched by. */
     val onName: Boolean get() = where == MatchField.TITLE || where == MatchField.KEYWORDS
 
@@ -305,8 +308,9 @@ private class Hit(val points: Int, val where: MatchField?, val direct: Boolean) 
 private fun rawHit(entry: SettingsSearchEntry, token: String, spellCorrect: Boolean = true): Hit {
     var best = Hit.NONE
     for (text in entry.searchText) {
-        val points = text.tier(token, spellCorrect) * text.field.percent / 100
-        if (points > best.points) best = Hit(points, text.field, direct = spellCorrect)
+        val tier = text.tier(token, spellCorrect)
+        val points = tier * text.field.percent / 100
+        if (points > best.points) best = Hit(points, text.field, direct = spellCorrect, fuzzy = tier == TIER_FUZZY)
     }
     return best
 }
@@ -361,6 +365,8 @@ private class Ranked(
     val matched: Int,
     val score: Int,
     val onName: Boolean,
+    /** A word landed on the name as spelled, not by a near miss. */
+    val spelledOnName: Boolean,
     /** Every word of a query of several words landed on the title. */
     val spelledOut: Boolean,
 )
@@ -405,6 +411,7 @@ private fun rank(
     var matched = 0
     var points = 0
     var onName = false
+    var spelledOnName = false
     var titleDirect = false
     var onTitle = 0
     for (token in tokens) {
@@ -413,6 +420,7 @@ private fun rank(
         matched++
         points += hit.points
         onName = onName || hit.onName
+        spelledOnName = spelledOnName || (hit.onName && !hit.fuzzy)
         if (hit.where == MatchField.TITLE) {
             onTitle++
             titleDirect = titleDirect || hit.direct
@@ -435,7 +443,10 @@ private fun rank(
         }
     }
     points += boost.pointsFor(entry.key, phrase)
-    return Ranked(entry, matched, points * entry.weight.percent, onName, spelledOut = tokens.size > 1 && onTitle == tokens.size)
+    return Ranked(
+        entry, matched, points * entry.weight.percent, onName, spelledOnName,
+        spelledOut = tokens.size > 1 && onTitle == tokens.size,
+    )
 }
 
 /**
@@ -477,7 +488,10 @@ internal fun rankSettings(
                 .thenByDescending { it.entry.route.count { c -> c == '/' } }
                 .thenBy { it.entry.title.length },
         )
-    val (hits, mentions) = ordered.partition { it.onName }
+    // A near miss is a hit only when nothing has the word spelled right: `height`
+    // is not a typo of the `weight` in Frequency weight when rows say height.
+    val spelled = ordered.any { it.spelledOnName }
+    val (hits, mentions) = ordered.partition { if (spelled) it.spelledOnName else it.onName }
     return SearchResults(hits.map { it.entry }, mentions.map { it.entry })
 }
 

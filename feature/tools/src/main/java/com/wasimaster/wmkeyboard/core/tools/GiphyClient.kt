@@ -1,5 +1,8 @@
 package com.wasimaster.wmkeyboard.core.tools
 
+import com.wasimaster.wmkeyboard.core.endpoints.ServiceEndpoint
+import com.wasimaster.wmkeyboard.core.endpoints.ServiceEndpoints
+import com.wasimaster.wmkeyboard.core.netlog.NetSource
 import com.wasimaster.wmkeyboard.core.settings.GifContentFilter
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -29,12 +32,14 @@ object GiphyClient {
         val type = if (stickers) "stickers" else "gifs"
         val endpoint = if (query.isBlank()) "trending" else "search"
         val url = buildString {
-            append("https://api.giphy.com/v1/$type/$endpoint")
+            append("${ServiceEndpoints.base(ServiceEndpoint.GIPHY)}/v1/$type/$endpoint")
             append("?api_key=${ToolHttp.encode(apiKey)}")
             if (query.isNotBlank()) append("&q=${ToolHttp.encode(query.trim())}")
             append("&limit=$limit&rating=${rating(filter)}")
         }
-        return parse(ToolHttp.get(url))
+        return parse(
+            ToolHttp.get(url, source = if (stickers) NetSource.STICKER else NetSource.GIF, route = "/v1/$type/$endpoint"),
+        )
     }
 
     /**
@@ -49,11 +54,13 @@ object GiphyClient {
         List<MediaCategory> {
         val path = if (stickers) "trending/searches" else "gifs/categories"
         val url = buildString {
-            append("https://api.giphy.com/v1/$path")
+            append("${ServiceEndpoints.base(ServiceEndpoint.GIPHY)}/v1/$path")
             append("?api_key=${ToolHttp.encode(apiKey)}")
             if (!stickers) append("&limit=$limit")
         }
-        return parseCategories(ToolHttp.get(url))
+        return parseCategories(
+            ToolHttp.get(url, source = if (stickers) NetSource.STICKER else NetSource.GIF, route = "/v1/$path"),
+        )
     }
 
     /**
@@ -108,9 +115,18 @@ object GiphyClient {
                 aspectRatio = preview.aspectRatio,
                 source = GifSource.GIPHY,
                 title = result.text("title").orEmpty(),
+                creator = creator(result),
             )
         }
     }
+
+    /**
+     * The uploader's GIPHY username, for the credit the API terms ask for. The
+     * `user` object carries it for verified channels; plain uploads only have
+     * the top-level `username`, often blank.
+     */
+    private fun creator(result: JsonObject): String =
+        (result["user"] as? JsonObject)?.text("username") ?: result.text("username").orEmpty()
 
     private class Rendition(val url: String, val aspectRatio: Float)
 

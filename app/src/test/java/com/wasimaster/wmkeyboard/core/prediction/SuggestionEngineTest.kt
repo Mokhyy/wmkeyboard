@@ -2,15 +2,19 @@ package com.wasimaster.wmkeyboard.core.prediction
 
 import com.wasimaster.wmkeyboard.core.transliteration.AvroPhonetic
 import com.wasimaster.wmkeyboard.core.transliteration.BengaliPhoneticIndex
+import com.wasimaster.wmkeyboard.core.transliteration.HindiPhonetic
+import com.wasimaster.wmkeyboard.core.transliteration.HindiPhoneticIndex
+import com.wasimaster.wmkeyboard.core.transliteration.UrduPhoneticIndex
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SuggestionEngineTest {
 
-    private fun engine(): SuggestionEngine {
+    private fun engine(lexicon: UserLexicon = UserLexicon(null)): SuggestionEngine {
         val dictionary = Trie().apply {
             insert("the", 100)
             insert("they", 90)
@@ -27,7 +31,7 @@ class SuggestionEngineTest {
                 "আমি" to 9000,
             )
         )
-        return SuggestionEngine(dictionary, bengali, UserLexicon(null))
+        return SuggestionEngine(dictionary, bengali, lexicon)
     }
 
     @Test fun anIndirectUndoOfANonWordIsNotBelieved() {
@@ -158,6 +162,21 @@ class SuggestionEngineTest {
         assertTrue("yesterday" in rescued)
     }
 
+    @Test fun learnedSkipGramsFeedNextWordsBehindTheDirectFollowers() {
+        // "how can someone" (#195): nothing learned follows "someone", but
+        // "help" has followed "can" one word later and "how" two words later.
+        val lexicon = UserLexicon(null)
+        lexicon.learnBigram("someone", "else")
+        repeat(2) { lexicon.learnSkip1gram("can", "help") }
+        repeat(3) { lexicon.learnSkip2gram("how", "please") }
+        val e = SuggestionEngine(Trie(), BengaliPhoneticIndex(emptyList()), lexicon)
+        val next = e.suggest("", previousWord = "someone", previousWord2 = "can", previousWord3 = "how")
+        // Direct follower first, then the gappy ones, nearer first.
+        assertEquals(listOf("else", "help", "please"), next)
+        // Without the context words there is nothing gappy to read.
+        assertEquals(listOf("else"), e.suggest("", previousWord = "someone"))
+    }
+
     @Test fun dictionarySwapTakesEffectImmediately() {
         // The shared-walk cache must invalidate the moment a source changes.
         val e = engine()
@@ -262,6 +281,21 @@ class SuggestionEngineTest {
         assertNull(e.joinCandidate("some", "thing"))
     }
 
+    // #1107: a space typed where the letter above it was meant.
+
+    @Test fun aSpaceTypedForALetterIsJoinedBack() {
+        val dictionary = Trie().apply {
+            insert("enough", 5000)
+            insert("e", 900)
+            insert("to", 50000)
+            insert("into", 20000)
+        }
+        val e = SuggestionEngine(dictionary, BengaliPhoneticIndex(emptyList()), UserLexicon(null))
+        assertEquals("enough", e.joinCandidate("e", "ough"))
+        // A word after the space was a space: `i to` is not *into*.
+        assertNull(e.joinCandidate("i", "to"))
+    }
+
     @Test fun prefixCompletion() {
         val suggestions = engine().suggest("th", previousWord = null)
         assertEquals("the", suggestions.first())
@@ -310,6 +344,42 @@ class SuggestionEngineTest {
         assertNull(engine().shouldAutocorrect("helo"))
     }
 
+    // #1105: two letters typed the wrong way round.
+
+    private fun swapEngine(): SuggestionEngine {
+        val dictionary = Trie().apply {
+            insert("what", 250)
+            insert("want", 120)
+            insert("and", 250)
+            insert("an", 150)
+            insert("dan", 20)
+            insert("who", 120)
+            insert("how", 120)
+        }
+        return SuggestionEngine(dictionary, BengaliPhoneticIndex(emptyList()), UserLexicon(null))
+    }
+
+    @Test fun aSwappedPairIsPutBackOverACommonerSlip() {
+        // `what` reads `wnat` as an n slipped for an h and is the commoner
+        // word; `want` keeps every letter typed.
+        assertEquals("want", swapEngine().shouldAutocorrect("wnat"))
+    }
+
+    @Test fun theLikeliestOfTwoSwapsIsPutBack() {
+        // `adn` is `and` or `dan` swapped back, and `an` with a stray d.
+        assertEquals("and", swapEngine().shouldAutocorrect("adn"))
+    }
+
+    @Test fun twoSwapsAsLikelyAsEachOtherStayAsTyped() {
+        assertNull(swapEngine().shouldAutocorrect("hwo"))
+    }
+
+    @Test fun aSwapIsNotPutBackAtTheMostCarefulSetting() {
+        val e = swapEngine()
+        e.autocorrectConfidence = SuggestionEngine.MAX_AUTOCORRECT_CONFIDENCE
+        assertNull(e.shouldAutocorrect("wnat"))
+    }
+
     @Test fun blacklistedWordNeverSuggested() {
         val e = engine().apply { blacklist = setOf("they") }
         val suggestions = e.suggest("th", previousWord = null)
@@ -317,6 +387,61 @@ class SuggestionEngineTest {
         // The rest of the completions are untouched.
         assertTrue("the" in suggestions)
         assertTrue("them" in suggestions)
+    }
+
+    @Test fun aRankOffsetLiftsAWordAboveAStrongerOne() {
+        // "the" (100) outranks "them" (80) on frequency alone.
+        val plain = engine().suggest("th", previousWord = null)
+        assertTrue(plain.indexOf("the") < plain.indexOf("them"))
+        val e = engine().apply { rankOffsets = mapOf("them" to 3) }
+        val lifted = e.suggest("th", previousWord = null)
+        assertTrue(lifted.indexOf("them") < lifted.indexOf("the"))
+    }
+
+    @Test fun aRankOffsetSinksAWordBelowAWeakerOne() {
+        val e = engine().apply { rankOffsets = mapOf("the" to -3) }
+        val sunk = e.suggest("th", previousWord = null)
+        // Re-ranked, never hidden.
+        assertTrue("the" in sunk)
+        assertTrue(sunk.indexOf("they") < sunk.indexOf("the"))
+    }
+
+    @Test fun aRankOffsetMatchesOnKeys() {
+        val e = engine().apply { rankOffsets = mapOf("them" to 3) }
+        val lifted = e.suggest("Th", previousWord = null)
+        assertTrue(lifted.indexOf("Them") < lifted.indexOf("The"))
+    }
+
+    @Test fun aRankOffsetNeverResurrectsABlacklistedWord() {
+        val e = engine().apply {
+            blacklist = setOf("they")
+            rankOffsets = mapOf("they" to 10)
+        }
+        assertTrue("they" !in e.suggest("th", previousWord = null))
+    }
+
+    @Test fun describeReportsWhereAWordComesFrom() {
+        val lexicon = UserLexicon(null).apply { addWord("Wasi") }
+        val e = SuggestionEngine(
+            Trie().apply { insert("hello", 70) },
+            BengaliPhoneticIndex(emptyList()),
+            lexicon,
+        ).apply {
+            blacklist = setOf("hello")
+            rankOffsets = mapOf("wasi" to 2)
+        }
+        val hello = e.describe("Hello")
+        assertEquals("hello", hello.key)
+        assertEquals(70, hello.primary?.frequency)
+        assertNull(hello.learned)
+        assertTrue(hello.blacklisted)
+        val wasi = e.describe("wasi")
+        assertNull(wasi.primary)
+        assertEquals(1, wasi.learned?.count)
+        assertEquals("Wasi", wasi.learned?.display)
+        assertTrue(wasi.learned?.casePinned == true)
+        assertEquals(2, wasi.rankOffset)
+        assertTrue(e.describe("zzz").unknown)
     }
 
     @Test fun blacklistMatchesCaseInsensitively() {
@@ -501,7 +626,7 @@ class SuggestionEngineTest {
     }
 
     @Test fun `a split correction is never obvious`() {
-        val e = engine().apply { autocorrectSplits = true }
+        val e = splitEngine()
         val decision = e.decideCorrection("theworld")
         assertEquals("the world", decision.apply)
         // It changes how many words the sentence has. Nobody's finger did that.
@@ -561,21 +686,35 @@ class SuggestionEngineTest {
     }
 
     @Test fun avroPhoneticSiblingWins() {
-        val suggestions = engine().suggest("asi", previousWord = null, avroMode = true)
+        val suggestions = engine().suggest("asi", previousWord = null, phoneticLanguage = "bn")
         assertEquals("আছি", suggestions.first())
         assertTrue("আসি" in suggestions)
     }
 
     @Test fun avroLoanwordWinsOverPhonetics() {
         val dictionary = Trie()
-        val loanwords = BengaliSpellingMap.load(
+        val loanwords = SpellingMap.load(
             "keyboard\tকিবোর্ড\nchair\tচেয়ার\n".byteInputStream(Charsets.UTF_8)
         )
         val e = SuggestionEngine(
             dictionary, BengaliPhoneticIndex(emptyList()), UserLexicon(null), loanwords,
         )
-        assertEquals("কিবোর্ড", e.suggest("keyboard", null, avroMode = true).first())
-        assertEquals("চেয়ার", e.suggest("chair", null, avroMode = true).first())
+        assertEquals("কিবোর্ড", e.suggest("keyboard", null, phoneticLanguage = "bn").first())
+        assertEquals("চেয়ার", e.suggest("chair", null, phoneticLanguage = "bn").first())
+    }
+
+    @Test fun avroCapitalsAreNotFoldedOntoAListedSpelling() {
+        // Capital N is ণ. The map and the word list both fold case, so `moN`
+        // used to come out as whatever they say for `mon`.
+        val map = SpellingMap.load("mon\tমোন\n".byteInputStream(Charsets.UTF_8))
+        val bengali = BengaliPhoneticIndex(listOf("মন" to 5000, "মণ" to 10))
+        val e = SuggestionEngine(Trie(), bengali, UserLexicon(null), map)
+        assertEquals("মোন", e.suggest("mon", null, phoneticLanguage = "bn").first())
+        assertEquals("মণ", e.suggest("moN", null, phoneticLanguage = "bn").first())
+        assertEquals(null, e.phoneticSpelling("bn", "moN"))
+        // A capital that spells nothing of its own is the same spelling.
+        assertEquals("মোন", e.suggest("Mon", null, phoneticLanguage = "bn").first())
+        assertEquals("মোন", e.phoneticSpelling("bn", "Mon"))
     }
 
     @Test fun avroLiteralHoldsAgainstNearTieSibling() {
@@ -586,7 +725,7 @@ class SuggestionEngineTest {
             listOf("হলো" to 1986, "হল" to 1900)
         )
         val e = SuggestionEngine(Trie(), bengali, UserLexicon(null))
-        val suggestions = e.suggest("holO", null, avroMode = true)
+        val suggestions = e.suggest("holO", null, phoneticLanguage = "bn")
         assertEquals("হলো", suggestions.first())
         assertTrue("হল" in suggestions)
     }
@@ -596,14 +735,117 @@ class SuggestionEngineTest {
         // transliteration (ওয়াসি) must survive the space commit untouched.
         val e = engine()
         val literal = AvroPhonetic.transliterate("wasi")
-        assertEquals(literal, e.suggest("wasi", null, avroMode = true).first())
+        assertEquals(literal, e.suggest("wasi", null, phoneticLanguage = "bn").first())
     }
 
     @Test fun avroSentenceWords() {
         val e = engine()
-        assertEquals("আমি", e.suggest("ami", null, avroMode = true).first())
-        assertEquals("ভালো", e.suggest("valo", null, avroMode = true).first())
-        assertEquals("আছি", e.suggest("asi", null, avroMode = true).first())
+        assertEquals("আমি", e.suggest("ami", null, phoneticLanguage = "bn").first())
+        assertEquals("ভালো", e.suggest("valo", null, phoneticLanguage = "bn").first())
+        assertEquals("আছি", e.suggest("asi", null, phoneticLanguage = "bn").first())
+    }
+
+    private fun hindiEngine(
+        words: List<Pair<String, Int>>,
+        spellings: SpellingMap = SpellingMap.EMPTY,
+    ): SuggestionEngine = engine().also {
+        it.extraPhonetic = mapOf(
+            "hi" to PhoneticBackend(PhoneticSchemes.HINDI, HindiPhoneticIndex(words), spellings),
+        )
+    }
+
+    @Test fun hindiDictionarySettlesWhatTheRulesCannot() {
+        // Dental against retroflex is not in the spelling: the rules write थीक.
+        val e = hindiEngine(listOf("ठीक" to 900, "करना" to 800))
+        assertEquals("ठीक", e.suggest("theek", null, phoneticLanguage = "hi").first())
+        assertEquals("करना", e.suggest("karna", null, phoneticLanguage = "hi").first())
+    }
+
+    @Test fun hindiSpellingMapLeads() {
+        val map = SpellingMap.load("school\tस्कूल\n".byteInputStream(Charsets.UTF_8))
+        val e = hindiEngine(emptyList(), map)
+        assertEquals("स्कूल", e.suggest("school", null, phoneticLanguage = "hi").first())
+        assertEquals("स्कूल", e.phoneticSpelling("hi", "school"))
+        assertNull(e.phoneticSpelling("hi", "karna"))
+        // One language's map is not another's.
+        assertNull(e.phoneticSpelling("bn", "school"))
+    }
+
+    @Test fun hindiWithNoWordListOffersTheRulesOtherReadings() {
+        val suggestions = hindiEngine(emptyList()).suggest("pyar", null, phoneticLanguage = "hi")
+        assertEquals(HindiPhonetic.transliterate("pyar"), suggestions.first())
+        assertTrue("प्यार" in suggestions)
+    }
+
+    private fun urduEngine(
+        lexicon: UserLexicon = UserLexicon(null),
+        spellings: SpellingMap = SpellingMap.EMPTY,
+    ): SuggestionEngine = engine(lexicon).also {
+        it.extraPhonetic = mapOf(
+            "ur" to PhoneticBackend(
+                PhoneticSchemes.URDU,
+                UrduPhoneticIndex(listOf("\u06A9\u0645" to 500, "\u06A9\u0627\u0645" to 400)),
+                spellings,
+            ),
+        )
+    }
+
+    private val kam = "\u06A9\u0645" // کم, "less"
+    private val kaam = "\u06A9\u0627\u0645" // کام, "work"
+    private val mera = "\u0645\u06CC\u0631\u0627" // میرا
+
+    @Test fun phoneticReadingsFollowTheWordBefore() {
+        // Alone, "kam" is the commoner کم…
+        val plain = urduEngine()
+        assertEquals(kam, plain.suggest("kam", null, phoneticLanguage = "ur").first())
+        assertEquals(kam, plain.phoneticCommit("ur", "kam")?.output)
+        // …but after a "میرا کام" the user has typed before, it is کام, on the
+        // strip and on the space bar alike.
+        val lexicon = UserLexicon(null).also { it.learnBigram(mera, kaam) }
+        val e = urduEngine(lexicon)
+        assertEquals(kaam, e.suggest("kam", mera, phoneticLanguage = "ur").first())
+        assertEquals(kaam, e.phoneticCommit("ur", "kam", mera)?.output)
+        // A different word before leaves it alone.
+        assertEquals(kam, e.suggest("kam", "\u0628\u06C1\u062A", phoneticLanguage = "ur").first())
+    }
+
+    @Test fun phoneticContextCanBeSwitchedOff() {
+        val lexicon = UserLexicon(null).also { it.learnBigram(mera, kaam) }
+        val e = urduEngine(lexicon).also { it.phoneticContextOff = setOf("ur") }
+        assertEquals(kam, e.suggest("kam", mera, phoneticLanguage = "ur").first())
+        assertEquals(kam, e.phoneticCommit("ur", "kam", mera)?.output)
+    }
+
+    @Test fun contextReordersAKnownSpellingsFormsAndThePreviewFollows() {
+        val kal = "\u06A9\u0644" // کل
+        val kaal = "\u06A9\u0627\u0644" // کال
+        val aaj = "\u0622\u062C" // آج
+        val map = SpellingMap.load("kal\t$kal\nkal\t$kaal\n".byteInputStream(Charsets.UTF_8))
+        val lexicon = UserLexicon(null).also { it.learnBigram(aaj, kaal) }
+        val e = urduEngine(lexicon, map)
+        assertEquals(kal, e.phoneticSpelling("ur", "kal"))
+        // The composing preview and the space bar agree after the word before.
+        assertEquals(kaal, e.phoneticSpelling("ur", "kal", aaj))
+        assertEquals(kaal, e.suggest("kal", aaj, phoneticLanguage = "ur").first())
+    }
+
+    @Test fun contextNeverLiftsADictionaryWordOverAKnownSpelling() {
+        // The map says "kam" is کم; a habit of کام after میرا moves it up the
+        // strip but not past the listed spelling, which the preview showed.
+        val map = SpellingMap.load("kam\t$kam\n".byteInputStream(Charsets.UTF_8))
+        val lexicon = UserLexicon(null).also { it.learnBigram(mera, kaam) }
+        val e = urduEngine(lexicon, map)
+        val strip = e.suggest("kam", mera, phoneticLanguage = "ur")
+        assertEquals(kam, strip.first())
+        assertTrue(kaam in strip)
+    }
+
+    @Test fun aPhoneticLayoutNeverAnswersInLatin() {
+        // The backend has not been loaded yet — a layout switched to before the
+        // index finished building — and the rules still answer.
+        val suggestions = engine().suggest("kaise", null, phoneticLanguage = "hi")
+        assertEquals("कैसे", suggestions.first())
+        assertTrue(suggestions.none { word -> word.any { it in 'a'..'z' } })
     }
 
     @Test fun userLearningPersonalizes() {
@@ -633,7 +875,9 @@ class SuggestionEngineTest {
             insert("a", 9500)
             insert("lot", 800)
         }
+        // The strip offers splits only while "Add missing spaces" is on (#413).
         val e = SuggestionEngine(dictionary, BengaliPhoneticIndex(emptyList()), UserLexicon(null))
+            .apply { autocorrectSplits = true }
         assertEquals("of the", e.suggest("ofthe", previousWord = null).first())
         assertTrue("a lot" in e.suggest("alot", previousWord = null))
         // Capitalization pattern carries over the whole phrase.
@@ -665,6 +909,42 @@ class SuggestionEngineTest {
         )
         assertEquals(listOf("morning", "night"), e.suggest("", previousWord = "good"))
         assertEquals(listOf("you"), e.suggest("", previousWord = "Thank"))
+    }
+
+    @Test fun `the seed file opens a sentence through its sentinel token`() {
+        // `<s>` in the file is the sentence-start sentinel, so an empty field
+        // — whose context is that sentinel — has something to offer before a
+        // single letter is typed (#119). The seeds carry their own capitals,
+        // which is how they reach the strip.
+        val seeds = SeedBigrams.load("<s> I 98\n<s> Thanks 90\ngood morning 100\n".byteInputStream())
+        val e = SuggestionEngine(
+            Trie(), BengaliPhoneticIndex(emptyList()), UserLexicon(null), seedBigrams = seeds,
+        )
+
+        assertEquals(
+            listOf("I", "Thanks"),
+            e.suggest("", previousWord = WordContext.SENTENCE_START),
+        )
+        // The token is not a word: nothing else answers to it.
+        assertEquals(emptyList<String>(), e.suggest("", previousWord = "<s>"))
+    }
+
+    @Test fun `an opener the user types outranks the bundled ones`() {
+        // The sentinel survives WordKey normalisation, so a sentence opener is
+        // learned and read back under the same key as any other bigram.
+        val seeds = SeedBigrams.load("<s> I 98\n".byteInputStream())
+        val lexicon = UserLexicon(null)
+        lexicon.learnBigram(WordContext.SENTENCE_START, "Morning")
+        val e = SuggestionEngine(
+            Trie(), BengaliPhoneticIndex(emptyList()), lexicon, seedBigrams = seeds,
+        )
+
+        // Learned first; its spelling is the case memory's business, not this
+        // path's, so an opener with no remembered case comes back as its key.
+        assertEquals(
+            listOf("morning", "I"),
+            e.suggest("", previousWord = WordContext.SENTENCE_START),
+        )
     }
 
     @Test fun learnedBigramsOutrankSeeds() {
@@ -731,6 +1011,68 @@ class SuggestionEngineTest {
         )
     }
 
+    @Test fun `a downloaded secondary with real counts does not bury the typed primary word`() {
+        // #653: bundled English on its 0..10000 scale, Italian downloaded with
+        // corpus counts in the millions. "visit" typed in full stays first.
+        val dictionary = Trie().apply {
+            insert("the", 10_000)
+            insert("visit", 238)
+        }
+        val italian = Trie().apply {
+            insert("di", 19_000_000)
+            insert("visita", 900_000)
+            insert("visitare", 400_000)
+            insert("visite", 300_000)
+        }
+        val e = SuggestionEngine(dictionary, BengaliPhoneticIndex(emptyList()), UserLexicon(null)).apply {
+            primaryLanguageId = "en"
+            secondaryDictionaries = listOf(SecondaryDictionary("it", italian))
+        }
+        val s = e.suggest("visit", previousWord = null)
+        assertEquals("expected visit first in $s", "visit", s.first())
+        assertTrue("Italian still offered in $s", "visita" in s)
+    }
+
+    @Test fun `english as a secondary still shows beside a downloaded primary`() {
+        // The reverse of #653: Italian primary downloaded with corpus counts,
+        // bundled English riding as the secondary at half its 0..10000 scale.
+        val italian = Trie().apply {
+            insert("di", 19_000_000)
+            insert("visita", 900_000)
+            insert("visitare", 400_000)
+        }
+        val english = Trie().apply {
+            insert("the", 10_000)
+            insert("visit", 2_000)
+        }
+        val e = SuggestionEngine(english, BengaliPhoneticIndex(emptyList()), UserLexicon(null)).apply {
+            englishSources = false
+            englishAsSecondary = true
+            primaryLanguageId = "it"
+            customDictionary = italian
+        }
+        val s = e.suggest("visit", previousWord = null)
+        assertTrue("English visit offered in $s", "visit" in s)
+    }
+
+    @Test fun `a downloaded primary list does not correct every word it lacks`() {
+        // #403: a Greek list with corpus counts in the millions read at its raw
+        // scale cleared the lone-candidate floor by ten nats, so any unknown
+        // word one slip from a rare listed one was replaced.
+        val greek = Trie().apply {
+            insert("kai", 19_000_000)
+            insert("einai", 10_000_000)
+            insert("kalimera", 5_000)
+        }
+        val e = SuggestionEngine(Trie(), BengaliPhoneticIndex(emptyList()), UserLexicon(null)).apply {
+            englishSources = false
+            primaryLanguageId = "el"
+            customDictionary = greek
+        }
+        assertNull("rare listed word must not fire unopposed", e.shouldAutocorrect("kalimeri"))
+        assertEquals("einai", e.shouldAutocorrect("eiani"))
+    }
+
     @Test fun `words the primary covers do not inflate a secondary`() {
         // "world" is a primary (English) word: committing it must count toward
         // the primary, leaving the untouched secondary damped below neutral —
@@ -755,34 +1097,172 @@ class SuggestionEngineTest {
     // ---- missing-space splits ----
 
     @Test fun `stray spacebar-neighbour letter offers the split in the strip`() {
-        val out = engine().suggest("thebworld", previousWord = null)
+        val e = engine().apply {
+            touchModel = KeyTouchModel(mapOf('b' to TouchPoint(5f, 3f)))
+            autocorrectSplits = true
+        }
+        val low = List(9) { i -> if (i == 3) TouchPoint(5f, 3.4f) else null }
+        val out = e.suggest("thebworld", previousWord = null, touch = low)
         assertTrue("expected 'the world' in $out", "the world" in out)
     }
 
     @Test fun `boundary letter far from the spacebar never reads as a space`() {
-        val out = engine().suggest("thexworld", previousWord = null)
+        val e = engine().apply {
+            touchModel = KeyTouchModel(mapOf('x' to TouchPoint(2f, 3f)))
+            autocorrectSplits = true
+        }
+        val low = List(9) { i -> if (i == 3) TouchPoint(2f, 3.4f) else null }
+        val out = e.suggest("thexworld", previousWord = null, touch = low)
         assertTrue("unexpected split in $out", "the world" !in out)
+    }
+
+    @Test fun `a split never ends on a single letter`() {
+        // What a corpus tokenised at the apostrophe leaves behind: the
+        // downloadable English list carries a bare `s` at 110,000 and `don`
+        // at four million, so "thats" read as `that` + `s` and came back as
+        // "that s" (#240). The left half stays open to one letter, since
+        // "alot" really is *a lot*.
+        val e = SuggestionEngine(
+            PackedTrie.of(listOf("that" to 10_203_742, "s" to 110_199, "a" to 14_484_562, "lot" to 200_000)),
+            BengaliPhoneticIndex(emptyList()),
+            UserLexicon(null),
+        ).apply { autocorrectSplits = true }
+        assertFalse("that s" in e.suggest("thats", previousWord = null))
+        // Ordinary autocorrect still has its say — "thats" is one deletion
+        // from "that" — but the split is not what it says.
+        assertNotEquals("that s", e.shouldAutocorrect("thats"))
+        // ...while a one-letter *first* half still reads: "alot" is "a lot".
+        // On the strip rather than applied, because in a list this small a
+        // plain deletion reaches "lot" and outranks any split.
+        assertTrue("a lot" in e.suggest("alot", previousWord = null))
     }
 
     @Test fun `split autocorrect is off unless the IME enables it`() {
         assertNull(engine().shouldAutocorrect("theworld"))
     }
 
+    /** Split autocorrect on, with "the world" typed often enough to vouch for itself. */
+    private fun splitEngine(lexicon: UserLexicon = UserLexicon(null)): SuggestionEngine =
+        engine(lexicon.apply { repeat(2) { learnBigram("the", "world") } })
+            .apply { autocorrectSplits = true }
+
     @Test fun `split autocorrect inserts the missed space`() {
-        val e = engine().apply { autocorrectSplits = true }
+        val e = splitEngine()
         assertEquals("the world", e.shouldAutocorrect("theworld"))
         // Typed capitalization carries over to the split.
         assertEquals("The world", e.shouldAutocorrect("Theworld"))
     }
 
+    @Test fun `an exact split needs a phrase the keyboard has seen`() {
+        // Both halves listed is not enough: nearly any unlisted word breaks
+        // into two listed fragments somewhere ("config" -> "con fig").
+        val lexicon = UserLexicon(null)
+        val e = engine(lexicon).apply { autocorrectSplits = true }
+        assertNull(e.shouldAutocorrect("theworld"))
+        assertTrue("the world" in e.suggest("theworld", previousWord = null))
+        // One sighting is what an applied-and-kept split leaves behind.
+        lexicon.learnBigram("the", "world")
+        assertNull(e.shouldAutocorrect("theworld"))
+        lexicon.learnBigram("the", "world")
+        assertEquals("the world", e.shouldAutocorrect("theworld"))
+    }
+
+    @Test fun `a word in the personal dictionary is never split`() {
+        val lexicon = UserLexicon(null)
+        val e = splitEngine(lexicon)
+        lexicon.learnWord("theworld")
+        assertNull(e.shouldAutocorrect("theworld"))
+    }
+
+    // ---- the fat-fingered spacebar ----
+
+    /** A bottom-row model: `b` sits at y = 3, the spacebar a row below it. */
+    private fun bottomRowEngine(lexicon: UserLexicon = UserLexicon(null)): SuggestionEngine =
+        engine(lexicon).apply {
+            autocorrectSplits = true
+            touchModel = KeyTouchModel(mapOf('b' to TouchPoint(5f, 3f)))
+        }
+
+    /** Taps for "thebworld" with the `b` landing [bDrop] key widths below its centre. */
+    private fun thebworldTaps(bDrop: Float): List<TouchPoint?> =
+        List(9) { i -> if (i == 3) TouchPoint(5f, 3f + bDrop) else null }
+
     @Test fun `split autocorrect drops a fat-fingered space letter`() {
-        val e = engine().apply { autocorrectSplits = true }
-        assertEquals("the world", e.shouldAutocorrect("thebworld"))
+        val lexicon = UserLexicon(null).apply { repeat(2) { learnBigram("the", "world") } }
+        val e = bottomRowEngine(lexicon)
+        val low = thebworldTaps(bDrop = 0.4f)
+        assertEquals("the world", e.decideCorrection("thebworld", touch = low).apply)
+        assertTrue("the world" in e.suggest("thebworld", null, touch = low))
+    }
+
+    @Test fun `a letter tapped square on its key is never a space slip`() {
+        // "config" is not in the list, "co" and "fig" are, and `n` flanks the
+        // spacebar: with no tap to say the finger reached for the spacebar,
+        // the word the user typed stands (the "config" -> "co fig" report).
+        val lexicon = UserLexicon(null).apply { learnBigram("the", "world") }
+        val e = bottomRowEngine(lexicon)
+        assertNull(e.decideCorrection("thebworld").apply)
+        assertNull(e.decideCorrection("thebworld", touch = thebworldTaps(bDrop = 0f)).apply)
+        assertNull(e.decideCorrection("thebworld", touch = thebworldTaps(bDrop = -0.3f)).apply)
+        assertTrue("the world" !in e.suggest("thebworld", null))
+        assertTrue("the world" !in e.suggest("thebworld", null, touch = thebworldTaps(bDrop = 0f)))
+    }
+
+    @Test fun `a dropped-letter split needs a phrase the keyboard has seen`() {
+        val lexicon = UserLexicon(null)
+        val e = bottomRowEngine(lexicon)
+        val low = thebworldTaps(bDrop = 0.4f)
+        // Never typed "the world": the strip may offer it, the field is not rewritten.
+        assertNull(e.decideCorrection("thebworld", touch = low).apply)
+        assertTrue("the world" in e.suggest("thebworld", null, touch = low))
+        repeat(2) { lexicon.learnBigram("the", "world") }
+        assertEquals("the world", e.decideCorrection("thebworld", touch = low).apply)
+    }
+
+    @Test fun `a word learned once does not anchor a split`() {
+        val lexicon = UserLexicon(null).apply {
+            repeat(2) { learnBigram("the", "wprld") }
+            learnWord("wprld")
+        }
+        val e = bottomRowEngine(lexicon).apply { learnedWordMinCount = 3 }
+        val low = thebworldTaps(bDrop = 0.4f)
+        assertNull(e.decideCorrection("thebwprld", touch = low).apply)
+        lexicon.learnWord("wprld", count = 2)
+        assertEquals("the wprld", e.decideCorrection("thebwprld", touch = low).apply)
     }
 
     @Test fun `single-word fix always outranks a split`() {
         val e = engine().apply { autocorrectSplits = true }
         assertEquals("world", e.shouldAutocorrect("wprld"))
+    }
+
+    // ---- a known word's slips (#979) ----
+
+    @Test fun `a known word keeps its nearest slip on the strip, below it`() {
+        val dictionary = Trie().apply {
+            insert("is", 9_000)
+            insert("us", 4_000)
+        }
+        val e = SuggestionEngine(dictionary, BengaliPhoneticIndex(emptyList()), UserLexicon(null))
+        val s = e.suggest("is", previousWord = null)
+        assertEquals("is", s.first())
+        assertTrue("us offered in $s", "us" in s)
+        // The strip only: a known word is still never corrected.
+        assertNull(e.shouldAutocorrect("is"))
+    }
+
+    @Test fun `a secondary word one slip from a primary word reaches the strip`() {
+        val primary = Trie().apply { insert("kalb", 5_000) }
+        val secondary = Trie().apply { insert("kelb", 5_000) }
+        val e = SuggestionEngine(Trie(), BengaliPhoneticIndex(emptyList()), UserLexicon(null)).apply {
+            englishSources = false
+            primaryLanguageId = "ar"
+            customDictionary = primary
+            secondaryDictionaries = listOf(SecondaryDictionary("arz", secondary))
+        }
+        val s = e.suggest("kalb", previousWord = null)
+        assertEquals("kalb", s.first())
+        assertTrue("secondary kelb offered in $s", "kelb" in s)
     }
 
     @Test fun `known words are never split`() {
@@ -791,7 +1271,7 @@ class SuggestionEngineTest {
     }
 
     @Test fun `reverted split never fires again`() {
-        val e = engine().apply { autocorrectSplits = true }
+        val e = splitEngine()
         assertEquals("the world", e.shouldAutocorrect("theworld"))
         e.rejectCorrection("theworld", "the world")
         assertNull(e.shouldAutocorrect("theworld"))
@@ -898,11 +1378,14 @@ class SuggestionEngineTest {
     private fun banglishEngine(
         shift: Double = SuggestionEngine.FIELD_SHIFT_AGGRESSIVE,
     ): SuggestionEngine {
+        // On the bundled list's 0..10000 scale: a list topping out above it is
+        // read as a downloaded one and scaled down onto it (the engine's
+        // SourceScales), which would take "bark" down with it.
         val dictionary = Trie().apply {
             insert("bark", 2000)
-            insert("how", 90_000)
-            insert("are", 80_000)
-            insert("you", 100_000)
+            insert("how", 9_000)
+            insert("are", 8_000)
+            insert("you", 10_000)
         }
         val banglish = Trie().apply {
             insert("bari", 1)
@@ -946,6 +1429,35 @@ class SuggestionEngineTest {
         e.seedFieldContext(banglishWords)
         val s = e.suggest("bar", previousWord = null)
         assertTrue("gentle must not dethrone the primary in $s", s.indexOf("bark") < s.indexOf("bari"))
+    }
+
+    @Test fun `an app habit leans an empty field without owning it`() {
+        // Messenger, where this user writes Banglish: the field starts leaning
+        // that way at half strength, which at Aggressive is enough to put the
+        // Banglish word first...
+        val habit = FieldLanguageMix.Prior(mapOf("bn_rom" to 0.9, "en" to 0.1), FieldLanguageMix.MAX_PRIOR_WEIGHT)
+        val aggressive = banglishEngine()
+        aggressive.seedFieldContext(emptyList(), habit)
+        val s = aggressive.suggest("bar", previousWord = null)
+        assertTrue("expected bari first in $s", s.indexOf("bari") < s.indexOf("bark"))
+        // ...and one English word typed in that field takes it straight back.
+        aggressive.recordUsage("how")
+        val back = aggressive.suggest("bar", previousWord = null)
+        assertTrue("expected bark first in $back", back.indexOf("bark") < back.indexOf("bari"))
+        // At Balanced the habit alone never unseats a common English word.
+        val balanced = banglishEngine(shift = SuggestionEngine.FIELD_SHIFT_BALANCED)
+        balanced.seedFieldContext(emptyList(), habit)
+        val b = balanced.suggest("bar", previousWord = null)
+        assertTrue("balanced must keep bark first in $b", b.indexOf("bark") < b.indexOf("bari"))
+    }
+
+    @Test fun `owning languages classifies for the app tally`() {
+        val e = banglishEngine()
+        assertEquals(setOf("bn_rom"), e.owningLanguages("Ami"))
+        assertEquals(setOf("en"), e.owningLanguages("how"))
+        assertTrue(e.owningLanguages("zzq").isEmpty())
+        // No mix configured: nothing to classify against.
+        assertTrue(engine().owningLanguages("hello").isEmpty())
     }
 
     @Test fun `committed words swing the detection back mid-field`() {
@@ -1004,14 +1516,20 @@ class SuggestionEngineTest {
 
     @Test fun systemDictionaryIndexNormalisesAndSplitsEntries() {
         val source =
-            SystemUserDictionary.index(listOf("AOSP", "aosp", "on my way", " x ", "")).source
+            SystemUserDictionary.index(listOf("AOSP", "aosp", "on my way", " x ", "", "plan b")).source
         assertTrue(source.contains("aosp"))
         assertEquals(1, source.frequencyOf("aosp"))
         // A multi-word entry indexes as its parts, never as one token.
         assertTrue(source.contains("way"))
         assertFalse(source.contains("on my way"))
-        // Single characters are not words.
-        assertFalse(source.contains("x"))
+        // A row that is one letter was added on purpose ("I", #620); one
+        // letter out of a phrase was not.
+        assertTrue(source.contains("x"))
+        assertFalse(source.contains("b"))
+    }
+
+    @Test fun aOneLetterRowKeepsItsCapital() {
+        assertEquals("I", SystemUserDictionary.index(listOf("I")).shapes["i"])
     }
 
     // ---- capitalization of learned and platform-dictionary words (#44) ----
@@ -1031,6 +1549,37 @@ class SuggestionEngineTest {
         assertTrue("AOSP" in e.suggest("aos", previousWord = null))
     }
 
+    @Test fun aCapitalisedPhraseDoesNotCapitaliseItsWords() {
+        val entries = SystemUserDictionary.index(listOf("User Dictionary Manager"))
+        // The parts are known words, as any platform entry's parts are (#45)...
+        assertTrue(entries.source.contains("user"))
+        assertTrue(entries.source.contains("manager"))
+        // ...but the phrase's title case is the phrase's, not each word's (#221).
+        assertFalse("user" in entries.shapes)
+        assertFalse("dictionary" in entries.shapes)
+        assertFalse("manager" in entries.shapes)
+
+        val dictionary = Trie().apply { insert("user", 100) }
+        val e = SuggestionEngine(dictionary, BengaliPhoneticIndex(emptyList()), UserLexicon(null))
+        e.systemDictionary = entries.source
+        e.systemWordCases = entries.shapes
+        // Typing or gliding the word gets the word back, lower case.
+        assertTrue("user" in e.suggest("use", previousWord = null))
+        assertFalse("User" in e.suggest("use", previousWord = null))
+        // And the case vote still reads it as a word that is spelled lower case.
+        assertTrue(e.spellsInLowerCase("user"))
+    }
+
+    @Test fun aSingleWordRowStillCapitalisesWhenAPhraseMentionsIt() {
+        // Row order must not decide the answer either way round.
+        val phraseFirst = SystemUserDictionary.index(listOf("Boston Red Sox", "Boston"))
+        val wordFirst = SystemUserDictionary.index(listOf("Boston", "Boston Red Sox"))
+        assertEquals("Boston", phraseFirst.shapes["boston"])
+        assertEquals("Boston", wordFirst.shapes["boston"])
+        assertFalse("red" in phraseFirst.shapes)
+        assertFalse("red" in wordFirst.shapes)
+    }
+
     @Test fun aLearnedCapitalIsPutBackOnCompletionsAndNextWords() {
         val lexicon = UserLexicon(null)
         val e = SuggestionEngine(Trie(), BengaliPhoneticIndex(emptyList()), lexicon)
@@ -1047,5 +1596,118 @@ class SuggestionEngineTest {
         lexicon.learnWord("Boston", count = 4, caseEvidence = true)
         // Shouting is the typist's call, not the memory's.
         assertTrue("BOSTON" in e.suggest("BOST", previousWord = null))
+    }
+
+    // --- fixes the user taught by hand (CorrectionMemory) ---
+
+    private fun teach(e: SuggestionEngine, typed: String, fixed: String, times: Int) {
+        repeat(times) {
+            e.correctionMemory.teach(typed, fixed, "qwerty", CorrectionMemory.Kind.PAIR_ONLY)
+        }
+    }
+
+    @Test fun aFixTaughtTwiceIsApplied() {
+        // "zzq" is nothing the dictionary can explain; the user has turned it
+        // into "hello" twice, which is a fix they want made for them.
+        val e = engine()
+        assertNull(e.shouldAutocorrect("zzq"))
+        teach(e, "zzq", "hello", 2)
+        val decision = e.decideCorrection("zzq")
+        assertEquals("hello", decision.apply)
+        assertTrue(decision.certainty > 0.5)
+        // Case carries through like any other correction.
+        assertEquals("Hello", e.shouldAutocorrect("Zzq"))
+    }
+
+    @Test fun oneFixOnlyOffersAndOverrulesADifferentGuess() {
+        val e = engine()
+        assertEquals("world", e.shouldAutocorrect("wprld"))
+        // Fixed once to something else: the engine's own guess is the mistake
+        // the user was correcting, so it is asked about, not applied.
+        teach(e, "wprld", "hello", 1)
+        val decision = e.decideCorrection("wprld")
+        assertNull(decision.apply)
+        assertEquals("hello", decision.offer)
+        teach(e, "wprld", "hello", 1)
+        assertEquals("hello", e.shouldAutocorrect("wprld"))
+    }
+
+    @Test fun oneFixAgreeingWithTheEngineChangesNothing() {
+        val e = engine()
+        teach(e, "wprld", "world", 1)
+        assertEquals("world", e.decideCorrection("wprld").apply)
+    }
+
+    @Test fun aTaughtFixOfARealWordNeedsThreeFixesAndTheContext() {
+        fun build(fixes: Int): SuggestionEngine {
+            val dictionary = Trie().apply {
+                insert("form", 100)
+                insert("from", 500)
+                insert("far", 100)
+                insert("the", 100)
+            }
+            val lexicon = UserLexicon(null)
+            repeat(8) { lexicon.learnBigram("far", "from") }
+            return SuggestionEngine(dictionary, BengaliPhoneticIndex(emptyList()), lexicon).also {
+                teach(it, "form", "from", fixes)
+            }
+        }
+        val three = build(3)
+        // A real word never gives way without context...
+        assertNull(three.decideCorrection("form").apply)
+        assertNull(three.decideCorrection("form", previousWord = "the").apply)
+        // ...and does when the words before it say so.
+        assertEquals("from", three.decideCorrection("form", previousWord = "far").apply)
+        // Two fixes with the context: asked about, not applied.
+        val two = build(2)
+        val decision = two.decideCorrection("form", previousWord = "far")
+        assertNull(decision.apply)
+        assertEquals("from", decision.offer)
+        // One fix says nothing about a real word at all.
+        assertEquals(SuggestionEngine.NO_CORRECTION, build(1).decideCorrection("form", previousWord = "far"))
+    }
+
+    @Test fun anUndoneTaughtFixStopsFiringAndShrinks() {
+        val e = engine()
+        teach(e, "zzq", "hello", 2)
+        assertEquals("hello", e.shouldAutocorrect("zzq"))
+        e.rejectCorrection("zzq", "hello")
+        assertNull(e.shouldAutocorrect("zzq"))
+        assertEquals(1, e.correctionMemory.fixFor("zzq")?.count)
+    }
+
+    @Test fun aBlacklistedFixIsNeverTaughtBack() {
+        val e = engine().apply { blacklist = setOf("hello") }
+        teach(e, "zzq", "hello", 2)
+        assertNull(e.shouldAutocorrect("zzq"))
+    }
+
+    @Test fun aThirdWordSurvivorLetsAnIndirectVerdictThrough() {
+        val e = engine()
+        // The typo standing where the fix was: a reproduced typo, not believed.
+        e.rejectCorrection("teh", "the", deliberate = false)
+        assertEquals(CorrectionStats.Penalty.NONE, e.correctionStats.penalty("teh", "the"))
+        // The fix rewritten into a real third word: the correction was wrong.
+        e.rejectCorrection("teh", "the", deliberate = false, survivor = "them")
+        assertEquals(CorrectionStats.Penalty.PENALIZED, e.correctionStats.penalty("teh", "the"))
+    }
+
+    @Test fun aLearnedSlipPricesItsCandidateAhead() {
+        val dictionary = Trie().apply {
+            insert("hello", 100)
+            insert("hullo", 100)
+        }
+        val e = SuggestionEngine(dictionary, BengaliPhoneticIndex(emptyList()), UserLexicon(null))
+        // x is far from both e and u: a tie, broken alphabetically.
+        assertEquals("hello", e.suggest("hxllo", previousWord = null).first())
+        val memory = CorrectionMemory(null)
+        repeat(EditHabits.WARMUP) {
+            memory.teach("hxllo", "hullo", "qwerty", CorrectionMemory.Kind.PAIR_AND_HABITS)
+        }
+        e.editHabits = memory.habitsFor("qwerty")
+        assertEquals("hullo", e.suggest("hxllo", previousWord = null).first())
+        // Back to nothing learned restores the shipped pricing.
+        e.editHabits = EditHabits.NONE
+        assertEquals("hello", e.suggest("hxllo", previousWord = null).first())
     }
 }

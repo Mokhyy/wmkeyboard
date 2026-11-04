@@ -8,11 +8,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The tablet expansion, run over every layout the app ships — 18 built in plus
- * 1,256 assets, on both tablet forms with the digit row on and off.
+ * The tablet expansion, run over every layout the app ships — 22 built in plus
+ * 1,259 assets, on both tablet forms with the digit row on and off.
  *
  * `TabletExpansionTest` pins the arithmetic on grids it builds by hand; this
- * pins it against reality. The transform relocates keys by role across 1,274
+ * pins it against reality. The transform relocates keys by role across 1,280
  * genuinely different grids — Bengali and Devanagari rows twelve wide, Arabic
  * and Hebrew right-to-left, five-row Khmer, layouts whose top row already
  * overflows their own grid weight — and the only honest way to know it survives
@@ -44,19 +44,19 @@ class TabletExpansionCorpusTest {
      *
      * The shape checks below run over the whole corpus, generated grids
      * included — a row that overflows on a tablet is a real defect wherever it
-     * came from. But the decline set is a list of *our* twelve, named one by
+     * came from. But the decline set is a list of *our* grids, named one by
      * one so a transform that silently started rejecting Bengali would fail;
      * folding 862 converted Keyman grids into it would turn that precise
      * assertion into a number nobody can check.
      */
     private val handAuthored: List<Case>
-        get() = corpus.filterNot { it.id.startsWith("kmn_") }
+        get() = corpus.filterNot { it.id.startsWith("hw_") || it.id.startsWith("kmn_") || it.id.startsWith("gb_") || it.id.startsWith("sam_") || it.id.startsWith("rom_") }
 
     private fun List<Key>.width() = sumOf { it.width.toDouble() }.toFloat()
 
     @Test
     fun `the corpus is the whole shipped set`() {
-        assertEquals("built-ins plus hand-authored assets", 18 + 394, handAuthored.size)
+        assertEquals("built-ins plus hand-authored assets", 39 + 1_110, handAuthored.size)
         assertTrue(
             "converted Keyman grids are missing from the corpus",
             corpus.size - handAuthored.size > 800,
@@ -67,9 +67,11 @@ class TabletExpansionCorpusTest {
      * The exact set of layouts that decline, spelled out.
      *
      * An assertion on the count alone would pass while the transform silently
-     * started rejecting Bengali and accepting braille. These twelve are the
+     * started rejecting Bengali and accepting braille. These are the
      * grids where a wide alphabetic layout is not what the user is looking at:
-     * kana flick pads and braille are typed by position, morse by timing, and
+     * the T9 keypad is four columns of letter *groups* and widening it would
+     * make it a keyboard with nothing to type on, kana flick pads and braille
+     * are typed by position, morse by timing, and
      * the rest have no shift key to mirror.
      *
      * Inuktitut and Syriac used to be on this list and have earned their way
@@ -80,6 +82,8 @@ class TabletExpansionCorpusTest {
      */
     @Test
     fun `exactly the non-alphabetic layouts decline`() {
+        // The per-language T9 keypads (#332) decline for the reason builtin_t9 does.
+        val keypads = handAuthored.map { it.id }.filter { it.endsWith("_t9") }.toSet()
         val declined = handAuthored
             .filter { tabletGridWidth(it.letters, DeviceForm.LARGE_TABLET) == null }
             .map { it.id }
@@ -87,10 +91,54 @@ class TabletExpansionCorpusTest {
 
         assertEquals(
             setOf(
+                // Khipro's shift key is its slicer, so there is none to mirror.
+                "builtin_khipro", "builtin_khipro_dark",
+                "builtin_t9",
                 "braille_chord", "ja_flick", "ja_kana_jis", "morse", "zh_stroke",
+                // Godan's letters all flick, and 50 keys has a 小゛゜ key and no shift.
+                "ja_godan", "ja_50keys",
+                // The English 3×3 flick board (#410): every letter key carries
+                // its neighbours on flick arms, and the transform declines any
+                // key with flicks.
+                "en_flick",
+                // Its Khipro and Avro twins (Telegram group), the same grid.
+                "bn_khipro_flick", "bn_avro_flick",
                 "ipa", "music", "nqo_nko",
-                "zh_cangjie", "zh_cangjie_quick", "zh_pinyin_t9", "zh_zhuyin",
-            ),
+                "zh_cangjie", "zh_cangjie_quick", "zh_pinyin_t9", "zh_wubi", "zh_zhuyin",
+                // Pinyin's shift slot is the '词 syllable separator (#580,
+                // 1969f7090): letters are typed lower case, so no shift to mirror.
+                "zh_pinyin",
+                // The 천지인 pad (#372): a 12-key keypad with no shift key.
+                "ko_cheonjiin", "ko_10key",
+                // The 나랏글 pad (#599), the same shape.
+                "ko_naratgeul",
+                // FUTO's ClearFlow and KASROZ: shift, delete and space are keys
+                // two rows tall, and the transform declines any grid with a span.
+                "en_clearflow", "en_kasroz", "zh_pinyin_clearflow",
+                // IPA on QWERTY declines for the reason the IPA grid does.
+                "ipa_qwerty", "ipa_qwerty_g",
+                // Toki Pona's fourteen letters fit on two short rows.
+                "tok_compact",
+                // Arabic as Gboard and AOSP draw it (#427): no shift key to mirror.
+                "ar_letters",
+                // Persian as Gboard draws it, and the alphabetical Devanagari
+                // pages: every letter on its own key, so no shift key either.
+                "fa_gboard", "hi_devanagari",
+                // Klingon in pIqaD, which has no case.
+                "tlh_piqad",
+                // Handwriting pads are a drawing surface, not a key grid.
+                "ja_handwriting", "ko_handwriting", "zh_handwriting",
+                // Gboard+ English puts flick arms on its bottom row; Gboard+
+                // Hebrew has no shift key (its shifted page is English).
+                "en_gboard_plus", "he_gboard_plus", "he_gboard_plus_swipe_safe",
+                // Tatoeba languages in Arabic script, built from the Arabic
+                // template, which has no shift key either.
+                "acm", "afb", "ajp", "apc", "arq", "ayl", "chg", "klj", "ota", "qxq", "sdh",
+                // The reporter's four Sorani layouts, which the transform declines.
+                "ckb_alt", "ckb_four_rows", "ckb_phonetic", "ckb_sorani",
+                // Samsung's alphabet-order Bangla grid has no shift key.
+                "bn_samsung",
+            ) + keypads,
             declined,
         )
     }

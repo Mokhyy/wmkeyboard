@@ -1,5 +1,10 @@
 package com.wasimaster.wmkeyboard.core.tools
 
+import com.wasimaster.wmkeyboard.config.BuildConfig
+import com.wasimaster.wmkeyboard.core.endpoints.ServiceEndpoint
+import com.wasimaster.wmkeyboard.core.endpoints.ServiceEndpoints
+import com.wasimaster.wmkeyboard.core.netlog.NetLog
+import com.wasimaster.wmkeyboard.core.netlog.NetSource
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -7,11 +12,11 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
- * Exchange rates for the currency tool, from keyless free APIs. Fiat comes
- * from open.er-api.com by default (~160 currencies, daily refresh) and
- * cryptocurrency from Coinbase, with the rest of [Provider] available as
- * alternatives or fallbacks. Every source is normalised to units per USD
- * and cross-converted locally, so one fetch serves every pair.
+ * Exchange rates for the currency tool, from keyless APIs. Which [Provider]s
+ * are tried, and in what order, is a setting; [Provider.fiatDefaults] and
+ * [Provider.cryptoDefaults] are where a fresh install starts, and they differ
+ * by channel. Every source is normalised to units per USD and cross-converted
+ * locally, so one fetch serves every pair.
  */
 object CurrencyClient {
 
@@ -40,12 +45,29 @@ object CurrencyClient {
 
         companion object {
             fun of(id: String): Provider? = entries.firstOrNull { it.name == id }
+
+            /**
+             * Where a fresh install fetches fiat rates from, best first. The
+             * F-Droid build starts from the two sources that are free software
+             * serving open data, currency-api (CC0) and Frankfurter (MIT,
+             * European Central Bank rates), so nothing proprietary is reached
+             * unless the user picks it. The other builds keep ExchangeRate-API
+             * first. Every source stays selectable in both.
+             *
+             * Lives on the enum rather than on [CurrencyClient] so the settings
+             * defaults can read it without building the client's JSON parser.
+             */
+            fun fiatDefaults(fdroid: Boolean = BuildConfig.ENABLE_FDROID): List<String> =
+                if (fdroid) listOf(CURRENCY_API.name, FRANKFURTER.name) else listOf(ER_API.name, FRANKFURTER.name)
+
+            /** The coin sources a fresh install starts from; see [fiatDefaults]. */
+            fun cryptoDefaults(fdroid: Boolean = BuildConfig.ENABLE_FDROID): List<String> =
+                if (fdroid) listOf(CURRENCY_API.name) else listOf(COINBASE.name, CURRENCY_API.name)
         }
     }
 
-    val defaultFiatProviders: List<String> = listOf(Provider.ER_API.name, Provider.FRANKFURTER.name)
-    val defaultCryptoProviders: List<String> =
-        listOf(Provider.COINBASE.name, Provider.CURRENCY_API.name)
+    val defaultFiatProviders: List<String> = Provider.fiatDefaults()
+    val defaultCryptoProviders: List<String> = Provider.cryptoDefaults()
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -99,27 +121,33 @@ object CurrencyClient {
     }
 
     private fun fetchFiat(provider: Provider): Rates = when (provider) {
-        Provider.ER_API -> parseErApi(ToolHttp.get("https://open.er-api.com/v6/latest/USD"))
-        Provider.FRANKFURTER ->
-            parseFrankfurter(ToolHttp.get("https://api.frankfurter.app/latest?from=USD"))
-        Provider.COINBASE -> Rates("USD", parseCoinbase(ToolHttp.get(COINBASE_URL)) + ("USD" to 1.0))
-        Provider.CURRENCY_API ->
-            Rates("USD", parseCurrencyApi(ToolHttp.get(CURRENCY_API_URL)) + ("USD" to 1.0))
+        Provider.ER_API -> parseErApi(get(url(ServiceEndpoint.ER_API, "/v6/latest/USD")))
+        Provider.FRANKFURTER -> parseFrankfurter(get(url(ServiceEndpoint.FRANKFURTER, "/v1/latest?from=USD")))
+        Provider.COINBASE -> Rates("USD", parseCoinbase(get(url(ServiceEndpoint.COINBASE, COINBASE_PATH))) + ("USD" to 1.0))
+        Provider.CURRENCY_API -> Rates("USD", currencyApi() + ("USD" to 1.0))
         Provider.COINGECKO -> error("CoinGecko has no fiat table")
     }
 
+    /**
+     * currency-api asks its users to fall back to its Cloudflare Pages mirror
+     * when jsDelivr fails, so one CDN having a bad day does not take the whole
+     * source down. The two serve the same file.
+     */
+    private fun currencyApi(): Map<String, Double> =
+        runCatching { parseCurrencyApi(get(url(ServiceEndpoint.CURRENCY_API, CURRENCY_API_PATH))) }
+            .getOrElse { parseCurrencyApi(get(url(ServiceEndpoint.CURRENCY_API_MIRROR, CURRENCY_API_PATH))) }
+
     private fun fetchCrypto(provider: Provider, codes: Set<String>): Map<String, Double> =
         when (provider) {
-            Provider.COINBASE -> parseCoinbase(ToolHttp.get(COINBASE_URL)).filterKeys { it in codes }
-            Provider.CURRENCY_API ->
-                parseCurrencyApi(ToolHttp.get(CURRENCY_API_URL)).filterKeys { it in codes }
+            Provider.COINBASE -> parseCoinbase(get(url(ServiceEndpoint.COINBASE, COINBASE_PATH))).filterKeys { it in codes }
+            Provider.CURRENCY_API -> currencyApi().filterKeys { it in codes }
             Provider.COINGECKO -> {
                 val ids = CryptoCatalog.geckoIds(codes)
                 if (ids.isEmpty()) {
                     emptyMap()
                 } else {
                     parseCoinGecko(
-                        ToolHttp.get(geckoUrl(ids)),
+                        get(geckoUrl(ids)),
                         CryptoCatalog.geckoIdToCode(codes),
                     )
                 }
@@ -127,12 +155,22 @@ object CurrencyClient {
             else -> error("${provider.name} has no coin table")
         }
 
-    private const val COINBASE_URL = "https://api.coinbase.com/v2/exchange-rates?currency=USD"
-    private const val CURRENCY_API_URL =
-        "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.min.json"
+    /**
+     * [path] on wherever [endpoint] points. By default that is api.frankfurter.dev
+     * (the old .app host redirects there), jsDelivr and its Pages mirror for
+     * currency-api, open.er-api.com, api.coinbase.com and api.coingecko.com.
+     */
+    private fun url(endpoint: ServiceEndpoint, path: String): String = ServiceEndpoints.base(endpoint) + path
+
+    /** Every rate request carries no user input, so its whole path is the route. */
+    private fun get(url: String): String =
+        ToolHttp.get(url, source = NetSource.CURRENCY, route = NetLog.pathOf(url))
+
+    private const val COINBASE_PATH = "/v2/exchange-rates?currency=USD"
+    private const val CURRENCY_API_PATH = "/v1/currencies/usd.min.json"
 
     private fun geckoUrl(ids: List<String>): String =
-        "https://api.coingecko.com/api/v3/simple/price?ids=" +
+        url(ServiceEndpoint.COINGECKO, "/api/v3/simple/price?ids=") +
             ids.joinToString("%2C") + "&vs_currencies=usd"
 
     // ---- parsing ----
@@ -259,3 +297,6 @@ object CurrencyClient {
         "AED", "SAR", "MYR", "TRY", "PKR",
     )
 }
+
+/** Every row of a currency provider list is switched off, so nothing is fetched. */
+class NoRateProviderException : java.io.IOException("No rate provider is on")

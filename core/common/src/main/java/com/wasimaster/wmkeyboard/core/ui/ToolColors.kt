@@ -24,18 +24,22 @@ fun toolAccentColor(tool: ToolbarTool): Color = when (tool) {
     ToolbarTool.EMOJI -> Color(0xFFFFB300)
     ToolbarTool.GIF -> Color(0xFFFF7043)
     ToolbarTool.STICKER -> Color(0xFFFFA726)
+    ToolbarTool.EMOJI_MIX -> Color(0xFFFFCA28)
     ToolbarTool.CAMERA -> Color(0xFFF06292)
     ToolbarTool.THEMES -> Color(0xFFEC407A)
 
     // Text & clipboard — blues/teals
-    ToolbarTool.CLIPBOARD -> Color(0xFF42A5F5)
+    ToolbarTool.CLIPBOARD, ToolbarTool.CLIPBOARD_SEARCH -> Color(0xFF42A5F5)
     // The one-tap trio reads as the clipboard panel's own family (issue #41).
-    ToolbarTool.COPY, ToolbarTool.CUT, ToolbarTool.PASTE -> Color(0xFF42A5F5)
+    ToolbarTool.COPY, ToolbarTool.CUT, ToolbarTool.PASTE, ToolbarTool.RECENT_COPIES -> Color(0xFF42A5F5)
     ToolbarTool.SNIPPETS -> Color(0xFF26A69A)
     ToolbarTool.TEXT_EDIT -> Color(0xFF5C6BC0)
     ToolbarTool.TRACKPAD -> Color(0xFF7986CB)
     ToolbarTool.DICTIONARY -> Color(0xFF26A69A)
     ToolbarTool.VOCABULARY -> Color(0xFF8E24AA)
+    ToolbarTool.LEARN_FROM_TEXT -> Color(0xFF00897B)
+    // The AI family's violet, since it is the AI tool's sibling (#234).
+    ToolbarTool.AI_REPLY -> Color(0xFF7C4DFF)
     ToolbarTool.HANDWRITING -> Color(0xFF7E57C2)
     ToolbarTool.NUMPAD -> Color(0xFF42A5F5)
     ToolbarTool.SYMBOLS -> Color(0xFF7E57C2)
@@ -68,8 +72,22 @@ fun toolAccentColor(tool: ToolbarTool): Color = when (tool) {
     ToolbarTool.CURRENCY -> Color(0xFF66BB6A)
     ToolbarTool.QR_GEN -> Color(0xFF26A69A)
     ToolbarTool.PASSWORD_GEN -> Color(0xFFEF5350)
+    ToolbarTool.TEXT_REPEAT -> Color(0xFF7E57C2)
+    ToolbarTool.READ_BACK -> Color(0xFF26A69A)
     ToolbarTool.TYPING_TEST -> Color(0xFFFF7043)
+    // A clear sky blue, for a line to the internet; the typing test beside it is orange.
+    ToolbarTool.SPEED_TEST -> Color(0xFF42A5F5)
+    // Trophy gold: the screen it opens is levels and achievements.
+    ToolbarTool.STATISTICS -> Color(0xFFFFA000)
+    ToolbarTool.FIND_REPLACE -> Color(0xFF5C6BC0)
+    // Sticky-note yellow.
+    ToolbarTool.NOTES, ToolbarTool.QUICK_NOTE -> Color(0xFFFBC02D)
+    // A ticked-box green, apart from the notes' yellow beside it.
+    ToolbarTool.TODO -> Color(0xFF43A047)
+    ToolbarTool.WM_PASS -> Color(0xFF0D9488)
     ToolbarTool.MEDIA_CONTROL -> Color(0xFFAB47BC)
+    // KDE's own blue.
+    ToolbarTool.KDE_CONNECT -> Color(0xFF1D99F3)
     ToolbarTool.PLUGINS -> Color(0xFF06B6D4)
     ToolbarTool.APP_LAUNCHER -> Color(0xFF7E57C2)
 
@@ -78,8 +96,11 @@ fun toolAccentColor(tool: ToolbarTool): Color = when (tool) {
     ToolbarTool.ONE_HANDED -> Color(0xFF78909C)
     ToolbarTool.SPLIT -> Color(0xFF78909C)
     ToolbarTool.FLOATING -> Color(0xFF78909C)
+    ToolbarTool.PERSISTENT -> Color(0xFF78909C)
     ToolbarTool.RESIZE -> Color(0xFF78909C)
     ToolbarTool.INCOGNITO -> Color(0xFF607D8B)
+    ToolbarTool.SELECTION_ACTIONS -> Color(0xFF5E6BC0)
+    ToolbarTool.PHONETIC_ENGLISH -> Color(0xFF26A69A)
     ToolbarTool.POWER_SAVING -> Color(0xFF66BB6A)
     ToolbarTool.SETTINGS -> Color(0xFF90A4AE)
     ToolbarTool.UNDO -> Color(0xFF78909C)
@@ -91,6 +112,18 @@ fun toolAccentColor(tool: ToolbarTool): Color = when (tool) {
     ToolbarTool.LEVEL -> Color(0xFF26C6DA)
     ToolbarTool.CALENDAR -> Color(0xFFE57373)
     ToolbarTool.WEATHER -> Color(0xFFFFA726)
+    // A map pin's red, a shade off the compass's so the two read apart.
+    ToolbarTool.LOCATION -> Color(0xFFE53935)
+    // An evening indigo: a clock face at night, and apart from the calendar's red.
+    ToolbarTool.CLOCK -> Color(0xFF5C6BC0)
+    // Home Assistant's own sky blue, so the tile reads as the house it controls.
+    ToolbarTool.HOME_ASSISTANT -> Color(0xFF18BCF2)
+    // Shazam's blue, the colour everyone knows "what song is this" by, a shade apart from the media purple.
+    ToolbarTool.MUSIC_ID -> Color(0xFF1E88E5)
+    // A sunset's coral: the colour a photo library opens on, apart from the camera's.
+    // A clear sky blue: a link that travels, apart from the clipboard's and KDE Connect's blues.
+    ToolbarTool.SEND_FILES -> Color(0xFF26A69A)
+    ToolbarTool.GALLERY -> Color(0xFFFF7043)
     ToolbarTool.MOON_PHASE -> Color(0xFF7986CB)
 
     // Cursor keys — one neutral so they read as a set
@@ -106,9 +139,11 @@ fun toolAccentColor(tool: ToolbarTool): Color = when (tool) {
     ToolbarTool.PAGE_DOWN,
     ToolbarTool.SELECT_WORD,
     ToolbarTool.SELECT_LINE,
+    ToolbarTool.SELECT_ALL,
     ToolbarTool.SELECT_MODE -> Color(0xFF90A4AE)
 
-    ToolbarTool.HIDE_KEYBOARD -> Color(0xFF607D8B)
+    ToolbarTool.HIDE_KEYBOARD, ToolbarTool.LEAVE_FIELD -> Color(0xFF607D8B)
+    ToolbarTool.LANGUAGE -> Color(0xFF26A69A)
 }
 
 /**

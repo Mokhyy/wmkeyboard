@@ -34,9 +34,9 @@ object MediaMime {
      *
      * A sticker MIME may only be offered for bytes that really are WebP —
      * declaring it for a GIF would hand the app a file that doesn't match
-     * its own MIME. Android ships no animated-WebP encoder, so an animated
-     * GIF genuinely cannot be sent as a sticker; in that case this returns
-     * the plain type and the send behaves as [MediaSendMode.IMAGE].
+     * its own MIME. A GIF is stored and sent as the GIF it is (only an
+     * animated PNG is re-encoded, see [AnimatedWebpWriter]), so for one this
+     * returns the plain type and the send behaves as [MediaSendMode.IMAGE].
      */
     fun candidates(mimeType: String, mode: MediaSendMode): List<String> =
         if (mode == MediaSendMode.STICKER && mimeType == WEBP) {
@@ -44,6 +44,37 @@ object MediaMime {
         } else {
             listOf(mimeType)
         }
+
+    /**
+     * Whether an animated WebP should go out as a GIF, given what
+     * [candidates] settled on for it ([chosen], null when the field takes
+     * none of them) and whether the field takes GIFs.
+     *
+     * Only [WHATSAPP_STICKER] is a promise that the animation will play: it
+     * is WhatsApp's own type and WhatsApp animates what arrives under it. A
+     * field that merely lists `image/webp` promises nothing of the kind.
+     * Messenger and Telegram both list it and both draw an animated WebP as a
+     * single frame, and nothing a field advertises tells those apart from one
+     * that would play it. A GIF plays in all of them, so that is what an
+     * animated sticker becomes anywhere the WhatsApp type is not on offer.
+     */
+    fun animatedGoesAsGif(chosen: String?, fieldTakesGif: Boolean): Boolean =
+        fieldTakesGif && chosen != WHATSAPP_STICKER
+
+    /**
+     * Apps that take a still sticker only as a 512×512 square, by package.
+     * Messenger offers plain [WEBP], so unlike WhatsApp nothing it advertises
+     * gives it away; the package is the only thing that does.
+     */
+    private val SQUARE_STICKER_PACKAGES = setOf("com.facebook.orca", "com.facebook.mlite")
+
+    /**
+     * Whether a sticker sent as [chosen] into [packageName] has to go out as
+     * the 512×512 square rather than in its own shape. WhatsApp's sticker type
+     * is only ever that square; Messenger draws anything else badly too.
+     */
+    fun needsSquareSticker(chosen: String?, packageName: String?): Boolean =
+        chosen == WHATSAPP_STICKER || (chosen == WEBP && packageName in SQUARE_STICKER_PACKAGES)
 
     /** File extension to store [mimeType] under. */
     fun extension(mimeType: String): String = when (mimeType) {

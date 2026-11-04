@@ -6,7 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * The guardrails against the two ways an asset layout goes wrong quietly.
+ * The guardrails against the ways an asset layout goes wrong quietly.
  *
  * [AssetLayoutsTest] already proves every shipped file *parses*, needs no
  * repair and names a real language. None of that catches the failure mode that
@@ -17,10 +17,16 @@ import org.junit.Test
  * alongside seven groups of layouts that were byte-identical to the sibling
  * they were copied from.
  *
- * Both checks are allow-lists rather than heuristics, and deliberately so: a
- * new exception has to be added here by hand. The cost of the fifth
- * placeholder bug should be a failing test, not a bug report in a language none
- * of us reads.
+ * A layout can also be filled in and still be wrong. Swedish shipped as a
+ * verbatim English QWERTY with å, ä and ö on the long-press of `a` and `o`:
+ * every letter typeable, so every check here passed, and none of the three on a
+ * key. A Swede reported it as the layout simply not existing. The last test
+ * below is that case — the letters a language's own keyboard puts on keys.
+ *
+ * The checks are allow-lists rather than heuristics, and deliberately so: a
+ * new exception has to be added here by hand. The cost of the next placeholder
+ * bug should be a failing test, not a bug report in a language none of us
+ * reads.
  */
 class AssetLayoutHygieneTest {
 
@@ -46,9 +52,14 @@ class AssetLayoutHygieneTest {
      * Everything that still applies to them — parses, needs no repair, names a
      * real language, no dangling layer — is enforced in `AssetLayoutsTest` and
      * `TouchLayoutConverterTest`, over all 862 rather than by exception.
+     *
+     * The `gb_` grids are generated too, by tools/gboard-layouts, and read false
+     * for the same honest reasons: Gboard offers many languages one script's grid.
+     * The `sam_` grids come from Samsung Keyboard the same way, and its one
+     * Devanagari or QWERTY board per language shares a grid just as often.
      */
     private val handAuthored: List<Pair<String, LayoutSpec>>
-        get() = layouts.filterNot { (name, _) -> name.startsWith("kmn_") }
+        get() = layouts.filterNot { (name, _) -> name.startsWith("hw_") || name.startsWith("kmn_") || name.startsWith("gb_") || name.startsWith("sam_") || name.startsWith("rom_") }
 
     /**
      * Every character a layout can produce: what the keys say, what shift makes
@@ -80,14 +91,28 @@ class AssetLayoutHygieneTest {
      * script describes what the composer *emits*, not what sits on the keys.
      */
     private val latinByDesign = setOf(
+        "asset_bn_avro_flick",
+        "asset_bn_khipro_flick",
         "asset_ipa",
+        "asset_ipa_qwerty",
+        "asset_ipa_qwerty_g",
+        "asset_ja_godan",
         "asset_ja_romaji",
         "asset_music",
+        "asset_yue_cantonese_pinyin",
         "asset_yue_jyutping",
+        "asset_yue_yale",
         "asset_zh_cangjie",
         "asset_zh_cangjie_quick",
+        "asset_zh_wubi",
         "asset_zh_pinyin",
+        "asset_zh_pinyin_clearflow",
         "asset_zh_pinyin_t9",
+        // Hebrew with no Shift key: each letter's shifted form, long-press and
+        // (bottom row) up-flick is the English letter on its SI-1452 position,
+        // for typing English words without switching layouts.
+        "asset_he_gboard_plus",
+        "asset_he_gboard_plus_swipe_safe",
     )
 
     @Test
@@ -127,6 +152,8 @@ class AssetLayoutHygieneTest {
             "anp", "awa", "bho_inscript", "brx_inscript", "doi_inscript", "dty",
             "kok_inscript", "mai_inscript", "ne_inscript", "new", "raj",
         ),
+        // The 3×3 flick board, whose keys are Latin on all three: Avro and Khipro read them.
+        setOf("bn_avro_flick", "bn_khipro_flick", "en_flick"),
         // Bengali-script minorities riding the Bengali grid.
         setOf("bpy_bengali", "syl_bengali"),
         // Gilaki and Mazanderani share the Persian alphabet outright.
@@ -137,6 +164,23 @@ class AssetLayoutHygieneTest {
         // left to tell apart without inventing a difference.
         setOf("koi", "kv_cyrillic"),
         setOf("mdf", "myv_cyrillic"),
+        // Tachelhit and Standard Moroccan Tamazight are both written in IRCAM
+        // Tifinagh, the same letters on the same keys.
+        setOf("shi", "zgh_tifinagh"),
+        // FUTO Keyboard's one North Caucasian board — ЙЦУКЕН with ё, the palochka
+        // and ъ on a row above — which it offers for every language below, as
+        // it offers a single Enets board for both Enets languages.
+        setOf("abq_cyrillic", "agx_cyrillic", "rut_cyrillic", "tab_cyrillic", "tkr_cyrillic"),
+        setOf("enf_cyrillic", "enh_cyrillic"),
+        // Tatoeba languages (CorpusLanguages) are built from their script's
+        // template plus the letters their corpus uses; where it uses none the
+        // template lacks, the grid is the template's.
+        setOf("acm", "afb", "ajp", "apc", "ar_letters", "ayl"),
+        setOf("awa", "gbm"),
+        setOf("bfz", "pi"),
+        setOf("he_si1452", "jpa", "oar", "tmr"),
+        setOf("jdt", "krc", "kum", "nog"),
+        setOf("th_kedmanee", "tts"),
     )
 
     @Test
@@ -146,6 +190,9 @@ class AssetLayoutHygieneTest {
             .values
             .filter { group ->
                 group.size > 1 &&
+                    // A T9 keypad is the script's keypad standard, shared by
+                    // design the way InScript is (#332).
+                    group.any { (name, _) -> !name.endsWith("_t9") } &&
                     group.any { (_, l) -> l.id !in latinByDesign && l.script().id != ScriptId.LATIN } &&
                     // Membership, not an exact group match: fixing one language's
                     // letters moves it in or out of a shared-grid cluster, and a
@@ -163,6 +210,80 @@ class AssetLayoutHygieneTest {
     }
 
     /**
+     * The letters a language's own keyboard puts on the keys, for the languages
+     * whose keyboard is not bare QWERTY.
+     *
+     * This is the check the Swedish bug report needed and nobody had written.
+     * `sv_qwerty` shipped as an unmodified English grid with å, ä and ö buried
+     * in the long-press of `a` and `o` — every letter of Swedish *reachable*,
+     * which is all any existing test asked, and none of the three on a key. The
+     * duplicate-grid check above deliberately looks only at the non-Latin half,
+     * on the reasoning that sharing QWERTY is normal on Latin; true for the 68
+     * languages that really do write with a–z, and exactly why seven Nordic and
+     * Baltic grids that do not went eight releases without anyone noticing.
+     *
+     * Membership is the narrow claim that two independent sources agree on: the
+     * national layout in CLDR `keyboards/windows/<lang>-t-k0-windows.xml` has
+     * the letter on row D or C, **and** a mobile keyboard puts it on a key
+     * rather than behind a hold (checked against HeliBoard's
+     * `locale_key_texts/<lang>.txt` `[extra_keys]`). Both halves are load-bearing.
+     * CLDR alone would drag in Czech, Polish, Hungarian, Slovak, Italian and
+     * Latvian, whose desktop boards carry diacritics that every phone keyboard —
+     * ours included, correctly — leaves on long-press. The rule of thumb behind
+     * both: the letter has its own seat in the alphabet, so it is no more an
+     * accented `a` than `x` is a bent `k`.
+     *
+     * Deliberately absent, and to stay absent: German ä/ö/ü, Czech, Slovak,
+     * Polish, Hungarian, Slovenian, Croatian, Romanian, Latvian and Lithuanian,
+     * where long-press is the phone convention; French, Spanish, Italian and
+     * Portuguese accents, which belong to their base letter. Northern, Inari and
+     * Skolt Sami are absent for a different reason — their board is a genuine
+     * remap (q→á, w→š, y→ŧ, x→č), not letters appended to QWERTY, so it wants a
+     * layout of its own rather than an entry here.
+     */
+    private val lettersTheNationalKeyboardPutsOnKeys = mapOf(
+        "sv" to "åöä", "fi" to "åöä",
+        "da" to "åæø", "nb" to "åøæ", "nn" to "åøæ", "kl" to "åæø",
+        "fo" to "åðæø",
+        "is" to "ðæöþ",
+        "et" to "üõöä",
+        "tr" to "ıöüşçğ", "az" to "ıöüşçğə",
+        "mt" to "ġħċż",
+        "sq" to "ëç",
+        "es" to "ñ",
+    )
+
+    @Test
+    fun `a letter its own keyboard puts on a key is not hidden behind a hold`() {
+        val byLang = handAuthored.groupBy { (_, layout) -> layout.langId }
+        val offenders = lettersTheNationalKeyboardPutsOnKeys.entries
+            .sortedBy { it.key }
+            .mapNotNull { (lang, letters) ->
+                val forLang = byLang[lang].orEmpty()
+                if (forLang.isEmpty()) return@mapNotNull "$lang: no layout ships for this language"
+                // One layout has to carry them, not all: a language may also ship
+                // a Dvorak or a phonetic grid that legitimately arranges them
+                // differently, and demanding every variant match would forbid that.
+                val onKeys = forLang.map { (_, layout) ->
+                    layout.layers.values
+                        .flatMap { it.rows.flatten() }
+                        .flatMap { (it.output ?: it.label).lowercase().toList() }
+                        .toSet()
+                }
+                if (onKeys.any { keys -> letters.all { it in keys } }) return@mapNotNull null
+                val best = forLang.zip(onKeys).maxByOrNull { (_, keys) -> letters.count { it in keys } }!!
+                val missing = letters.filterNot { it in best.second }
+                "${best.first.first}: $missing not on a key (long-press is not a key)"
+            }
+        assertEquals(
+            "these layouts hide a letter of their own alphabet behind a long-press; it belongs " +
+                "on a key of its own, as the language's national keyboard has it",
+            emptyList<String>(),
+            offenders,
+        )
+    }
+
+    /**
      * A key label is a glyph, not a description of one. "semicolon" reached the
      * shipped Greek polytonic layout as a ten-character label because nothing
      * checked. Multi-character labels are legitimate — the mode keys, the T9
@@ -173,6 +294,9 @@ class AssetLayoutHygieneTest {
         "ABC", "abc", "OK", "Fn", "Esc", "Tab", "Del", "Ins", "IPA",
         // The T9 pinyin pad labels its keys with the letter group, Nokia-style.
         "DEF", "GHI", "JKL", "MNO", "PQRS", "TUV", "WXYZ",
+        // A single letter of the Klingon alphabet, written with three Latin
+        // ones; tlh_qwerty gives it a key of its own (e3568d40c).
+        "tlh",
     )
 
     @Test

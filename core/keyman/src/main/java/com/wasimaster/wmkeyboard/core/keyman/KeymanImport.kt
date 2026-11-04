@@ -65,7 +65,7 @@ object KeymanImport {
         if (report.droppedMultitaps > 0) {
             add(
                 LayoutMessage(
-                    pluralsRes = R.plurals.core_keyman_multitap_dropped,
+                    pluralsRes = R.plurals.core_keyman_multitap_unconverted,
                     quantity = report.droppedMultitaps,
                     args = listOf(report.droppedMultitaps),
                 ),
@@ -98,10 +98,6 @@ object KeymanImport {
                     args = listOf(report.keysWithoutVirtualKey),
                 ),
             )
-        }
-        if (report.shiftLayerFolded) add(LayoutMessage(stringRes = R.string.core_keyman_shift_layer_folded))
-        if (report.shiftLayerKeptSeparate) {
-            add(LayoutMessage(stringRes = R.string.core_keyman_shift_layer_separate))
         }
         addAll(converted.repairNotes)
     }

@@ -25,6 +25,10 @@ import java.io.IOException
 object DictionaryStore {
 
     private const val FILE_NAME = "main.wmdict"
+    private const val CAPITALS_NAME = "caps.wmdict"
+    private const val SPELLINGS_NAME = "spellings.wmdict"
+    private const val PHONETIC_NAME = "phonetic.wmpi"
+    private const val COMPOUNDS_NAME = "compounds.wmdict"
     private const val BUNDLED_DIR = "bundled"
 
     private fun root(filesDir: File) = File(filesDir, "dict")
@@ -36,6 +40,39 @@ object DictionaryStore {
 
     fun partFile(filesDir: File, langId: String): File =
         File(File(root(filesDir), langId), "$FILE_NAME.part")
+
+    /**
+     * The capitals [langId]'s downloaded list spells its words with (see
+     * [DictionaryCapitals]). Always written with the list, and empty for a
+     * list with no capitals, so its presence also says the list beside it is
+     * keyed in lower case.
+     */
+    fun capitalsFile(filesDir: File, langId: String): File =
+        File(File(root(filesDir), langId), CAPITALS_NAME)
+
+    /**
+     * Every cased spelling of [langId]'s downloaded list, kept as written (see
+     * [DictionaryCapitals.spellingsOf]). Only written for a language whose
+     * capitals are letters of their own, and absent for every other.
+     */
+    fun spellingsFile(filesDir: File, langId: String): File =
+        File(File(root(filesDir), langId), SPELLINGS_NAME)
+
+    /**
+     * The spellings [langId]'s joined glide readings are checked against
+     * ([CompoundLexiconDownloads]). Not part of the word list, so deleting the
+     * list leaves it, and a stroke then has no parts to join anyway.
+     */
+    fun compoundsFile(filesDir: File, langId: String): File =
+        File(File(root(filesDir), langId), COMPOUNDS_NAME)
+
+    /**
+     * The phonetic index the data repo built over [langId]'s published list,
+     * fetched beside the downloaded one ([PhoneticIndexDownloads]). Kept
+     * inflated so it can be memory-mapped.
+     */
+    fun phoneticFile(filesDir: File, langId: String): File =
+        File(File(root(filesDir), langId), PHONETIC_NAME)
 
     /**
      * Whether this build can actually read [langId]'s downloaded dictionary.
@@ -64,11 +101,25 @@ object DictionaryStore {
                 val main = File(dir, FILE_NAME)
                 main.isFile && !PackedTrieCodec.isReadable(main)
             }
-            .map { dir -> dir.also { it.deleteRecursively() }.name }
+            .map { dir -> dir.name.also { delete(filesDir, it) } }
             .sorted()
 
+    /**
+     * Deletes [langId]'s downloaded word list and nothing else. The folder is
+     * shared with the language's word-pair data (`ngrams.wmng`), which is its
+     * own item on the language screen with its own Delete.
+     */
     fun delete(filesDir: File, langId: String) {
-        File(root(filesDir), langId).takeIf { it.name != BUNDLED_DIR }?.deleteRecursively()
+        if (langId == BUNDLED_DIR) return
+        val dir = File(root(filesDir), langId)
+        File(dir, FILE_NAME).delete()
+        File(dir, "$FILE_NAME.part").delete()
+        File(dir, CAPITALS_NAME).delete()
+        File(dir, SPELLINGS_NAME).delete()
+        File(dir, PHONETIC_NAME).delete()
+        File(dir, "$PHONETIC_NAME.part").delete()
+        File(dir, "source").delete()
+        File(dir, "size").delete()
     }
 
     /**
@@ -83,6 +134,25 @@ object DictionaryStore {
 
     fun writeSourceEntryId(filesDir: File, langId: String, entryId: String) {
         runCatching { File(File(root(filesDir), langId), "source").writeText(entryId) }
+    }
+
+    /**
+     * Which size tier a language's downloaded dictionary was fetched at, as
+     * the enum constant's own name, or null when nothing recorded it — a file
+     * a build before the marker existed wrote, which the caller dates by its
+     * word count instead.
+     *
+     * Kept beside the file rather than in settings because it describes this
+     * file: the settings value is the tier the *next* download starts from,
+     * and the two part company the moment either one changes.
+     */
+    fun downloadedSize(filesDir: File, langId: String): String? =
+        runCatching { File(File(root(filesDir), langId), "size").readText().trim() }
+            .getOrNull()
+            ?.takeIf { it.isNotEmpty() && isDownloaded(filesDir, langId) }
+
+    fun writeDownloadedSize(filesDir: File, langId: String, size: String) {
+        runCatching { File(File(root(filesDir), langId), "size").writeText(size) }
     }
 
     /**
@@ -117,6 +187,24 @@ object DictionaryStore {
             h = h * 31 + file.length().toInt()
             h * 31 + file.lastModified().toInt()
         }
+
+    /**
+     * The languages whose word list ships inside the APK, as
+     * [LanguageDef.id][com.wasimaster.wmkeyboard.core.script.LanguageDef.id]
+     * spells them — English and Bangla today. Read off the assets rather than
+     * written down here, so compiling a third list into `dictionaries-src`
+     * needs no change in this file.
+     *
+     * What it answers is "could a download add a list this language does not
+     * already have": nothing offers one for a language in this set, because
+     * there is nothing on its page to press.
+     */
+    fun bundledLanguageIds(context: Context): Set<String> =
+        runCatching {
+            context.assets.list("dictionaries").orEmpty()
+                .filter { it.endsWith(".wmdict") }
+                .mapTo(HashSet()) { it.removeSuffix(".wmdict") }
+        }.getOrDefault(emptySet())
 
     /**
      * Guarantees the bundled dictionary [baseName] (e.g. `"en"`) exists as a

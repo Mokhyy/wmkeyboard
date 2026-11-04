@@ -23,6 +23,8 @@ class BuiltInThemeFamilyTest {
         "builtin_solarized_dark", "builtin_solarized_light",
         "builtin_catppuccin_mocha", "builtin_catppuccin_latte",
         "builtin_tokyo_night", "builtin_cyberpunk",
+        // The Frost family, added with frosted glass.
+        "builtin_frost", "builtin_frost_wallpaper", "builtin_frost_light",
     )
 
     @Test
@@ -59,6 +61,15 @@ class BuiltInThemeFamilyTest {
         val byId = mocha.selfAndVariants().associateBy { it.id }
         assertEquals(true, byId["builtin_catppuccin_frappe"]?.dark)
         assertEquals(true, byId["builtin_catppuccin_macchiato"]?.dark)
+    }
+
+    @Test
+    fun `Alucard is Dracula's light look`() {
+        val dracula = BuiltInThemes.first { it.id == "builtin_dracula" }
+        val alucard = dracula.variants.single()
+        assertEquals("builtin_alucard", alucard.id)
+        assertEquals(false, alucard.dark)
+        assertEquals(true, dracula.dark)
     }
 
     @Test

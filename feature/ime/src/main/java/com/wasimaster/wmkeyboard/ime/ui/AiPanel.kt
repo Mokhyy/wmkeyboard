@@ -17,13 +17,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.mutableStateOf
+import com.wasimaster.wmkeyboard.core.tools.AiClient
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import android.os.SystemClock
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Check
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -50,6 +53,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.style.TextDecoration
+import com.wasimaster.wmkeyboard.core.theme.FrostSurface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.platform.LocalContext
@@ -57,24 +61,31 @@ import com.wasimaster.wmkeyboard.core.localllm.LocalLlmCatalog
 import com.wasimaster.wmkeyboard.core.localllm.LocalLlmDownloadManager
 import com.wasimaster.wmkeyboard.core.localllm.LocalLlmStore
 import com.wasimaster.wmkeyboard.config.BuildConfig
+import com.wasimaster.wmkeyboard.core.providers.ProviderTypes
 import com.wasimaster.wmkeyboard.core.settings.AiProvider
+import com.wasimaster.wmkeyboard.core.settings.AiProviders
+import com.wasimaster.wmkeyboard.core.settings.aiRows
 import com.wasimaster.wmkeyboard.core.settings.KeyboardSettings
 import com.wasimaster.wmkeyboard.core.settings.ToolbarTool
 import com.wasimaster.wmkeyboard.core.tools.AiActionSpec
-import com.wasimaster.wmkeyboard.core.tools.AiClient
 import com.wasimaster.wmkeyboard.core.tools.AiMarkdown
 import com.wasimaster.wmkeyboard.core.tools.AiPhase
 import com.wasimaster.wmkeyboard.core.tools.AiThinking
+import com.wasimaster.wmkeyboard.core.tools.AiToolActivity
+import com.wasimaster.wmkeyboard.core.tools.AiToolApproval
 import com.wasimaster.wmkeyboard.core.tools.BuiltInAiActions
 import com.wasimaster.wmkeyboard.core.tools.TextDiff
 import com.wasimaster.wmkeyboard.core.tools.visibleAiActions
+import com.wasimaster.wmkeyboard.ime.AiChatAction
 import com.wasimaster.wmkeyboard.ime.AiUi
 import com.wasimaster.wmkeyboard.ime.FocusRegion
+import com.wasimaster.wmkeyboard.ime.KeyboardClipboard
 import com.wasimaster.wmkeyboard.ime.KeyboardUiState
 import com.wasimaster.wmkeyboard.ime.PanelMode
 import com.wasimaster.wmkeyboard.ime.R
 import kotlinx.coroutines.delay
 import com.wasimaster.wmkeyboard.common.R as CommonR
+import com.wasimaster.wmkeyboard.core.ui.DisabledReason
 
 /**
  * AI writing tool: one-tap actions (rewrite, summarize, translate …) that
@@ -95,9 +106,12 @@ internal fun AiPanel(
     onSetShowDiff: (Boolean) -> Unit,
     onReport: () -> Unit,
     onOpenToolSettings: (ToolbarTool) -> Unit,
+    /** The chat's callback, which also carries the answer to a tool that asks first (#573). */
+    onChat: (AiChatAction) -> Unit,
 ) {
     val kb = LocalKbTheme.current
     val ai0 = state.ai
+    val onToolApproval = remember(onChat) { { choice: AiToolApproval -> onChat(AiChatAction.ToolApproval(choice)) } }
     val settings = state.settings
     val actions = remember(
         settings.ai.customActions,
@@ -142,6 +156,9 @@ internal fun AiPanel(
     ) {
         if (modelPicks.isNotEmpty()) {
             ModelPickerRow(modelPicks, state.focusedIndex(FocusRegion.CHIPS))
+        }
+        if (settings.ai.panelModelPicker && settings.ai.provider != AiProvider.ON_DEVICE && ai0 is AiUi.Idle) {
+            ModelNameRow(state)
         }
         when (val ai = state.ai) {
             AiUi.NeedSetup -> Column(
@@ -240,6 +257,7 @@ internal fun AiPanel(
                         .weight(1f)
                         .fillMaxWidth()
                         .clip(inputShape)
+                        .frostGlass(kb, inputShape, FrostSurface.CHIPS)
                         .background(kb.chip)
                         .chipBorder(kb, inputShape)
                         .padding(horizontal = 10.dp, vertical = 8.dp)
@@ -274,6 +292,9 @@ internal fun AiPanel(
                         modifier = Modifier.focusRing(focusedResult == 0),
                     ) { onRunCustom() }
                     Spacer(Modifier.width(8.dp))
+                    // The focus switch (#665): the key rows below type into
+                    // the app's field instead while it is on.
+                    FieldFocusSwitch(LocalCaptureCaret.current, Modifier.padding(end = 8.dp))
                     val provider = stringResource(state.settings.ai.provider.labelRes)
                     Text(
                         if (state.aiHasText) {
@@ -289,7 +310,7 @@ internal fun AiPanel(
             is AiUi.Loading -> Column(Modifier.fillMaxSize()) {
                 ActionChips(actions, onAction, running = ai.action)
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    AiProgress(ai, state.settings)
+                    AiProgress(ai, state.settings, onToolApproval)
                 }
             }
             is AiUi.Error -> Column(Modifier.fillMaxSize()) {
@@ -359,11 +380,15 @@ internal fun AiPanel(
                         .weight(1f)
                         .fillMaxWidth()
                         .clip(resultShape)
+                        .frostGlass(kb, resultShape, FrostSurface.CHIPS)
                         .background(kb.chip)
                         .chipBorder(kb, resultShape)
                         .padding(horizontal = 10.dp, vertical = 6.dp)
                         .verticalScroll(resultScroll),
                 ) {
+                    // What the model looked up for this answer (#470). Not
+                    // part of what Replace or Insert commits.
+                    PanelToolUses(ai.tools, Modifier.padding(bottom = 4.dp), onApproval = onToolApproval)
                     val comparison = diff
                     Text(
                         if (showDiff && comparison != null && !comparison.tooLong) {
@@ -662,7 +687,7 @@ private fun PanelCheckbox(
  * the streaming cases: an unclosed block grays to the end, and a close tag
  * with the opener still in the prompt (Qwen 3 style) grays from the start.
  */
-private fun grayThinking(text: String, gray: Color): AnnotatedString {
+internal fun grayThinking(text: String, gray: Color): AnnotatedString {
     val open = text.indexOf("<think>")
     // Search for the closer only after the opener so grayEnd can never precede
     // grayStart (which would crash substring). Still handles the opener-in-
@@ -761,7 +786,7 @@ private fun visibleWhitespace(text: String): String {
 }
 
 /** One entry in the panel's model picker. */
-private class ModelPick(
+internal class ModelPick(
     // Stable identity across reorders so the LazyRow can animate the selected
     // chip sliding to the front instead of snapping.
     val key: String,
@@ -787,7 +812,7 @@ private class ModelPick(
  * CHIPS region with the exact indices the row draws.
  */
 @Composable
-private fun rememberModelPicks(
+internal fun rememberModelPicks(
     state: KeyboardUiState,
     onPickModel: (AiProvider, String?) -> Unit,
 ): List<ModelPick> {
@@ -803,26 +828,32 @@ private fun rememberModelPicks(
                 (LocalLlmStore.CUSTOM_PREFIX + it.name) to it.name.substringBeforeLast('.')
             }
     }
-    val remote = AiClient.configuredRemoteProviders(settings.ai)
-    if (remote.size + localIds.size < 2) return emptyList()
+    // The AI list's rows that can answer, in the list's order. The on-device
+    // row stands for every model downloaded, so it gives one chip per model.
+    val rows = remember(settings) { settings.aiRows() }
+    val remote = rows.filter { AiProviders.of(it.typeId).let { p -> p != null && p != AiProvider.ON_DEVICE } }
+    val local = if (rows.any { it.typeId == ProviderTypes.ON_DEVICE_AI.id }) localIds else emptyList()
+    if (remote.size + local.size < 2) return emptyList()
 
     val selectedLocalId = settings.ai.localModelId
-        .takeIf { id -> localIds.any { it.first == id } }
-        ?: localIds.singleOrNull()?.first
+        .takeIf { id -> local.any { it.first == id } }
+        ?: local.singleOrNull()?.first
 
-    val picks = localIds.map { (id, name) ->
+    val picks = local.map { (id, name) ->
         ModelPick(
             key = "local:$id",
             label = name,
             selected = settings.ai.provider == AiProvider.ON_DEVICE && id == selectedLocalId,
             onClick = { onPickModel(AiProvider.ON_DEVICE, id) },
         )
-    } + remote.map { provider ->
+    } + remote.map { row ->
+        val provider = AiProviders.of(row.typeId) ?: AiProvider.OPENAI_COMPATIBLE
         ModelPick(
-            key = "remote:${provider.name}",
-            label = stringResource(provider.labelRes),
-            selected = settings.ai.provider == provider,
-            onClick = { onPickModel(provider, null) },
+            key = "remote:${row.key}",
+            label = row.customName.ifEmpty { row.type?.let { stringResource(it.labelRes) } ?: row.typeId },
+            selected = settings.ai.providerKey == row.key,
+            // A remote pick hands over the row's key where an on-device one hands over its model.
+            onClick = { onPickModel(provider, row.key) },
         )
     }
     // Stable sort: the selected entry moves to the front, everything else
@@ -830,8 +861,41 @@ private fun rememberModelPicks(
     return picks.sortedByDescending { it.selected }
 }
 
+/**
+ * The name of the model in use, and, once pressed, the ones the provider lists
+ * (#1038). A row of its own because the picker above is about providers.
+ */
 @Composable
-private fun ModelPickerRow(picks: List<ModelPick>, focused: Int?) {
+private fun ModelNameRow(state: KeyboardUiState) {
+    val actions = LocalAiSuggest.current
+    val current = remember(state.settings.ai) { AiClient.config(state.settings.ai).model }
+    var open by remember { mutableStateOf(false) }
+    LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        item(key = "current") {
+            ToolPanelChip(current, selected = open) {
+                open = !open
+                if (open) actions.onLoadModels()
+            }
+        }
+        if (open) {
+            items(state.aiModelList.filter { it != current }, key = { it }) { model ->
+                ToolPanelChip(model, selected = false) {
+                    open = false
+                    actions.onPickModelName(model)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ModelPickerRow(picks: List<ModelPick>, focused: Int? = null) {
     val kb = LocalKbTheme.current
     // A LazyRow keyed by model identity so the just-picked chip animates to the
     // front instead of jumping there.
@@ -910,6 +974,9 @@ private fun ActionChips(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
+        // Only the empty field has a reason worth a hold: a chip greyed out
+        // behind a running one is waiting its turn, which the lit chip says.
+        val noText = DisabledReason(stringResource(R.string.ime_ai_idle_empty_no_writer_body))
         for ((index, action) in actions.withIndex()) {
             val isRunning = running != null && action.id == running.id
             ToolPanelChip(
@@ -919,6 +986,7 @@ private fun ActionChips(
                 // label of what is in flight, not an offer to press.
                 enabled = (enabled || action.worksWithoutText) && (running == null || isRunning),
                 modifier = Modifier.focusRing(index == focused),
+                disabledReason = noText.takeIf { running == null },
             ) {
                 if (running == null) onAction(action)
             }
@@ -933,7 +1001,11 @@ private fun ActionChips(
  * visible for entire seconds — that anything is arriving at all.
  */
 @Composable
-private fun AiProgress(ai: AiUi.Loading, settings: KeyboardSettings) {
+private fun AiProgress(
+    ai: AiUi.Loading,
+    settings: KeyboardSettings,
+    onToolApproval: (AiToolApproval) -> Unit,
+) {
     val kb = LocalKbTheme.current
     val onDevice = settings.ai.provider == AiProvider.ON_DEVICE
     val steps = buildList {
@@ -1003,7 +1075,43 @@ private fun AiProgress(ai: AiUi.Loading, settings: KeyboardSettings) {
             Spacer(Modifier.height(6.dp))
             Text(detail, color = kb.secondaryText, fontSize = 11.sp)
         }
+        // Calls already made, while the model reads what they returned. A
+        // running one is the headline instead, unless it is asking to be
+        // allowed: then its question and buttons have to be on screen.
+        if (ai.tools.isNotEmpty() && (ai.tools.none { it.running } || ai.tools.any { it.awaitingApproval })) {
+            Spacer(Modifier.height(6.dp))
+            PanelToolUses(ai.tools, onApproval = onToolApproval)
+        }
     }
+}
+
+/** [ChatToolUses] in the panel's colours; a page opens in the browser, an address copies. */
+@Composable
+private fun PanelToolUses(
+    uses: List<AiToolActivity>,
+    modifier: Modifier = Modifier,
+    onApproval: ((AiToolApproval) -> Unit)? = null,
+) {
+    if (uses.isEmpty()) return
+    val kb = LocalKbTheme.current
+    val context = LocalContext.current
+    ChatToolUses(
+        uses = uses,
+        colors = ChatMarkdownColors(
+            text = kb.chipText,
+            // Dimmed by alpha, as the reasoning is: some themes draw their
+            // secondary text in the same white.
+            dim = kb.chipText.copy(alpha = kb.chipText.alpha * 0.6f),
+            codeBackground = kb.chipText.copy(alpha = 0.10f),
+        ),
+        errorColor = kb.accent,
+        onOpen = { openToolLink(context, it) },
+        onCopy = { KeyboardClipboard.copy(context, it) },
+        modifier = modifier,
+        fontSize = 11.sp,
+        onApproval = onApproval,
+        animate = kb.motion.any,
+    )
 }
 
 /** One step in [AiProgress]'s breadcrumb: done, in progress, or still ahead. */
@@ -1040,6 +1148,8 @@ private fun StepLabel(label: String, done: Boolean, current: Boolean) {
 @Composable
 private fun headline(ai: AiUi.Loading, onDevice: Boolean): String {
     val action = aiActionLabel(ai.action)
+    // A running tool says what it is doing: "Searching the web for …".
+    ai.tools.lastOrNull { it.running }?.let { return toolLine(it) }
     return when {
         ai.phase == AiPhase.THINKING -> stringResource(R.string.ime_ai_progress_thinking)
         onDevice -> stringResource(R.string.ime_ai_progress_on_device, action)

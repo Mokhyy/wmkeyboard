@@ -22,37 +22,38 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoStories
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
-import androidx.compose.material.icons.automirrored.outlined.OpenInNew
-import androidx.compose.material.icons.outlined.Bolt
-import androidx.compose.material.icons.outlined.Category
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Code
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.Download
-import androidx.compose.material.icons.outlined.EmojiEmotions
-import androidx.compose.material.icons.outlined.Extension
-import androidx.compose.material.icons.outlined.Gavel
-import androidx.compose.material.icons.outlined.GraphicEq
-import androidx.compose.material.icons.outlined.LibraryMusic
-import androidx.compose.material.icons.outlined.Keyboard
-import androidx.compose.material.icons.outlined.Mood
-import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material.icons.outlined.Palette
-import androidx.compose.material.icons.outlined.PlayArrow
-import androidx.compose.material.icons.outlined.Save
-import androidx.compose.material.icons.outlined.TextFields
-import androidx.compose.material.icons.outlined.Translate
-import androidx.compose.material.icons.outlined.Visibility
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.AutoStories
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.MenuBook
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.OpenInNew
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Bolt
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Category
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Check
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.CheckCircle
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Close
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Code
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Delete
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Refresh
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Description
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Download
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Extension
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Gavel
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.GraphicEq
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.LibraryMusic
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Keyboard
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Mood
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.MoreVert
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Palette
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Public
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.PlayArrow
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Save
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.TextFields
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Translate
+import com.wasimaster.wmkeyboard.core.icons.symbols.outlined.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -65,7 +66,6 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -98,6 +98,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -110,6 +111,8 @@ import com.wasimaster.wmkeyboard.common.R as CommonR
 import com.wasimaster.wmkeyboard.core.addons.AddonApply
 import com.wasimaster.wmkeyboard.core.addons.AddonDownloadManager
 import com.wasimaster.wmkeyboard.core.addons.AddonEntry
+import com.wasimaster.wmkeyboard.core.addons.AddonLocales
+import com.wasimaster.wmkeyboard.core.addons.AddonLocalization
 import com.wasimaster.wmkeyboard.core.addons.AddonPreviewContent
 import com.wasimaster.wmkeyboard.core.addons.AddonPreviewReader
 import com.wasimaster.wmkeyboard.core.addons.AddonReconciler
@@ -119,8 +122,12 @@ import com.wasimaster.wmkeyboard.core.addons.AddonRepoRef
 import com.wasimaster.wmkeyboard.core.addons.AddonStore
 import com.wasimaster.wmkeyboard.core.addons.AddonType
 import com.wasimaster.wmkeyboard.core.addons.InstalledAddon
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import com.wasimaster.wmkeyboard.core.addons.Semver
+import com.wasimaster.wmkeyboard.core.addons.findVariant
+import com.wasimaster.wmkeyboard.core.icons.symbols.automirrored.outlined.KeyboardArrowRight
 import com.wasimaster.wmkeyboard.core.addons.resolve
+import com.wasimaster.wmkeyboard.core.endpoints.ServiceRepo
+import com.wasimaster.wmkeyboard.core.icons.SymbolIcons
 import com.wasimaster.wmkeyboard.core.plugins.PluginStore
 import com.wasimaster.wmkeyboard.core.settings.DeviceNetworkState
 import com.wasimaster.wmkeyboard.core.settings.SettingsRepository
@@ -130,8 +137,11 @@ import com.wasimaster.wmkeyboard.ime.R as ImeR
 import com.wasimaster.wmkeyboard.ime.ui.rememberMediaImageLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.wasimaster.wmkeyboard.core.ui.ScrollRail
+import com.wasimaster.wmkeyboard.core.ui.rememberScrollRailState
 
 /**
  * The addon store: repositories the user added, what each one offers, and what
@@ -202,11 +212,11 @@ private val AddonType.icon
     get() = when (this) {
         AddonType.Theme -> Icons.Outlined.Palette
         AddonType.Layout -> Icons.Outlined.Keyboard
-        AddonType.Dictionary -> Icons.AutoMirrored.Outlined.MenuBook
+        AddonType.Dictionary -> SymbolIcons.Dictionary
         AddonType.EmojiKeywords -> Icons.Outlined.Translate
         AddonType.Snippets -> Icons.Outlined.Description
         AddonType.Espanso -> Icons.Outlined.Bolt
-        AddonType.Stickers -> Icons.Outlined.EmojiEmotions
+        AddonType.Stickers -> SymbolIcons.Sticker
         AddonType.IconPack -> Icons.Outlined.Category
         AddonType.Font -> Icons.Outlined.TextFields
         AddonType.EmojiFont -> Icons.Outlined.Mood
@@ -254,7 +264,8 @@ internal fun addonFlightRoute(manifestUrl: String, addonId: String): String =
 
 /** Version, size and author on one line — the same line on card and page. */
 private fun addonMetaLine(version: String, sizeBytes: Long?, author: String): String = buildString {
-    if (version.isNotBlank()) append("v$version")
+    // A content hash (a Clink repository's only version) means nothing to read.
+    if (version.isNotBlank() && !Semver.isContentVersion(version)) append("v$version")
     sizeBytes?.let {
         if (isNotEmpty()) append(" \u00b7 ")
         append(formatBytes(it))
@@ -310,7 +321,7 @@ internal fun rememberAddonHeading(manifestUrl: String, addonId: String): AddonHe
     val type = remember(revision, manifestUrl, addonId) {
         store.repo(manifestUrl)
             ?.let { AddonDownloadManager.cachedManifest(it) }
-            ?.addons?.firstOrNull { it.id == addonId }?.type
+            ?.addons?.findVariant(addonId)?.type
             ?: store.installedFor(manifestUrl, addonId)?.second?.type
             ?: AddonType.Unknown
     }
@@ -368,6 +379,39 @@ internal fun AddonStoreRow(type: AddonType, onNavigate: (String) -> Unit) {
     )
 }
 
+/**
+ * The community repository's [type]s, the ones other people made and shared
+ * from their phones. Opens its catalogue filtered to [type]; when the user has
+ * removed the repository, the add dialog pre-filled with it instead, so the row
+ * is never a dead end and never adds anything on its own.
+ */
+@Composable
+internal fun CommunityAddonsRow(type: AddonType, onNavigate: (String) -> Unit) {
+    val context = LocalContext.current
+    val (title, subtitle) = when (type) {
+        AddonType.Layout -> R.string.layout_community_title to R.string.layout_community_subtitle
+        else -> R.string.theme_community_title to R.string.theme_community_subtitle
+    }
+    WmRow(
+        title = stringResource(title),
+        subtitle = stringResource(subtitle),
+        icon = Icons.Outlined.Public,
+        accent = tintFor(type),
+        trailing = {
+            Icon(
+                Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        onClick = takeOffClick {
+            val url = AddonRepoCodec.resolveManifestUrl(AddonStore.COMMUNITY_SEED) ?: return@takeOffClick
+            val added = AddonStore.get(context).repo(url) != null
+            onNavigate(if (added) addonRepoRoute(url, type) else addonsAddRoute(url))
+        },
+    )
+}
+
 /** [AddonStoreRow] as a group of its own, for a screen that has nowhere to put it. */
 @Composable
 internal fun AddonStoreGroup(type: AddonType, onNavigate: (String) -> Unit) {
@@ -400,6 +444,9 @@ private fun repoAnchorKey(manifestUrl: String) = "addon-repo:$manifestUrl"
 internal fun AddonsScreen(
     prefillUrl: String = "",
     typeFilter: AddonType? = null,
+    /** For the F-Droid build's repository server fields; the list works without them. */
+    repository: SettingsRepository? = null,
+    settings: LiveSettings? = null,
     onNavigate: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -546,7 +593,7 @@ internal fun AddonsScreen(
         info = stringResource(R.string.addon_repos_intro_body),
     ) {
         for (ref in repos) {
-            item {
+            item(key = ref.manifestUrl) {
                 ScrollAnchor(ref.manifestUrl == returnTo) {
                     RepositoryRow(ref, store, typeFilter, onNavigate)
                 }
@@ -554,10 +601,24 @@ internal fun AddonsScreen(
         }
     }
 
+    // A link is the other way in, and it needs no repository at all: an
+    // address shared from a browser or pasted here reaches the same importer
+    // that a downloaded file does. See app/ImportFromLink.kt.
+    LinkImportGroup(store)
+
     // Only worth showing once there is a repository to fetch from; with none,
     // the auto-fetch has nothing to do and the rows explain nothing.
     if (repos.isNotEmpty()) {
         RefreshSettingsGroup(store, autoRefresh, refreshUnmeteredOnly)
+    }
+
+    // Where the repositories offered on a fresh install are fetched from.
+    if (repository != null && settings != null) {
+        ServerFieldsGroup(
+            repository,
+            settings,
+            repos = listOf(ServiceRepo.ADDONS, ServiceRepo.SOUNDS, ServiceRepo.COMMUNITY),
+        )
     }
 
     if (installed.isNotEmpty()) {
@@ -571,7 +632,7 @@ internal fun AddonsScreen(
         }
         SettingsGroup(stringResource(R.string.addon_installed_section_title)) {
             for ((key, record) in installed) {
-                item {
+                item(key = key) {
                     val url = record.manifestUrl
                         .ifBlank { urlByRepoId[key.substringBeforeLast('/')].orEmpty() }
                         .ifBlank { NO_REPO }
@@ -598,7 +659,12 @@ internal fun AddonsScreen(
                                         stringResource(record.type.singularLabelRes),
                                         modifier = Modifier.wmSharedBounds(takeOffKey("title", page)),
                                     )
-                                    if (record.version.isNotBlank()) {
+                                    // Two languages of one addon are two rows
+                                    // with one name; this is what tells them apart.
+                                    if (record.locale.isNotBlank()) {
+                                        Text(" · ${localeLabel(record.locale)}", maxLines = 1)
+                                    }
+                                    if (record.version.isNotBlank() && !Semver.isContentVersion(record.version)) {
                                         Text(" · ")
                                         Text(
                                             addonMetaLine(record.version, null, ""),
@@ -707,6 +773,13 @@ private fun missingRequirements(
  * them). "Download all" installs the dependencies first and the addon last;
  * skipping installs the addon alone, which its fallbacks make valid.
  */
+/** The addon, what it requires, and the other languages riding along with it. */
+private data class RequiresPrompt(
+    val entry: AddonEntry,
+    val missing: List<AddonEntry>,
+    val extra: List<AddonEntry>,
+)
+
 @Composable
 private fun RequiresAwareInstall(
     store: AddonStore,
@@ -716,13 +789,24 @@ private fun RequiresAwareInstall(
     content: @Composable (request: (AddonEntry) -> Unit) -> Unit,
 ) {
     val context = LocalContext.current
-    var prompt by remember { mutableStateOf<Pair<AddonEntry, List<AddonEntry>>?>(null) }
-    content { entry ->
-        // Following a link doesn't add the repository; choosing to install
-        // from it does. No-op when it is already there.
-        store.addRepo(manifestUrl)
-        val missing = missingRequirements(store, repo.id, all, entry)
-        if (missing.isEmpty()) {
+    val notifyDownload = rememberDownloadNotifier()
+    // An install outlives the catalogue it was started from — the user goes
+    // back to typing while a theme is still arriving — so the shade follows it.
+    val watch: (AddonEntry, List<AddonEntry>) -> Unit = { entry, dependencies ->
+        val key = entry.key(repo.id)
+        notifyDownload(
+            key,
+            entry.name,
+            DownloadProgressFlows.addon(
+                context,
+                keys = dependencies.map { it.key(repo.id) } + key,
+                mainKey = key,
+            ),
+        )
+    }
+    // Starts [entry] after [before], one transfer at a time, and puts it in the shade.
+    val start: (AddonEntry, List<AddonEntry>) -> Unit = { entry, before ->
+        if (before.isEmpty()) {
             AddonDownloadManager.install(
                 context = context,
                 store = store,
@@ -732,10 +816,37 @@ private fun RequiresAwareInstall(
                 appVersionCode = BuildConfig.VERSION_CODE,
             )
         } else {
-            prompt = entry to missing
+            AddonDownloadManager.installAll(
+                context = context,
+                store = store,
+                manifestUrl = manifestUrl,
+                repo = repo,
+                // Dependencies first, and silently: only the addon that asked
+                // for them gets to ask the user anything.
+                dependencies = before,
+                entry = entry,
+                appVersionCode = BuildConfig.VERSION_CODE,
+            )
         }
+        watch(entry, before)
     }
-    prompt?.let { (entry, missing) ->
+    var prompt by remember { mutableStateOf<RequiresPrompt?>(null) }
+    val enabledLangIds by remember(context) {
+        SettingsRepository(context).settings.map { settings -> settings.enabledLanguages.map { it.id } }
+    }.collectAsStateWithLifecycle(initialValue = emptyList())
+    content { requested ->
+        // Following a link doesn't add the repository; choosing to install
+        // from it does. No-op when it is already there.
+        store.addRepo(manifestUrl)
+        // A localized addon is several installs. All but the last ride along
+        // the way dependencies do, under the same single-install lock.
+        val targets = installTargets(store, repo.id, requested, enabledLangIds)
+        val entry = targets.lastOrNull() ?: return@content
+        val extra = targets.dropLast(1)
+        val missing = missingRequirements(store, repo.id, all, entry)
+        if (missing.isEmpty()) start(entry, extra) else prompt = RequiresPrompt(entry, missing, extra)
+    }
+    prompt?.let { (entry, missing, extra) ->
         AlertDialog(
             onDismissRequest = { prompt = null },
             title = { Text(stringResource(R.string.addon_requires_title, entry.name)) },
@@ -764,17 +875,7 @@ private fun RequiresAwareInstall(
                 TextButton(
                     onClick = {
                         prompt = null
-                        AddonDownloadManager.installAll(
-                            context = context,
-                            store = store,
-                            manifestUrl = manifestUrl,
-                            repo = repo,
-                            // Dependencies first, and silently: only the addon
-                            // that asked for them gets to ask the user anything.
-                            dependencies = missing,
-                            entry = entry,
-                            appVersionCode = BuildConfig.VERSION_CODE,
-                        )
+                        start(entry, missing + extra)
                     },
                 ) { Text(stringResource(R.string.addon_requires_all_action)) }
             },
@@ -785,19 +886,38 @@ private fun RequiresAwareInstall(
                 TextButton(
                     onClick = {
                         prompt = null
-                        AddonDownloadManager.install(
-                            context = context,
-                            store = store,
-                            manifestUrl = manifestUrl,
-                            repo = repo,
-                            entry = entry,
-                            appVersionCode = BuildConfig.VERSION_CODE,
-                        )
+                        start(entry, extra)
                     },
                 ) { Text(stringResource(R.string.addon_requires_skip_action)) }
             },
         )
     }
+}
+
+/**
+ * What tapping Install or Update on [requested] actually fetches.
+ *
+ * A plain addon is itself. A localized one is: its installed languages that
+ * have a newer version, when there are any (the card's Update badge); else the
+ * languages [AddonLocales] picks for this user that are not installed yet. A
+ * single language row on the addon's page requests that variant directly, which
+ * is not localized and so comes back as itself.
+ */
+private fun installTargets(
+    store: AddonStore,
+    repoId: String,
+    requested: AddonEntry,
+    enabledLangIds: List<String>,
+): List<AddonEntry> {
+    if (!requested.isLocalized) return listOf(requested)
+    val installed = store.installed()
+    val outdated = requested.variants.filter { variant ->
+        installed[variant.key(repoId)]?.let { Semver.isNewer(variant.version, it.version) } == true
+    }
+    if (outdated.isNotEmpty()) return outdated
+    val deviceLocales = androidx.core.os.LocaleListCompat.getAdjustedDefault().toLanguageTags().split(',')
+    return AddonLocales.pick(requested, enabledLangIds, deviceLocales)
+        .filter { installed[it.key(repoId)] == null }
 }
 
 @Composable
@@ -860,6 +980,16 @@ private fun RepositoryRow(
                 }
             }
         },
+        swipeActions = listOf(
+            SwipeAction(Icons.Outlined.Refresh, stringResource(R.string.addon_repo_refresh_action)) {
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        AddonDownloadManager.fetchManifest(store, ref, context.cacheDir)
+                    }
+                }
+            },
+            deleteSwipeAction(stringResource(CommonR.string.common_remove)) { store.removeRepo(ref.manifestUrl) },
+        ),
         trailing = {
             Box {
                 IconButton(onClick = { menu = true }) {
@@ -924,7 +1054,7 @@ private fun RefreshSettingsGroup(
     refreshUnmeteredOnly: Boolean,
 ) {
     SettingsGroup(stringResource(R.string.addon_refresh_section_title)) {
-        item {
+        item(level = SettingLevel.STANDARD) {
             ToggleSetting(
                 R.string.addon_auto_refresh_title,
                 stringResource(R.string.addon_auto_refresh_subtitle),
@@ -933,15 +1063,13 @@ private fun RefreshSettingsGroup(
                 default = true,
             ) { store.setAutoRefresh(it) }
         }
-        if (autoRefresh) {
-            item {
-                ToggleSetting(
-                    R.string.addon_refresh_unmetered_title,
-                    stringResource(R.string.addon_refresh_unmetered_subtitle),
-                    refreshUnmeteredOnly,
-                    default = false,
-                ) { store.setRefreshUnmeteredOnly(it) }
-            }
+        item(visible = autoRefresh, level = SettingLevel.ADVANCED) {
+            ToggleSetting(
+                R.string.addon_refresh_unmetered_title,
+                stringResource(R.string.addon_refresh_unmetered_subtitle),
+                refreshUnmeteredOnly,
+                default = false,
+            ) { store.setRefreshUnmeteredOnly(it) }
         }
     }
 }
@@ -1194,7 +1322,7 @@ private fun AddonCard(
     onClick: () -> Unit,
 ) {
     val states by AddonDownloadManager.states.collectAsStateWithLifecycle()
-    val status = states[entry.key(repo.id)] ?: AddonDownloadManager.AddonStatus.NotInstalled
+    val status = cardStatus(states, entry, repo.id)
     val tint = tintFor(entry.type)
     val preview = remember(entry, manifestUrl) {
         entry.previews.firstNotNullOfOrNull { AddonRepoCodec.resolveAsset(manifestUrl, it) }
@@ -1291,6 +1419,49 @@ private fun AddonCard(
                 .wmSharedBounds(takeOffKey("meta", page)),
         )
     }
+}
+
+/**
+ * One status for the card of an addon that may be several installs.
+ *
+ * A localized addon's languages each have their own status; the card shows the
+ * one that most needs saying. A transfer in progress first, because it is
+ * happening now; then an update, because the badge is the button for it; then
+ * installed, which means at least one language is. A failure shows only when
+ * nothing is installed, since the page is where the per-language detail lives.
+ */
+private fun cardStatus(
+    states: Map<String, AddonDownloadManager.AddonStatus>,
+    entry: AddonEntry,
+    repoId: String,
+): AddonDownloadManager.AddonStatus {
+    val all = entry.variants.map { states[it.key(repoId)] ?: AddonDownloadManager.AddonStatus.NotInstalled }
+    return all.firstOrNull { it.isBusy }
+        ?: all.firstOrNull { it is AddonDownloadManager.AddonStatus.UpdateAvailable }
+        ?: all.firstOrNull { it is AddonDownloadManager.AddonStatus.Installed }
+        ?: all.firstOrNull { it is AddonDownloadManager.AddonStatus.Failed }
+        ?: AddonDownloadManager.AddonStatus.NotInstalled
+}
+
+private val AddonDownloadManager.AddonStatus.isBusy: Boolean
+    get() = this is AddonDownloadManager.AddonStatus.Downloading ||
+        this == AddonDownloadManager.AddonStatus.Verifying ||
+        this == AddonDownloadManager.AddonStatus.Installing
+
+/**
+ * A localization's tag as a person reads it: the language's own name, then the
+ * region in the user's language when there is one. `es-419` is "Español ·
+ * Spanish (Latin America)", from the registry name and the platform's region
+ * names, which know UN M.49 codes as well as countries.
+ */
+private fun localeLabel(locale: String): String {
+    val name = LanguageRegistry.byId(locale.substringBefore('-')).displayName
+    val region = AddonLocales.regionOf(locale).ifEmpty { return name }
+    val country = runCatching { java.util.Locale.Builder().setRegion(region).build().displayCountry }
+        .getOrNull()
+        ?.takeIf { it.isNotBlank() }
+        ?: region
+    return "$name ($country)"
 }
 
 /**
@@ -1506,7 +1677,9 @@ internal fun AddonDetailScreen(
     }
 
     val loaded = manifest
-    val entry = loaded?.addons?.firstOrNull { it.id == addonId }
+    // A row in the Installed list names one language of a localized addon by
+    // its variant id; the page for it is the whole addon's.
+    val entry = loaded?.addons?.firstOrNull { it.id == addonId.substringBefore(AddonLocalization.SEPARATOR) }
     if (loaded == null || entry == null) {
         // No manifest means offline, or a repository that dropped the addon,
         // or one the user removed. If it is installed none of that matters —
@@ -1563,6 +1736,24 @@ internal fun AddonDetailScreen(
             Spacer(Modifier.height(12.dp))
             Text(entry.description, style = MaterialTheme.typography.bodyMedium)
         }
+        entry.basedOn?.takeIf { it.isNotBlank() }?.let { basedOn ->
+            // The original, when it is in this same repository: named and
+            // opened from here. One from elsewhere is only named by its key.
+            val original = loaded.addons.firstOrNull { "${loaded.repo.id}/${it.id}" == basedOn }
+            val label = original?.let { listOf(it.name, it.author).filter(String::isNotBlank).joinToString(" · ") }
+                ?: basedOn
+            Spacer(Modifier.height(8.dp))
+            Text(
+                stringResource(R.string.addon_based_on, label),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (original != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = if (original != null) {
+                    Modifier.clickable { onNavigate(addonDetailRoute(manifestUrl, original.id)) }
+                } else {
+                    Modifier
+                },
+            )
+        }
     }
 
     if (entry.tags.isNotEmpty()) {
@@ -1604,7 +1795,9 @@ internal fun AddonDetailScreen(
             item { DetailRow(stringResource(R.string.addon_detail_size_label), formatBytes(it)) }
         }
         val languages = entry.languages
-        if (languages.isNotEmpty()) {
+        // A localized addon has a section of its own languages below, with a
+        // button each; listing only the base one here would read as all it has.
+        if (languages.isNotEmpty() && !entry.isLocalized) {
             item {
                 DetailRow(
                     pluralStringResource(R.plurals.addon_detail_language_label, languages.size),
@@ -1639,19 +1832,31 @@ internal fun AddonDetailScreen(
         ) { AddonType.Plugin.openSettings(onNavigate) }
     }
 
-    AddonActions(
-        status = status,
-        entry = entry,
-        repo = loaded.repo,
-        manifestUrl = manifestUrl,
-        store = store,
-        allEntries = loaded.addons,
-        blocked = tooOld || pluginsOff,
-        onUninstall = {
-            scope.launch { AddonDownloadManager.uninstall(context, store, key, entry) }
-        },
-        onNavigate = onNavigate,
-    )
+    if (entry.isLocalized) {
+        LocalizedAddonActions(
+            entry = entry,
+            repo = loaded.repo,
+            manifestUrl = manifestUrl,
+            store = store,
+            allEntries = loaded.addons,
+            blocked = tooOld,
+            onNavigate = onNavigate,
+        )
+    } else {
+        AddonActions(
+            status = status,
+            entry = entry,
+            repo = loaded.repo,
+            manifestUrl = manifestUrl,
+            store = store,
+            allEntries = loaded.addons,
+            blocked = tooOld || pluginsOff,
+            onUninstall = {
+                scope.launch { AddonDownloadManager.uninstall(context, store, key, entry) }
+            },
+            onNavigate = onNavigate,
+        )
+    }
 
     AddonApplyPrompt()
     Spacer(Modifier.height(24.dp))
@@ -1806,7 +2011,9 @@ private fun InstalledAddonDetail(
             Text(
                 buildString {
                     append(kind)
-                    if (record.version.isNotBlank()) append(" · ${record.version}")
+                    if (record.version.isNotBlank() && !Semver.isContentVersion(record.version)) {
+                        append(" · ${record.version}")
+                    }
                     if (record.author.isNotBlank()) append(" · ${record.author}")
                 },
                 style = MaterialTheme.typography.bodyMedium,
@@ -1826,13 +2033,11 @@ private fun InstalledAddonDetail(
                 stringResource(R.string.addon_status_installed),
             )
         }
-        if (record.repoName.isNotBlank()) {
-            item {
-                DetailRow(
-                    stringResource(R.string.addon_detail_repository_label),
-                    record.repoName,
-                )
-            }
+        item(visible = record.repoName.isNotBlank()) {
+            DetailRow(
+                stringResource(R.string.addon_detail_repository_label),
+                record.repoName,
+            )
         }
     }
     StateBanner(stringResource(R.string.addon_detail_offline_body))
@@ -1980,6 +2185,159 @@ private fun AddonActions(
 }
 
 /**
+ * The actions of a localized addon: one row per language, each with its own
+ * install, update or uninstall, then Use once any language is in.
+ *
+ * Every language is its own install (see [AddonEntry.localized]), so a row is
+ * [AddonActions] shrunk to its status line and one button. The user's keyboard
+ * languages come first, since those are the rows they came for; the rest keep
+ * the manifest's order.
+ */
+@Composable
+private fun LocalizedAddonActions(
+    entry: AddonEntry,
+    repo: AddonRepoInfo,
+    manifestUrl: String,
+    store: AddonStore,
+    allEntries: List<AddonEntry>,
+    blocked: Boolean,
+    onNavigate: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val states by AddonDownloadManager.states.collectAsStateWithLifecycle()
+    val revision by store.revision.collectAsStateWithLifecycle()
+    val enabledLangIds by remember(context) {
+        SettingsRepository(context).settings.map { settings -> settings.enabledLanguages.map { it.id } }
+    }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val variants = remember(entry, enabledLangIds) {
+        entry.variants.sortedBy { variant ->
+            enabledLangIds.indexOf(variant.langId).let { if (it < 0) Int.MAX_VALUE else it }
+        }
+    }
+
+    RequiresAwareInstall(store, manifestUrl, repo, allEntries) { request ->
+        SettingsGroup(
+            stringResource(R.string.addon_languages_section_title),
+            info = stringResource(R.string.addon_languages_section_info),
+        ) {
+            for (variant in variants) {
+                item(key = variant.id) {
+                    val status = states[variant.key(repo.id)] ?: AddonDownloadManager.AddonStatus.NotInstalled
+                    LanguageVariantRow(
+                        variant = variant,
+                        status = status,
+                        blocked = blocked,
+                        onInstall = { request(variant) },
+                        onUninstall = {
+                            scope.launch {
+                                AddonDownloadManager.uninstall(context, store, variant.key(repo.id), variant)
+                            }
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    // Use opens Custom dictionaries at the first installed language's list.
+    val localRef = remember(revision, variants) {
+        variants.firstNotNullOfOrNull { store.installed(it.key(repo.id))?.localRef }
+    }
+    if (localRef != null) {
+        OutlinedButton(
+            onClick = { entry.type.openSettings(onNavigate, localRef) },
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        ) {
+            Icon(
+                Icons.AutoMirrored.Outlined.OpenInNew,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(R.string.addon_use_open_action, stringResource(entry.type.useLabelRes)))
+        }
+    }
+}
+
+/** One language of a localized addon: its name, its state, and the one thing to do about it. */
+@Composable
+private fun LanguageVariantRow(
+    variant: AddonEntry,
+    status: AddonDownloadManager.AddonStatus,
+    blocked: Boolean,
+    onInstall: () -> Unit,
+    onUninstall: () -> Unit,
+) {
+    val context = LocalContext.current
+    val label = localeLabel(variant.locale)
+    val subtitle = when (status) {
+        is AddonDownloadManager.AddonStatus.Installed ->
+            stringResource(R.string.addon_language_installed_status, status.version)
+        is AddonDownloadManager.AddonStatus.UpdateAvailable ->
+            stringResource(R.string.addon_language_update_status, status.installed, status.latest)
+        is AddonDownloadManager.AddonStatus.Downloading -> if (status.totalBytes > 0) {
+            stringResource(R.string.addon_download_progress, formatBytes(status.bytes), formatBytes(status.totalBytes))
+        } else {
+            formatBytes(status.bytes)
+        }
+        AddonDownloadManager.AddonStatus.Verifying -> stringResource(R.string.addon_checking_progress)
+        AddonDownloadManager.AddonStatus.Installing -> stringResource(CommonR.string.common_installing)
+        is AddonDownloadManager.AddonStatus.Failed -> status.text.resolve(context)
+        AddonDownloadManager.AddonStatus.NotInstalled -> addonMetaLine(variant.version, variant.sizeBytes, "")
+    }
+    val installed = status is AddonDownloadManager.AddonStatus.Installed ||
+        status is AddonDownloadManager.AddonStatus.UpdateAvailable
+    WmRow(
+        title = label,
+        subtitle = subtitle,
+        swipeActions = if (installed) {
+            listOf(
+                deleteSwipeAction(stringResource(R.string.addon_language_uninstall_desc, label), onUninstall),
+            )
+        } else {
+            emptyList()
+        },
+        trailing = {
+            when (status) {
+                is AddonDownloadManager.AddonStatus.Installed ->
+                    IconButton(onClick = onUninstall) {
+                        Icon(
+                            Icons.Outlined.Delete,
+                            contentDescription = stringResource(R.string.addon_language_uninstall_desc, label),
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                is AddonDownloadManager.AddonStatus.UpdateAvailable -> Row {
+                    TextButton(onClick = onInstall, enabled = !blocked) {
+                        Text(stringResource(CommonR.string.common_update))
+                    }
+                    IconButton(onClick = onUninstall) {
+                        Icon(
+                            Icons.Outlined.Delete,
+                            contentDescription = stringResource(R.string.addon_language_uninstall_desc, label),
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+                is AddonDownloadManager.AddonStatus.Downloading,
+                AddonDownloadManager.AddonStatus.Verifying,
+                AddonDownloadManager.AddonStatus.Installing,
+                -> CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                is AddonDownloadManager.AddonStatus.Failed,
+                AddonDownloadManager.AddonStatus.NotInstalled,
+                -> IconButton(onClick = onInstall, enabled = !blocked) {
+                    Icon(
+                        Icons.Outlined.Download,
+                        contentDescription = stringResource(R.string.addon_language_install_desc, label),
+                    )
+                }
+            }
+        },
+    )
+}
+
+/**
  * Uninstall, in the error colour.
  *
  * It sits next to Install and Use and is the only one of the three that takes
@@ -2049,6 +2407,7 @@ private fun LicenseRow(manifestUrl: String, entry: AddonEntry) {
         onClick = { showing = true },
     )
 
+    val licenceRail = rememberScrollRailState()
     if (showing) {
         AlertDialog(
             onDismissRequest = { showing = false },
@@ -2060,11 +2419,11 @@ private fun LicenseRow(manifestUrl: String, entry: AddonEntry) {
             },
             text = {
                 // A licence runs to hundreds of lines; the dialog body scrolls
-                // rather than pushing its own buttons off the screen.
-                Column(
-                    modifier = Modifier
-                        .heightIn(max = 400.dp)
-                        .verticalScroll(rememberScrollState()),
+                // rather than pushing its own buttons off the screen, and the
+                // rail says how much of it is left.
+                ScrollRail(
+                    state = licenceRail,
+                    modifier = Modifier.heightIn(max = 400.dp),
                 ) {
                     val body = when {
                         loading -> stringResource(CommonR.string.common_loading)
@@ -2219,17 +2578,28 @@ private fun AddonPreviewSection(manifestUrl: String, entry: AddonEntry) {
                                 }
                             }
                         },
+                        // Capped: the trigger comes out of the pack being
+                        // previewed, so its length is the author's choice, and
+                        // an uncapped one takes the row and leaves the
+                        // snippet's own name wrapping a letter to a line.
                         trailing = snippet.trigger.takeIf { it.isNotBlank() }?.let {
-                            { Text(it, style = MaterialTheme.typography.labelSmall) }
+                            {
+                                Text(
+                                    it,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.End,
+                                    modifier = Modifier.widthIn(max = RowTrailingTextMaxWidth),
+                                )
+                            }
                         },
                     )
                 }
             }
-            if (shown.total > shown.entries.size) {
-                item {
-                    val more = shown.total - shown.entries.size
-                    CaptionText(pluralStringResource(R.plurals.addon_preview_more_count, more, more))
-                }
+            item(visible = shown.total > shown.entries.size) {
+                val more = shown.total - shown.entries.size
+                CaptionText(pluralStringResource(R.plurals.addon_preview_more_count, more, more))
             }
         }
 
@@ -2255,14 +2625,12 @@ private fun AddonPreviewSection(manifestUrl: String, entry: AddonEntry) {
             }
             for (sample in shown.samples) {
                 item {
-                    ListItem(
-                        leadingContent = {
+                    WmRow(
+                        title = sample.keywords,
+                        titleStyle = MaterialTheme.typography.bodySmall,
+                        leading = {
                             Text(sample.emoji, style = MaterialTheme.typography.titleLarge)
                         },
-                        headlineContent = {
-                            Text(sample.keywords, style = MaterialTheme.typography.bodySmall)
-                        },
-                        colors = transparentListColors(),
                     )
                 }
             }
@@ -2274,16 +2642,16 @@ private fun AddonPreviewSection(manifestUrl: String, entry: AddonEntry) {
             }
             for (sample in shown.samples) {
                 item {
-                    ListItem(
-                        headlineContent = { Text(sample.word, style = MaterialTheme.typography.titleSmall) },
-                        supportingContent = {
+                    WmRow(
+                        title = sample.word,
+                        titleStyle = MaterialTheme.typography.titleSmall,
+                        supporting = {
                             Text(
                                 listOf(sample.pos, sample.definition).filter { it.isNotBlank() }.joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall,
                                 maxLines = 2,
                             )
                         },
-                        colors = transparentListColors(),
                     )
                 }
             }
@@ -2508,6 +2876,7 @@ private fun DictionaryPreview(shown: AddonPreviewContent.Dictionary) {
         }
     }
 
+    val previewRail = rememberScrollRailState()
     if (!listing) return
     AlertDialog(
         onDismissRequest = { listing = false },
@@ -2546,10 +2915,9 @@ private fun DictionaryPreview(shown: AddonPreviewContent.Dictionary) {
                 // maximum height and then will not scroll — it showed the
                 // first fifteen words and ate every drag. This is also cheaper:
                 // one composable instead of up to ten thousand.
-                Column(
-                    modifier = Modifier
-                        .heightIn(max = 420.dp)
-                        .verticalScroll(rememberScrollState()),
+                ScrollRail(
+                    state = previewRail,
+                    modifier = Modifier.heightIn(max = 420.dp),
                 ) {
                     Text(
                         shown.words.joinToString("\n"),
@@ -2573,7 +2941,8 @@ private fun DictionaryPreview(shown: AddonPreviewContent.Dictionary) {
  * installed-sound id and exists to fire the same short clip on every keystroke,
  * which is not what this is. One player, released as soon as it finishes.
  */
-private object AddonSoundPreview {
+/** Shared with the file-import dialog, which previews a sound pack the same way. */
+internal object AddonSoundPreview {
     fun play(file: java.io.File) {
         runCatching {
             android.media.MediaPlayer().apply {
